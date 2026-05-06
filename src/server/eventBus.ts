@@ -1,0 +1,100 @@
+export type SSEWriter = {
+  writeSSE: (opts: { event: string; data: string }) => Promise<void>
+}
+
+type SSEClient = {
+  id: string
+  writer: SSEWriter | null
+  rawWrite: ((event: string, data: unknown) => void) | null
+  sessionIdFilter?: string
+}
+
+type BusEvent = {
+  event: string
+  data: unknown
+}
+
+export class EventBus {
+  private clients = new Map<string, SSEClient>()
+  private buffer: BusEvent[] = []
+  private bufferSize = 100
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null
+
+  addClient(writer: SSEWriter, sessionIdFilter?: string): string {
+    const id = crypto.randomUUID()
+    const client: SSEClient = { id, writer, rawWrite: null, sessionIdFilter }
+    this.clients.set(id, client)
+
+    void writer.writeSSE({
+      event: 'connected',
+      data: JSON.stringify({ type: 'server.connected' }),
+    })
+
+    for (const buffered of this.buffer) {
+      void writer.writeSSE({
+        event: buffered.event,
+        data: JSON.stringify(buffered.data),
+      })
+    }
+
+    return id
+  }
+
+  removeClient(id: string): void {
+    this.clients.delete(id)
+  }
+
+  publish(event: string, data: unknown): void {
+    const entry: BusEvent = { event, data }
+    this.buffer.push(entry)
+    if (this.buffer.length > this.bufferSize) {
+      this.buffer.shift()
+    }
+    const payload = JSON.stringify(data)
+    for (const client of this.clients.values()) {
+      if (client.writer) {
+        if (client.sessionIdFilter) {
+          const dataObj = data as Record<string, unknown> | undefined
+          if (dataObj?.session_id && dataObj.session_id !== client.sessionIdFilter) {
+            continue
+          }
+        }
+        void client.writer.writeSSE({ event, data: payload })
+      }
+    }
+  }
+
+  publishSessionEvent(
+    sessionId: string,
+    event: string,
+    data: Record<string, unknown>,
+  ): void {
+    this.publish(`session.${event}`, { session_id: sessionId, ...data })
+  }
+
+  startHeartbeat(intervalMs = 10000): void {
+    this.heartbeatInterval = setInterval(() => {
+      this.publish('heartbeat', {
+        type: 'server.heartbeat',
+        ts: Date.now(),
+      })
+    }, intervalMs)
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+  }
+
+  clientCount(): number {
+    return this.clients.size
+  }
+
+  destroy(): void {
+    this.stopHeartbeat()
+    this.clients.clear()
+    this.buffer.length = 0
+  }
+}
