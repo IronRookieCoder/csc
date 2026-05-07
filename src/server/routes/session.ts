@@ -213,14 +213,19 @@ export function createSessionRoutes(
       if (!handle) throw notFound('session not found')
 
       const body = await c.req.json<{
-        content: string
+        content?: string
+        parts?: Array<{ type: string; text?: string }>
         files?: string[]
         images?: unknown[]
       }>()
 
-      if (!body.content) throw badRequest('content is required')
+      const content = body.content ?? body.parts
+        ?.filter((p) => p.type === 'text' && p.text)
+        .map((p) => p.text)
+        .join('\n') ?? ''
+      if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
-      return ssePrompt(handle, id, body.content, c)
+      return ssePrompt(handle, id, content, c)
     })
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
@@ -228,15 +233,20 @@ export function createSessionRoutes(
       if (!handle) throw notFound('session not found')
 
       const body = await c.req.json<{
-        content: string
+        content?: string
+        parts?: Array<{ type: string; text?: string }>
         files?: string[]
         images?: unknown[]
       }>()
 
-      if (!body.content) throw badRequest('content is required')
+      const content = body.content ?? body.parts
+        ?.filter((p) => p.type === 'text' && p.text)
+        .map((p) => p.text)
+        .join('\n') ?? ''
+      if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
 
-      handle.prompt(body.content).catch(() => {})
+      handle.prompt(content).catch(() => {})
 
       return new Response(null, { status: 204 })
     })
