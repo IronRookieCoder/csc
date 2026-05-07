@@ -73,9 +73,26 @@ const inspectArgs = process.env.BUN_INSPECT
 // npm, etc.) and on all platforms.
 const bunCmd = process.execPath;
 
-const result = Bun.spawnSync(
-    [bunCmd, ...inspectArgs, "run", ...defineArgs, ...featureArgs, cliPath, ...process.argv.slice(2)],
-    { stdio: ["inherit", "inherit", "inherit"], cwd: projectRoot },
-);
+const args = [bunCmd, ...inspectArgs, "run", ...defineArgs, ...featureArgs, cliPath, ...process.argv.slice(2)];
 
-process.exit(result.exitCode ?? 0);
+if (process.platform === "win32") {
+    const child = Bun.spawn(args, {
+        stdio: ["inherit", "inherit", "inherit"],
+        cwd: projectRoot,
+        onExit(proc, exitCode) {
+            process.exit(exitCode ?? 0);
+        },
+    });
+    const cleanup = (sig: string) => {
+        child.kill(sig as Bun.Signal);
+        setTimeout(() => process.exit(1), 3000);
+    };
+    process.on("SIGINT", () => cleanup("SIGINT"));
+    process.on("SIGTERM", () => cleanup("SIGTERM"));
+} else {
+    const result = Bun.spawnSync(args, {
+        stdio: ["inherit", "inherit", "inherit"],
+        cwd: projectRoot,
+    });
+    process.exit(result.exitCode ?? 0);
+}
