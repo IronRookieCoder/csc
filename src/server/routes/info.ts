@@ -5,7 +5,7 @@ import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getCommands } from '../../commands.js'
 import { getCommandName } from '../../types/command.js'
 import type { SessionManager } from '../sessionManager.js'
-import type { InitData } from '../sessionHandle.js'
+import { getBuiltInAgents } from '@claude-code-best/builtin-tools/tools/AgentTool/builtInAgents.js'
 
 export function createInfoRoutes(sessionManager: SessionManager): Hono {
   return new Hono()
@@ -44,18 +44,17 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
       }
     })
     .get('/agent', c => {
-      const initData = getFirstInitData(sessionManager)
-      if (initData?.agents && initData.agents.length > 0) {
-        return c.json(
-          initData.agents.map(a => ({
-            id: a.name,
-            name: a.name,
-            description: a.description,
-            model: a.model,
-          })),
-        )
-      }
-      return c.json([])
+      const allAgents = getBuiltInAgents()
+      return c.json(
+        allAgents.map(a => ({
+          name: a.agentType,
+          description: a.whenToUse,
+          mode: a.isMainThread ? ('primary' as const) : ('subagent' as const),
+          hidden: false,
+          options: {},
+          permission: [],
+        })),
+      )
     })
     .get('/mcp', async c => {
       for (const handle of sessionManager.getAllSessions()) {
@@ -70,11 +69,4 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
       }
       return c.json({ servers: [] })
     })
-}
-
-function getFirstInitData(sessionManager: SessionManager): InitData | null {
-  for (const handle of sessionManager.getAllSessions()) {
-    if (handle.initData) return handle.initData
-  }
-  return null
 }
