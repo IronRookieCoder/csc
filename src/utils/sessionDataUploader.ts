@@ -5,23 +5,42 @@
  */
 
 import { reportTurn } from '../services/rawDump/index.js'
-import { getSessionProjectDir } from '../bootstrap/state.js'
+import { getSessionProjectDir, getSessionId } from '../bootstrap/state.js'
+import type { Message } from '../types/message.js'
 
 /**
  * 创建 session turn 上报器
- * 在 assistant message 完成时调用，触发异步 raw-dump 上报
+ * main.tsx 在 onTurnComplete 回调中调用返回的函数
  */
-export function createSessionTurnUploader(): void {
-  // Stub: 实际调用方应直接调用 reportTurn()
-  // 此处保留空实现以兼容现有代码
+export function createSessionTurnUploader(): (messages: Message[]) => void {
+  return (messages: Message[]) => {
+    const sessionId = getSessionId()
+    if (!sessionId) {
+      console.error('[raw-dump] skip: no sessionId')
+      return
+    }
+
+    // 找到最后一个 assistant message
+    const lastAssistant = [...messages].reverse().find((m) => m.type === 'assistant')
+    if (!lastAssistant) {
+      console.error('[raw-dump] skip: no assistant message in turn')
+      return
+    }
+
+    const messageId = String(lastAssistant.uuid || '')
+    if (!messageId) {
+      console.error('[raw-dump] skip: assistant message has no uuid')
+      return
+    }
+
+    const directory = getSessionProjectDir() || process.cwd()
+    console.error('[raw-dump] trigger reportTurn', { sessionId, messageId, directory })
+    reportTurn(sessionId, messageId, directory)
+  }
 }
 
 /**
- * 上报单个 turn 的数据
- * 由 query.ts 或 costrict/provider/index.ts 在 streaming 结束后调用
- *
- * @param sessionId 会话 ID
- * @param assistantMessageUuid 刚完成的 assistant message UUID
+ * 手动上报单个 turn（供外部直接调用）
  */
 export function uploadSessionTurn(sessionId: string, assistantMessageUuid: string): void {
   const directory = getSessionProjectDir() || process.cwd()

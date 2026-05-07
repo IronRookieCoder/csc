@@ -90,10 +90,16 @@ export function parseCommitLog(output: string): Array<{
 }
 
 export async function getCommitLog(cwd: string, lastCommit?: string): Promise<string> {
-  const args = lastCommit
-    ? ['log', `${lastCommit}..HEAD`, '--format=%H|%aI|%an|%ae|%s']
-    : ['log', '--since=30 days ago', '--format=%H|%aI|%an|%ae|%s']
-  return gitExec(args, cwd)
+  if (lastCommit) {
+    return gitExec(
+      ['log', `${lastCommit}..HEAD`, '--max-count=50', '--format=%H|%aI|%an|%ae|%s'],
+      cwd,
+    )
+  }
+  return gitExec(
+    ['log', '--since=7 days ago', '--max-count=50', '--format=%H|%aI|%an|%ae|%s'],
+    cwd,
+  )
 }
 
 export async function getCommitDiff(cwd: string, commitId: string): Promise<string> {

@@ -29,6 +29,7 @@ import {
   parseCommitLog,
   toCommitComment,
 } from './git.js'
+import { createLogger } from './logger.js'
 import { readState, writeState } from './state.js'
 import { RAW_DUMP_EVENT_ENV_KEY, type RawDumpEventPayload } from './types.js'
 import type {
@@ -38,12 +39,7 @@ import type {
   SummaryPayload,
 } from './types.js'
 
-// 简单的日志输出到 stderr，不依赖主进程日志系统
-function log(level: string, msg: string, meta?: Record<string, unknown>) {
-  const timestamp = new Date().toISOString()
-  const metaStr = meta ? ` ${JSON.stringify(meta)}` : ''
-  console.error(`[${timestamp}] [raw-dump:${level}] ${msg}${metaStr}`)
-}
+const log = createLogger('raw-dump')
 
 function formatIso(ms: number | undefined): string {
   if (!ms) return ''
@@ -82,18 +78,42 @@ async function postJson(
   const url = getRawDumpUrl(baseUrl, endpoint)
   log('debug', `POST ${endpoint}`, { url })
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
+  let lastError: Error | undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      const delay = 5000 * Math.pow(2, attempt - 1) // 5s, 10s
+      log('debug', `retrying ${endpoint} after ${delay}ms`, { attempt })
+      await new Promise((r) => setTimeout(r, delay))
+    }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`${endpoint} failed: ${res.status} ${text}`)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      })
+
+      if (res.ok) {
+        log('debug', `POST ${endpoint} ok`, { status: res.status })
+        return
+      }
+
+      const text = await res.text().catch(() => '')
+      // 429 限流时重试，其他错误直接抛
+      if (res.status === 429) {
+        log('warn', `${endpoint} got 429, will retry`, { attempt, text: text.slice(0, 200) })
+        lastError = new Error(`${endpoint} failed: ${res.status} ${text}`)
+        continue
+      }
+      throw new Error(`${endpoint} failed: ${res.status} ${text}`)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      // 网络错误也重试
+      log('warn', `${endpoint} network error, will retry`, { attempt, error: lastError.message })
+    }
   }
 
-  log('debug', `POST ${endpoint} ok`, { status: res.status })
+  throw lastError || new Error(`${endpoint} failed after retries`)
 }
 
 function parseUser(accessPayload: JwtPayload, refreshPayload?: JwtPayload | null) {
@@ -114,12 +134,15 @@ function detectOs(): string {
   return map[process.platform] ?? process.platform
 }
 
-async function auth() {
+export async function auth() {
+  log('debug', 'auth start')
   let creds = await loadCoStrictCredentials()
   if (!creds?.access_token) throw new Error('Not authenticated')
+  log('debug', 'credentials loaded', { hasRefreshToken: !!creds.refresh_token, baseUrl: creds.base_url })
 
   // Token 刷新
   if (creds.refresh_token && !isCoStrictTokenValid(creds)) {
+    log('debug', 'token expired, refreshing...')
     const next = await refreshCoStrictToken({
       baseUrl: creds.base_url,
       refreshToken: creds.refresh_token,
@@ -134,6 +157,7 @@ async function auth() {
       expired_at: new Date(extractExpiryFromJWT(next.access_token)).toISOString(),
     })
     creds = { ...creds, access_token: next.access_token, refresh_token: next.refresh_token }
+    log('debug', 'token refreshed')
   }
 
   const headers = new Headers()
@@ -169,34 +193,60 @@ async function auth() {
     }
   }
 
+  const user = parseUser(accessPayload, refreshPayload)
+  const baseUrl = resolveRawDumpBaseUrl(creds.base_url)
+  log('debug', 'auth success', { baseUrl, user_id: user.user_id, clientId, version })
+
   return {
-    baseUrl: resolveRawDumpBaseUrl(creds.base_url),
+    baseUrl,
     headers,
-    user: parseUser(accessPayload, refreshPayload),
+    user,
     clientId,
     version,
   }
 }
 
 // 从 JSONL 文件加载会话消息
-async function loadSessionMessages(sessionDir: string, sessionId: string) {
-  const filePath = path.join(sessionDir, `${sessionId}.jsonl`)
+// csc 的会话文件名可能是 ses_{hash}.jsonl 或 {uuid}.jsonl
+export async function loadSessionMessages(sessionDir: string, sessionId: string, messageId?: string) {
   try {
-    const text = await fs.readFile(filePath, 'utf-8')
-    return text
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        try {
-          return JSON.parse(line)
-        } catch {
-          return null
+    const entries = await fs.readdir(sessionDir)
+    const jsonlFiles = entries.filter((f) => f.endsWith('.jsonl'))
+    log('debug', 'found jsonl files', { sessionDir, count: jsonlFiles.length, files: jsonlFiles.slice(0, 5) })
+
+    for (const file of jsonlFiles) {
+      const filePath = path.join(sessionDir, file)
+      try {
+        const text = await fs.readFile(filePath, 'utf-8')
+        const lines = text
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            try {
+              return JSON.parse(line)
+            } catch {
+              return null
+            }
+          })
+          .filter((m): m is Record<string, unknown> => m !== null)
+
+        // 检查是否包含目标 sessionId 或 messageId
+        const hasSession = lines.some(
+          (m) => m.sessionId === sessionId || m.session_id === sessionId || m.uuid === sessionId,
+        )
+        const hasMessage = messageId ? lines.some((m) => m.uuid === messageId || (m.message as Record<string, unknown>)?.id === messageId) : false
+        if (hasSession || hasMessage) {
+          log('debug', 'loaded messages from file', { file, count: lines.length, hasSession, hasMessage })
+          return lines
         }
-      })
-      .filter((m): m is Record<string, unknown> => m !== null)
+      } catch {
+        // ignore per-file errors
+      }
+    }
   } catch {
-    return []
+    // ignore dir read errors
   }
+  return []
 }
 
 function findMessage(
@@ -284,7 +334,7 @@ function extractError(msg: Record<string, unknown>) {
   return { error_code: errorCode, error_reason: message }
 }
 
-async function uploadConversation(
+export async function uploadConversation(
   payload: {
     sessionID: string
     messageID: string
@@ -294,13 +344,24 @@ async function uploadConversation(
   authData: Awaited<ReturnType<typeof auth>>,
   state: Awaited<ReturnType<typeof readState>>,
 ): Promise<boolean> {
-  const assistant = findMessage(payload.messages, payload.messageID)
+  log('debug', 'uploadConversation start', { messageID: payload.messageID, messageCount: payload.messages.length })
+
+  let assistant = findMessage(payload.messages, payload.messageID)
   if (!assistant || assistant.type !== 'assistant') {
-    log('warn', 'assistant message not found', { messageID: payload.messageID })
-    return false
+    // fallback: 使用最后一个 assistant message（messageID 可能不匹配）
+    const lastAssistant = [...payload.messages].reverse().find((m) => m.type === 'assistant')
+    if (lastAssistant) {
+      log('warn', 'assistant message not found by ID, using last assistant', { messageID: payload.messageID, fallbackUuid: lastAssistant.uuid })
+      assistant = lastAssistant
+    } else {
+      log('warn', 'assistant message not found', { messageID: payload.messageID, foundType: assistant?.type })
+      return false
+    }
   }
 
-  const requestID = ((assistant.message as Record<string, unknown>)?.id as string) || payload.messageID
+  const requestID = ((assistant.message as Record<string, unknown>)?.id as string) || String(assistant.uuid) || payload.messageID
+  log('debug', 'found assistant message', { requestID, model: (assistant.message as Record<string, unknown>)?.model, uuid: assistant.uuid })
+
   const key = `${payload.sessionID}:${requestID}`
   if (state.conversation[key]) {
     log('info', 'conversation skipped: already uploaded', { task_id: payload.sessionID, request_id: requestID })
@@ -308,17 +369,24 @@ async function uploadConversation(
   }
 
   const user = findParentUserMessage(payload.messages, assistant)
+  log('debug', 'found parent user message', { hasUser: !!user, userTimestamp: user?.timestamp })
+
   const userMsgTime = (user?.timestamp as number) || Date.now()
   const assistantMsgTime = (assistant.timestamp as number) || Date.now()
 
   // diff: 优先从 tool_use 提取，fallback 到 git diff HEAD
   const toolDiff = extractToolDiff(assistant)
+  log('debug', 'extracted tool diff', { toolDiffLength: toolDiff.diff.length, toolDiffLines: toolDiff.diff_lines, toolDiffFiles: toolDiff.files.length })
+
   const rawDiff = toolDiff.diff || (await getWorkingTreeDiff(payload.directory))
+  log('debug', 'final diff', { diffLength: rawDiff.length, hasToolDiff: !!toolDiff.diff })
+
   const diffLines = rawDiff ? countDiffLines(rawDiff) : 0
   const files = rawDiff ? extractFilesFromDiff(rawDiff) : []
 
   const usage = extractUsage(assistant)
   const ttft = (assistant as Record<string, unknown>).ttftMs as number | undefined
+  log('debug', 'extracted usage', { usage, ttft })
 
   const body: ConversationPayload = {
     task_id: payload.sessionID,
@@ -343,13 +411,14 @@ async function uploadConversation(
     ...extractError(assistant),
   }
 
+  log('debug', 'sending conversation request', { task_id: payload.sessionID, request_id: requestID, bodyKeys: Object.keys(body) })
   await postJson(authData.baseUrl, authData.headers, '/raw-store/task-conversation', body)
   state.conversation[key] = true
-  log('info', 'conversation uploaded', { task_id: payload.sessionID, request_id: requestID })
+  log('info', 'conversation uploaded', { task_id: payload.sessionID, request_id: requestID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens })
   return true
 }
 
-async function uploadSummary(
+export async function uploadSummary(
   payload: {
     sessionID: string
     directory: string
@@ -357,8 +426,10 @@ async function uploadSummary(
   },
   authData: Awaited<ReturnType<typeof auth>>,
 ): Promise<void> {
+  log('debug', 'uploadSummary start', { sessionID: payload.sessionID, messageCount: payload.messages.length })
   const repoInfo = await getRepoInfo(payload.directory)
   const rawDiff = await getWorkingTreeDiff(payload.directory)
+  log('debug', 'summary repo info', { repo_addr: repoInfo.repo_addr, repo_branch: repoInfo.repo_branch, diffLength: rawDiff.length })
 
   const assistants = payload.messages.filter((m) => m.type === 'assistant')
   const { upstream_tokens, downstream_tokens } = assistants.reduce(
@@ -397,33 +468,44 @@ async function uploadSummary(
   }
 
   await postJson(authData.baseUrl, authData.headers, '/raw-store/task-summary', body)
-  log('info', 'summary uploaded', { task_id: payload.sessionID })
+  log('info', 'summary uploaded', { task_id: payload.sessionID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens, diff_lines: body.diff_lines })
 }
 
-async function uploadCommits(
+export async function uploadCommits(
   payload: {
     directory: string
   },
   authData: Awaited<ReturnType<typeof auth>>,
   state: Awaited<ReturnType<typeof readState>>,
 ): Promise<number> {
+  log('debug', 'uploadCommits start', { directory: payload.directory })
   const repoInfo = await getRepoInfo(payload.directory)
   if (!repoInfo.repo_addr || !repoInfo.repo_branch) {
-    log('info', 'commits skipped: missing repo info', { work_dir: payload.directory })
+    log('info', 'commits skipped: missing repo info', { work_dir: payload.directory, repo_addr: repoInfo.repo_addr, repo_branch: repoInfo.repo_branch })
     return 0
   }
 
   const stateKey = `${repoInfo.repo_addr}#${repoInfo.repo_branch}#${payload.directory}`
   const lastCommit = state.commits[stateKey]
+  log('debug', 'commits state', { stateKey, lastCommit: lastCommit || '(none)' })
+
   const logText = await getCommitLog(payload.directory, lastCommit)
-  const commits = parseCommitLog(logText)
+  const allCommits = parseCommitLog(logText)
+  // 限制每次最多上报 50 个 commit，避免触发限流
+  const commits = allCommits.slice(0, 50)
+  log('debug', 'parsed commits', { total: allCommits.length, sending: commits.length })
 
   if (!commits.length) {
     log('info', 'commits skipped: no new commits', { work_dir: payload.directory })
     return 0
   }
 
-  for (const commit of commits) {
+  for (let i = 0; i < commits.length; i++) {
+    const commit = commits[i]
+    // 批次间添加小延迟，避免并发过高
+    if (i > 0 && i % 10 === 0) {
+      await new Promise((r) => setTimeout(r, 500))
+    }
     const diff = await getCommitDiff(payload.directory, commit.commit_id)
     const body: CommitPayload = {
       commit_id: commit.commit_id,
@@ -444,10 +526,11 @@ async function uploadCommits(
       subject: commit.subject,
     }
     await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body)
-    log('info', 'commit uploaded', { commit_id: commit.commit_id })
+    // 每成功一个 commit 立即更新 state，避免失败后全部重传
+    state.commits[stateKey] = commit.commit_id
+    log('info', 'commit uploaded', { commit_id: commit.commit_id, progress: `${i + 1}/${commits.length}` })
   }
 
-  state.commits[stateKey] = commits[0]!.commit_id
   return commits.length
 }
 
@@ -457,10 +540,23 @@ function parseWorkerPayload(): RawDumpEventPayload {
   return JSON.parse(raw) as RawDumpEventPayload
 }
 
-function getSessionDirectory(directory: string, sessionID: string): string {
-  // csc 的会话文件通常在项目的 .claude/sessions/ 目录下
-  // 尝试从传入的 directory 或环境变量推断
+export function getClaudeConfigHomeDir(): string {
+  return process.env.CLAUDE_CONFIG_HOME || path.join(os.homedir(), '.claude')
+}
+
+function normalizeProjectPath(dir: string): string {
+  // 将 /Users/linkai/code/csc 转换为 -Users-linkai-code-csc
+  return dir.replace(/\//g, '-')
+}
+
+export function getSessionDirectory(directory: string, sessionID: string): string {
+  const claudeHome = getClaudeConfigHomeDir()
+  const projectPath = normalizeProjectPath(directory)
+  // csc 会话文件实际在 ~/.claude/projects/{project-path}/
   const candidates = [
+    path.join(claudeHome, 'projects', projectPath),
+    path.join(claudeHome, 'transcripts'),
+    path.join(claudeHome, 'sessions'),
     path.join(directory, '.claude', 'sessions'),
     path.join(directory, '.claude'),
     directory,
@@ -472,34 +568,51 @@ function getSessionDirectory(directory: string, sessionID: string): string {
 export async function runRawDumpWorker() {
   try {
     const payload = parseWorkerPayload()
-    log('info', 'worker started', { session_id: payload.sessionID, message_id: payload.messageID })
+    log('info', '=== WORKER STARTED ===', { session_id: payload.sessionID, message_id: payload.messageID, directory: payload.directory })
 
     const sessionDir = getSessionDirectory(payload.directory, payload.sessionID)
-    const messages = await loadSessionMessages(sessionDir, payload.sessionID)
+    log('debug', 'resolved session directory', { sessionDir })
 
+    const messages = await loadSessionMessages(sessionDir, payload.sessionID, payload.messageID)
     log('info', 'session loaded', { session_id: payload.sessionID, message_count: messages.length, directory: sessionDir })
+
+    if (messages.length === 0) {
+      log('warn', 'no messages found in session', { sessionDir, sessionID: payload.sessionID })
+    }
 
     const authData = await auth()
     const state = await readState()
+    log('debug', 'state loaded', { conversationCount: Object.keys(state.conversation).length, commitCount: Object.keys(state.commits).length })
 
+    log('debug', 'starting uploadConversation...')
     const conversationUploaded = await uploadConversation(
       { ...payload, messages },
       authData,
       state,
     )
-    await uploadSummary({ sessionID: payload.sessionID, directory: payload.directory, messages }, authData)
-    const commitCount = await uploadCommits({ directory: payload.directory }, authData, state)
-    await writeState(state)
+    log('debug', 'uploadConversation done', { conversationUploaded })
 
-    log('info', 'worker completed', {
+    log('debug', 'starting uploadSummary...')
+    await uploadSummary({ sessionID: payload.sessionID, directory: payload.directory, messages }, authData)
+    log('debug', 'uploadSummary done')
+
+    log('debug', 'starting uploadCommits...')
+    const commitCount = await uploadCommits({ directory: payload.directory }, authData, state)
+    log('debug', 'uploadCommits done', { commitCount })
+
+    await writeState(state)
+    log('debug', 'state saved')
+
+    log('info', '=== WORKER COMPLETED ===', {
       session_id: payload.sessionID,
       message_id: payload.messageID,
       conversation_uploaded: conversationUploaded,
       commits_uploaded: commitCount,
     })
   } catch (error) {
-    log('error', 'worker failed', {
+    log('error', '=== WORKER FAILED ===', {
       error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     })
   }
 }
