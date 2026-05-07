@@ -61,6 +61,52 @@ export type SessionHandleOptions = {
   verbose?: boolean
 }
 
+export function getScriptArgsForChild(): string[] {
+  const argv1 = process.argv[1]
+  if (!argv1) return []
+  if (argv1.endsWith('.ts') || argv1.endsWith('.tsx') || argv1.includes('/') || argv1.includes('\\')) {
+    return [argv1]
+  }
+  return []
+}
+
+export function getChildSpawnArgs(): { execPath: string; scriptArgs: string[] } {
+  const execPath = process.execPath
+  const scriptArgs = getScriptArgsForChild()
+  return { execPath, scriptArgs }
+}
+
+export async function saveChildSpawnPrefix(): Promise<void> {
+  if (process.env._CSC_CHILD_SPAWN_PREFIX) return
+  const { execPath, scriptArgs } = getChildSpawnArgs()
+  let defineArgs: string[] = []
+  let featureArgs: string[] = []
+  try {
+    const definesMod = await import('../../scripts/defines.js') as { getMacroDefines: () => Record<string, string>; DEFAULT_BUILD_FEATURES: readonly string[] }
+    const defines = definesMod.getMacroDefines()
+    defineArgs = Object.entries(defines).flatMap(([k, v]) => ['-d', `${k}:${v}`])
+    const features = definesMod.DEFAULT_BUILD_FEATURES
+    featureArgs = features.flatMap((f: string) => ['--feature', f])
+  } catch {}
+  const envFeatures = Object.entries(process.env)
+    .filter(([k]) => k.startsWith('FEATURE_') && k.slice(8))
+    .map(([k]) => ['--feature', k.slice(8)] as [string, string])
+    .flat()
+  const allFeatureArgs = [...featureArgs, ...envFeatures]
+  const prefix = JSON.stringify({ execPath, scriptArgs, defineArgs, featureArgs: allFeatureArgs })
+  process.env._CSC_CHILD_SPAWN_PREFIX = prefix
+}
+
+function loadChildSpawnPrefix(): { execPath: string; scriptArgs: string[]; defineArgs?: string[]; featureArgs?: string[] } | null {
+  const raw = process.env._CSC_CHILD_SPAWN_PREFIX
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as { execPath: string; scriptArgs: string[]; defineArgs?: string[]; featureArgs?: string[] }
+  } catch {
+    return null
+  }
+}
+
 export class SessionHandle {
   readonly sessionId: string
   readonly cwd: string
@@ -138,8 +184,7 @@ export class SessionHandle {
   }
 
   async start(): Promise<void> {
-    const args = [
-      ...this.opts.scriptArgs,
+    const printArgs = [
       '--print',
       '--input-format',
       'stream-json',
@@ -154,7 +199,7 @@ export class SessionHandle {
       ...(this.opts.resumeSessionId
         ? ['--resume', this.opts.resumeSessionId]
         : []),
-      ...(this.opts.verbose ? ['--verbose'] : []),
+      '--verbose',
     ]
 
     const env: NodeJS.ProcessEnv = {
@@ -166,7 +211,12 @@ export class SessionHandle {
       env.CLAUDE_CODE_SYSTEM_PROMPT = this.opts.systemPrompt
     }
 
-    this.child = spawn(this.opts.execPath, args, {
+    const saved = loadChildSpawnPrefix()
+    const defineArgs = saved?.defineArgs ?? []
+    const featureArgs = saved?.featureArgs ?? []
+    const spawnArgs = [...defineArgs, ...featureArgs, ...this.opts.scriptArgs, ...printArgs]
+
+    this.child = spawn(this.opts.execPath, spawnArgs, {
       cwd: this.opts.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
@@ -293,10 +343,9 @@ export class SessionHandle {
       if (response?.subtype === 'success' && response?.request_id === this.initRequestId) {
         const initData = (response.response ?? {}) as InitData
         this._initData = initData
-        if (initData.models) {
-          const models = initData.models as Record<string, string>
-          const vals = Object.values(models)
-          if (vals.length > 0 && !this._model) this._model = vals[0]
+        if (Array.isArray(initData.models) && initData.models.length > 0 && !this._model) {
+          const first = (initData.models as Array<Record<string, string>>)[0]
+          this._model = first?.value ?? first?.name
         }
         this.initResolve(initData)
         this.initResolve = null

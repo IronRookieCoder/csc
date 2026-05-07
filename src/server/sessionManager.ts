@@ -4,7 +4,7 @@ import { join } from 'path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
-import { SessionHandle } from './sessionHandle.js'
+import { SessionHandle, type InitData } from './sessionHandle.js'
 import type { SessionIndex, SessionIndexEntry, SessionState } from './types.js'
 
 const INDEX_FILE = 'server-sessions.json'
@@ -17,6 +17,10 @@ export class SessionManager {
   private defaultWorkspace?: string
   private idleCheckInterval: ReturnType<typeof setInterval> | null = null
   private indexDirty = false
+  private _cachedInitData: InitData | null = null
+  private _initDataReady: Promise<void> | null = null
+  private _resolveInitDataReady: (() => void) | null = null
+  private _probeHandle: SessionHandle | null = null
 
   constructor(opts: {
     eventBus: EventBus
@@ -182,7 +186,59 @@ export class SessionManager {
       throw err
     }
 
+    if (handle.initData) {
+      this._cachedInitData = handle.initData
+    }
+
     return handle
+  }
+
+  getCachedInitData(): InitData | null {
+    if (this._cachedInitData) return this._cachedInitData
+    for (const handle of this.sessions) {
+      if (handle[1].initData) return handle[1].initData
+    }
+    return null
+  }
+
+  waitForInitData(timeoutMs = 30000): Promise<void> {
+    if (this._cachedInitData) return Promise.resolve()
+    return this._initDataReady ?? Promise.resolve()
+  }
+
+  startProbeSession(opts: {
+    cwd?: string
+    execPath: string
+    scriptArgs: string[]
+  }): void {
+    this._initDataReady = new Promise(resolve => {
+      this._resolveInitDataReady = resolve
+    })
+
+    void (async () => {
+      try {
+        const probe = await this.createSession({
+          cwd: opts.cwd,
+          execPath: opts.execPath,
+          scriptArgs: opts.scriptArgs,
+        })
+        this._probeHandle = probe
+        this._probeHandle = null
+        await this.deleteSession(probe.sessionId)
+      } catch (err) {
+        this._probeHandle?.forceKill()
+        this._probeHandle = null
+      }
+      this._resolveInitDataReady?.()
+    })()
+  }
+
+  killProbe(): void {
+    if (this._probeHandle) {
+      this._probeHandle.forceKill()
+      this._probeHandle = null
+    }
+    this._resolveInitDataReady?.()
   }
 
   async deleteSession(id: string): Promise<boolean> {

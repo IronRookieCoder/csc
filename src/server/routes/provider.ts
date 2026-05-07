@@ -2,64 +2,91 @@ import { Hono } from 'hono'
 import type { SessionManager } from '../sessionManager.js'
 import type { InitData } from '../sessionHandle.js'
 
-export function createProviderRoutes(sessionManager: SessionManager): Hono {
-  return new Hono()
-    .get('/provider', c => {
-      const initData = getFirstInitData(sessionManager)
-      const models = initData?.models ?? {}
-      const modelValues = Object.values(models as Record<string, string>)
-      const defaultModel = modelValues[0] ?? ''
-
-      return c.json({
-        connected: initData?.account?.apiProvider
-          ? [initData.account.apiProvider]
-          : ['anthropic'],
-        default_model: defaultModel,
-        providers: [
-          {
-            id: initData?.account?.apiProvider ?? 'anthropic',
-            name:
-              initData?.account?.apiProvider === 'firstParty'
-                ? 'Anthropic'
-                : initData?.account?.apiProvider ?? 'Anthropic',
-            connected: true,
-            models: Object.entries(models as Record<string, string>).map(
-              ([key, id]) => ({
-                id,
-                name: key,
-              }),
-            ),
-          },
-        ],
-      })
-    })
-    .get('/provider/capabilities', c => {
-      const initData = getFirstInitData(sessionManager)
-      const models = initData?.models ?? {}
-
-      return c.json({
-        connected: [
-          {
-            provider_id: initData?.account?.apiProvider ?? 'anthropic',
-            provider_name:
-              initData?.account?.apiProvider === 'firstParty'
-                ? 'Anthropic'
-                : initData?.account?.apiProvider ?? 'Anthropic',
-            models: Object.entries(models as Record<string, string>).map(
-              ([key, id]) => ({
-                model_id: id,
-                model_name: key,
-              }),
-            ),
-          },
-        ],
-      })
-    })
+type ModelInfo = {
+  value: string
+  displayName: string
+  description: string
+  supportsEffort?: boolean
+  supportedEffortLevels?: string[]
+  supportsAdaptiveThinking?: boolean
+  supportsFastMode?: boolean
+  supportsAutoMode?: boolean
 }
 
-function getFirstInitData(sessionManager: SessionManager): InitData | null {
-  for (const handle of sessionManager.getAllSessions()) {
-    if (handle.initData) return handle.initData
+function getModels(initData: InitData | null): ModelInfo[] {
+  const raw = initData?.models
+  if (Array.isArray(raw)) return raw as ModelInfo[]
+  return []
+}
+
+function getProviderId(initData: InitData | null): string {
+  return initData?.account?.apiProvider ?? 'anthropic'
+}
+
+function getProviderName(initData: InitData | null): string {
+  const p = initData?.account?.apiProvider
+  if (p === 'firstParty') return 'Anthropic'
+  if (p === 'costrict') return 'CoStrict'
+  return p ?? 'Anthropic'
+}
+
+function toCapabilities(initData: InitData | null) {
+  const models = getModels(initData)
+  const providerId = getProviderId(initData)
+  const providerName = getProviderName(initData)
+  const defaultModel = models[0]?.value ?? ''
+
+  const modelsRecord: Record<string, unknown> = {}
+  for (const m of models) {
+    modelsRecord[m.value] = {
+      id: m.value,
+      name: m.displayName,
+      limit: {
+        context: 200000,
+        output: 8192,
+      },
+      capabilities: {
+        temperature: false,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      status: 'active' as const,
+    }
   }
-  return null
+
+  return {
+    connected: [{
+      id: providerId,
+      name: providerName,
+      source: 'config' as const,
+      default_model: defaultModel,
+      models: modelsRecord,
+    }],
+  }
+}
+
+export function createProviderRoutes(sessionManager: SessionManager): Hono {
+  return new Hono()
+    .get('/provider', async c => {
+      let initData = sessionManager.getCachedInitData()
+      if (!initData) {
+        await sessionManager.waitForInitData()
+        initData = sessionManager.getCachedInitData()
+      }
+
+      return c.json(toCapabilities(initData))
+    })
+    .get('/provider/capabilities', async c => {
+      let initData = sessionManager.getCachedInitData()
+      if (!initData) {
+        await sessionManager.waitForInitData()
+        initData = sessionManager.getCachedInitData()
+      }
+
+      return c.json(toCapabilities(initData))
+    })
 }

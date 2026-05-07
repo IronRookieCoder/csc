@@ -5960,9 +5960,10 @@ async function run(): Promise<CommanderCommand> {
 				await import("./server/sessionManager.js");
 			const { printBanner } =
 				await import("./server/serverBanner.js");
-			const { createServerLogger } =
-				await import("./server/serverLog.js");
+			const { getScriptArgsForChild, saveChildSpawnPrefix } =
+				await import("./server/sessionHandle.js");
 
+			await saveChildSpawnPrefix();
 			const eventBus = new EventBus();
 			const config = {
 				port: parseInt(opts.port, 10),
@@ -5981,23 +5982,29 @@ async function run(): Promise<CommanderCommand> {
 				workspace: config.workspace,
 			});
 			await sessionManager.init();
-			const logger = createServerLogger();
 
 			const server = startServer(config, sessionManager);
 			const actualPort = server.port ?? config.port;
 			printBanner(config, undefined, actualPort);
 
+			sessionManager.startProbeSession({
+				cwd: config.workspace || process.cwd(),
+				execPath: process.execPath,
+				scriptArgs: getScriptArgsForChild(),
+			});
+
 			let shuttingDown = false;
 			const shutdown = async () => {
 				if (shuttingDown) return;
 				shuttingDown = true;
+				sessionManager.killProbe();
 				server.stop(true);
 				eventBus.destroy();
 				await sessionManager.destroyAll();
 				process.exit(0);
 			};
-			process.once("SIGINT", () => void shutdown());
-			process.once("SIGTERM", () => void shutdown());
+			process.on("SIGINT", () => void shutdown());
+			process.on("SIGTERM", () => void shutdown());
 		};
 
 		program

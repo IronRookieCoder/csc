@@ -377,64 +377,56 @@ export async function setup(
   profileCheckpoint('setup_after_prefetch')
 
   // CoStrict provider: 启动时恢复凭证并预取模型列表
+  // 必须同步 await，否则 serve/SDK 模式下 getModelOptions() 读取缓存时还为空
   if (getAPIProvider() === 'costrict') {
-    void (async () => {
-      try {
-        const { loadCoStrictCredentials, saveCoStrictCredentials } = await import('./costrict/provider/credentials.js')
-        const { isCoStrictTokenValid, refreshCoStrictToken, extractExpiryFromJWT } = await import('./costrict/provider/token.js')
-        const { fetchCoStrictModels } = await import('./costrict/provider/models.js')
-        const { getCoStrictBaseURL } = await import('./costrict/provider/auth.js')
+    try {
+      const { loadCoStrictCredentials, saveCoStrictCredentials } = await import('./costrict/provider/credentials.js')
+      const { isCoStrictTokenValid, refreshCoStrictToken, extractExpiryFromJWT } = await import('./costrict/provider/token.js')
+      const { fetchCoStrictModels } = await import('./costrict/provider/models.js')
+      const { getCoStrictBaseURL } = await import('./costrict/provider/auth.js')
 
-        const creds = await loadCoStrictCredentials()
-        if (!creds) {
-          // 没有凭证，清除 modelType 让下次启动回到登录界面
-          const { updateSettingsForSource } = await import('./utils/settings/settings.js')
-          updateSettingsForSource('userSettings', { modelType: undefined } as any)
-          return
-        }
-
-        // 验证 / 刷新 token（注意 refreshCoStrictToken 接收 RefreshTokenParams，字段名与 CoStrictCredentials 不同）
+      const creds = await loadCoStrictCredentials()
+      if (!creds) {
+        const { updateSettingsForSource } = await import('./utils/settings/settings.js')
+        updateSettingsForSource('userSettings', { modelType: undefined } as any)
+      } else {
         let activeCreds = creds
-        if (!isCoStrictTokenValid(creds)) {
-          if (creds.refresh_token) {
-            try {
-              const refreshed = await refreshCoStrictToken({
-                baseUrl: getCoStrictBaseURL(creds.base_url),
-                refreshToken: creds.refresh_token,
-                state: creds.state,
-              })
-              activeCreds = {
-                ...creds,
-                access_token: refreshed.access_token,
-                refresh_token: refreshed.refresh_token,
-                expiry_date: extractExpiryFromJWT(refreshed.access_token),
-                updated_at: new Date().toISOString(),
-              }
-              await saveCoStrictCredentials(activeCreds)
-            } catch {
-              // 刷新失败，清除 modelType 提示重新登录
-              const { updateSettingsForSource } = await import('./utils/settings/settings.js')
-              updateSettingsForSource('userSettings', { modelType: undefined } as any)
-              return
+        let tokenReady = isCoStrictTokenValid(creds)
+
+        if (!tokenReady && creds.refresh_token) {
+          try {
+            const refreshed = await refreshCoStrictToken({
+              baseUrl: getCoStrictBaseURL(creds.base_url),
+              refreshToken: creds.refresh_token,
+              state: creds.state,
+            })
+            activeCreds = {
+              ...creds,
+              access_token: refreshed.access_token,
+              refresh_token: refreshed.refresh_token,
+              expiry_date: extractExpiryFromJWT(refreshed.access_token),
+              updated_at: new Date().toISOString(),
             }
-          } else {
-            // 无 refresh_token，清除 modelType
+            await saveCoStrictCredentials(activeCreds)
+            tokenReady = true
+          } catch {
             const { updateSettingsForSource } = await import('./utils/settings/settings.js')
             updateSettingsForSource('userSettings', { modelType: undefined } as any)
-            return
           }
+        } else if (!tokenReady) {
+          const { updateSettingsForSource } = await import('./utils/settings/settings.js')
+          updateSettingsForSource('userSettings', { modelType: undefined } as any)
         }
 
-        // 预取模型列表，填充同步缓存
-        const baseUrl = getCoStrictBaseURL(activeCreds.base_url)
-        const models = await fetchCoStrictModels(baseUrl, activeCreds.access_token)
-        // 模型列表已预取并缓存，不再自动设置 COSTRICT_MODEL 环境变量
-        // resolveCoStrictModel() 会直接透传用户配置的模型名
-        process.env.CLAUDE_CODE_USE_COSTRICT = '1'
-      } catch {
-        // 初始化失败不阻断启动
+        if (tokenReady && activeCreds.access_token) {
+          const baseUrl = getCoStrictBaseURL(activeCreds.base_url)
+          await fetchCoStrictModels(baseUrl, activeCreds.access_token)
+          process.env.CLAUDE_CODE_USE_COSTRICT = '1'
+        }
       }
-    })()
+    } catch {
+      // 初始化失败不阻断启动
+    }
   }
 
   // Pre-fetch data for Logo v2 - await to ensure it's ready before logo renders.

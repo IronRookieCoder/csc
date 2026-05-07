@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { SessionManager } from '../sessionManager.js'
+import { getScriptArgsForChild } from '../sessionHandle.js'
 import {
   badRequest,
   notFound,
@@ -125,7 +126,7 @@ export function createSessionRoutes(
           systemPrompt: body.system_prompt,
           resumeSessionId: body.resume_session_id,
           execPath: process.execPath,
-          scriptArgs: process.argv[1] ? [process.argv[1]] : [],
+          scriptArgs: getScriptArgsForChild(),
         })
 
         const initData = handle.initData
@@ -138,7 +139,7 @@ export function createSessionRoutes(
             created_at: handle.getInfo().created_at,
             commands: initData?.commands ?? [],
             agents: initData?.agents ?? [],
-            models: initData?.models ?? {},
+            models: initData?.models ?? [],
             account: initData?.account ?? {},
           },
           201,
