@@ -5983,7 +5983,7 @@ async function run(): Promise<CommanderCommand> {
 			});
 			await sessionManager.init();
 
-			const server = startServer(config, sessionManager);
+			const server = startServer(config, sessionManager, eventBus);
 			const actualPort = server.port ?? config.port;
 			printBanner(config, undefined, actualPort);
 

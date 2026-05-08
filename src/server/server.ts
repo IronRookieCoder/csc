@@ -18,8 +18,8 @@ import type { ServerConfig } from './types.js'
 export function startServer(
   config: ServerConfig,
   sessionManager: SessionManager,
+  eventBus: EventBus,
 ): BunServer & { port?: number } {
-  const eventBus = new EventBus()
   eventBus.startHeartbeat()
 
   const app = new Hono()

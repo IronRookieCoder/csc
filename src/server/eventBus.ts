@@ -25,13 +25,18 @@ export class EventBus {
     const client: SSEClient = { id, writer, rawWrite: null, sessionIdFilter }
     this.clients.set(id, client)
 
-    void writer.writeSSE({
+    const sendAndCleanup = (opts: { event: string; data: string }) =>
+      writer.writeSSE(opts).catch(() => {
+        this.clients.delete(id)
+      })
+
+    void sendAndCleanup({
       event: 'connected',
       data: JSON.stringify({ type: 'server.connected' }),
     })
 
     for (const buffered of this.buffer) {
-      void writer.writeSSE({
+      void sendAndCleanup({
         event: buffered.event,
         data: JSON.stringify(buffered.data),
       })
@@ -51,6 +56,7 @@ export class EventBus {
       this.buffer.shift()
     }
     const payload = JSON.stringify(data)
+    const deadIds: string[] = []
     for (const client of this.clients.values()) {
       if (client.writer) {
         if (client.sessionIdFilter) {
@@ -59,7 +65,14 @@ export class EventBus {
             continue
           }
         }
-        void client.writer.writeSSE({ event, data: payload })
+        client.writer.writeSSE({ event, data: payload }).catch(() => {
+          deadIds.push(client.id)
+        })
+      }
+    }
+    if (deadIds.length > 0) {
+      for (const id of deadIds) {
+        this.clients.delete(id)
       }
     }
   }

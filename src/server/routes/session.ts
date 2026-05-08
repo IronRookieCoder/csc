@@ -114,34 +114,45 @@ export function createSessionRoutes(
       const body = await c.req.json<{
         cwd?: string
         permission_mode?: string
+        permission?: Array<{ permission: string; pattern: string; action: string }>
         model?: string
         system_prompt?: string
         resume_session_id?: string
+        resume_session_at?: string
+        hooks?: Record<string, unknown>
       }>()
+
+      let permissionMode = body.permission_mode
+      if (!permissionMode && body.permission) {
+        const hasDeny = body.permission.some(r => r.action === 'deny')
+        const hasAsk = body.permission.some(r => r.action === 'ask')
+        if (!hasDeny && !hasAsk) {
+          permissionMode = 'bypassPermissions'
+        } else if (hasAsk) {
+          permissionMode = 'default'
+        }
+      }
 
       try {
         const handle = await sessionManager.createSession({
           cwd: body.cwd,
           model: body.model,
-          permissionMode: body.permission_mode,
+          permissionMode,
           systemPrompt: body.system_prompt,
           resumeSessionId: body.resume_session_id,
+          resumeSessionAt: body.resume_session_at,
+          hooks: body.hooks,
           execPath: process.execPath,
           scriptArgs: getScriptArgsForChild(),
         })
 
-        const initData = handle.initData
-
+        const info = handle.getInfo()
         return c.json(
           {
             session_id: handle.sessionId,
             status: handle.status,
             cwd: handle.cwd,
-            created_at: handle.getInfo().created_at,
-            commands: initData?.commands ?? [],
-            agents: initData?.agents ?? [],
-            models: initData?.models ?? [],
-            account: initData?.account ?? {},
+            created_at: info.created_at,
           },
           201,
         )
@@ -294,6 +305,7 @@ export function createSessionRoutes(
         parts?: Array<{ type: string; text?: string }>
         files?: string[]
         images?: unknown[]
+        model?: { providerID?: string; modelID?: string }
       }>()
 
       const content = body.content ?? body.parts
@@ -302,6 +314,11 @@ export function createSessionRoutes(
         .join('\n') ?? ''
       if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
+
+      if (body.model?.modelID) {
+        try { await handle.setModel(body.model.modelID) } catch {}
+      }
+
       return ssePrompt(handle, id, content, c)
     })
     .post('/session/:sessionID/prompt_async', async c => {
@@ -314,6 +331,7 @@ export function createSessionRoutes(
         parts?: Array<{ type: string; text?: string }>
         files?: string[]
         images?: unknown[]
+        model?: { providerID?: string; modelID?: string }
       }>()
 
       const content = body.content ?? body.parts
@@ -323,7 +341,12 @@ export function createSessionRoutes(
       if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
 
-      handle.prompt(content).catch(() => {})
+      void (async () => {
+        if (body.model?.modelID) {
+          try { await handle.setModel(body.model.modelID) } catch {}
+        }
+        handle.prompt(content).catch(() => {})
+      })()
 
       return new Response(null, { status: 204 })
     })

@@ -83,7 +83,7 @@ describe('SessionHandle', () => {
     unsub()
   })
 
-  test('prompt throws if not running', async () => {
+  test('prompt throws if stopped', async () => {
     const bus = createMockEventBus()
     const handle = new SessionHandle({
       sessionId: 'test-id',
@@ -92,7 +92,8 @@ describe('SessionHandle', () => {
       execPath: 'bun',
       scriptArgs: [],
     })
-    expect(handle.prompt('hello')).rejects.toThrow('not running')
+    handle.kill()
+    expect(handle.prompt('hello')).rejects.toThrow('stopped')
   })
 
   test('getPendingPermissions returns empty initially', () => {
@@ -130,6 +131,31 @@ describe('SessionHandle', () => {
     })
     handle.kill()
     expect(handle.status).toBe('stopped')
+  })
+
+  test('waitReady throws if stopped', async () => {
+    const bus = createMockEventBus()
+    const handle = new SessionHandle({
+      sessionId: 'test-id',
+      cwd: '/tmp',
+      eventBus: bus,
+      execPath: 'bun',
+      scriptArgs: [],
+    })
+    handle.kill()
+    expect(handle.waitReady(100)).rejects.toThrow('stopped')
+  })
+
+  test('ready returns false initially', () => {
+    const bus = createMockEventBus()
+    const handle = new SessionHandle({
+      sessionId: 'test-id',
+      cwd: '/tmp',
+      eventBus: bus,
+      execPath: 'bun',
+      scriptArgs: [],
+    })
+    expect(handle.ready).toBe(false)
   })
 
   test('usage returns token counts', () => {

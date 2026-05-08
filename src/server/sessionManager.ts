@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
-import { existsSync } from 'fs'
-import { join } from 'path'
+import { existsSync, statSync } from 'fs'
+import { join, resolve, isAbsolute } from 'path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
@@ -11,6 +11,7 @@ const INDEX_FILE = 'server-sessions.json'
 
 export class SessionManager {
   private sessions = new Map<string, SessionHandle>()
+  private loadedIndex = new Map<string, SessionIndexEntry>()
   private eventBus: EventBus
   private maxSessions: number
   private idleTimeoutMs: number
@@ -49,8 +50,8 @@ export class SessionManager {
     try {
       const raw = await readFile(path, 'utf-8')
       const index: SessionIndex = JSON.parse(raw)
-      for (const [, entry] of Object.entries(index)) {
-        entry
+      for (const [key, entry] of Object.entries(index)) {
+        this.loadedIndex.set(key, entry)
       }
     } catch (err) {
       logError(err as Error)
@@ -148,17 +149,26 @@ export class SessionManager {
     permissionMode?: string
     systemPrompt?: string
     resumeSessionId?: string
+    resumeSessionAt?: string
+    hooks?: Record<string, unknown>
     execPath: string
     scriptArgs: string[]
+    silent?: boolean
   }): Promise<SessionHandle> {
-    if (this.sessions.size >= this.maxSessions) {
+    if (this.maxSessions > 0 && this.sessions.size >= this.maxSessions) {
       throw new Error(
         `Maximum concurrent sessions reached (${this.maxSessions})`,
       )
     }
 
     const sessionId = crypto.randomUUID()
-    const cwd = opts.cwd || this.defaultWorkspace || process.cwd()
+    let cwd = opts.cwd || this.defaultWorkspace || process.cwd()
+    if (!isAbsolute(cwd)) {
+      cwd = resolve(process.cwd(), cwd)
+    }
+    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+      throw new Error(`Working directory does not exist: ${cwd}`)
+    }
 
     const handle = new SessionHandle({
       sessionId,
@@ -167,27 +177,32 @@ export class SessionManager {
       permissionMode: opts.permissionMode,
       systemPrompt: opts.systemPrompt,
       resumeSessionId: opts.resumeSessionId,
+      resumeSessionAt: opts.resumeSessionAt,
+      hooks: opts.hooks,
       eventBus: this.eventBus,
       execPath: opts.execPath,
       scriptArgs: opts.scriptArgs,
+      silent: opts.silent,
+      onInit: (data) => {
+        this._cachedInitData = data
+        this._resolveInitDataReady?.()
+      },
     })
 
     this.sessions.set(sessionId, handle)
-    this.eventBus.publishSessionEvent(sessionId, 'created', {
-      status: 'starting',
-    })
+    if (!opts.silent) {
+      this.eventBus.publishSessionEvent(sessionId, 'created', {
+        status: 'starting',
+      })
+    }
     this.scheduleIndexSave()
 
     try {
-      await handle.start()
+      handle.spawn()
     } catch (err) {
       this.sessions.delete(sessionId)
       this.scheduleIndexSave()
       throw err
-    }
-
-    if (handle.initData) {
-      this._cachedInitData = handle.initData
     }
 
     return handle
@@ -221,10 +236,12 @@ export class SessionManager {
           cwd: opts.cwd,
           execPath: opts.execPath,
           scriptArgs: opts.scriptArgs,
+          silent: true,
         })
         this._probeHandle = probe
-        this._probeHandle = null
+        await probe.start()
         await this.deleteSession(probe.sessionId)
+        this._probeHandle = null
       } catch (err) {
         this._probeHandle?.forceKill()
         this._probeHandle = null
@@ -244,9 +261,12 @@ export class SessionManager {
   async deleteSession(id: string): Promise<boolean> {
     const handle = this.sessions.get(id)
     if (!handle) return false
+    const silent = handle.silent
     handle.forceKill()
     this.sessions.delete(id)
-    this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+    if (!silent) {
+      this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+    }
     this.scheduleIndexSave()
     return true
   }
