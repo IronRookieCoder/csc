@@ -451,6 +451,9 @@ export class SessionHandle {
         if (msg.uuid && typeof msg.uuid === 'string') {
           this._lastMessageUuid = msg.uuid
         }
+        if (!msg.model && this._model) {
+          msg = { ...msg, model: this._model }
+        }
         this.emitEvent('message', msg)
         break
       }
@@ -602,6 +605,7 @@ export class SessionHandle {
       type: 'user',
       content,
       session_id: this.sessionId,
+      model: this._model ?? '',
     })
 
     this.writeStdin(userMsg)

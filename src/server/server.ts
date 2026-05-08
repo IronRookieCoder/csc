@@ -58,6 +58,7 @@ export function startServer(
     hostname: config.host,
     port: config.port,
     fetch: app.fetch,
+    idleTimeout: 255,
   })
 
   return server

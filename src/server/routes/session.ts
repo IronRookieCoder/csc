@@ -365,8 +365,11 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
+
       const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      if (!handle) {
+        throw notFound('session not found')
+      }
 
       const body = await c.req.json<{
         content?: string
@@ -380,17 +383,26 @@ export function createSessionRoutes(
         ?.filter((p) => p.type === 'text' && p.text)
         .map((p) => p.text)
         .join('\n') ?? ''
-      if (!content) throw badRequest('content is required')
-      if (handle.prompting) throw conflict('session is already processing a prompt')
+      if (!content) {
+        throw badRequest('content is required')
+      }
+      if (handle.prompting) {
+        throw conflict('session is already processing a prompt')
+      }
 
       void (async () => {
-        if (body.model?.modelID) {
-          try { await handle.setModel(body.model.modelID) } catch {}
-        }
-        handle.prompt(content).catch(() => {})
+        try {
+          if (handle.status !== 'running') {
+            await handle.waitReady()
+          }
+          if (body.model?.modelID) {
+            try { await handle.setModel(body.model.modelID) } catch {}
+          }
+          handle.prompt(content).catch(() => {})
+        } catch {}
       })()
 
-      return new Response(null, { status: 204 })
+      return c.json({ ok: true }, 200)
     })
     .post('/session/:sessionID/abort', async c => {
       const id = c.req.param('sessionID')
