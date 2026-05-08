@@ -2217,6 +2217,9 @@ function runHeadlessStreaming(
                   },
                   customSystemPrompt: options.systemPrompt,
                   appendSystemPrompt: options.appendSystemPrompt,
+                  mainThreadAgentDefinition: currentAgents.find(
+                    a => a.agentType === getMainThreadAgentType(),
+                  ),
                   getAppState,
                   setAppState,
                   abortController,
