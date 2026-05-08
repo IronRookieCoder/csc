@@ -55,10 +55,14 @@ export type SessionHandleOptions = {
   permissionMode?: string
   systemPrompt?: string
   resumeSessionId?: string
+  resumeSessionAt?: string
+  hooks?: Record<string, unknown>
   eventBus: EventBus
   execPath: string
   scriptArgs: string[]
   verbose?: boolean
+  silent?: boolean
+  onInit?: (data: InitData) => void
 }
 
 export function getScriptArgsForChild(): string[] {
@@ -133,7 +137,9 @@ export class SessionHandle {
   private _initData: InitData | null = null
   private initRequestId: string | null = null
   private initResolve: ((data: InitData) => void) | null = null
+  private initReject: ((reason: unknown) => void) | null = null
   private _prompting = false
+  private _lastMessageUuid: string | null = null
 
   get status(): SessionState {
     return this._status
@@ -169,6 +175,36 @@ export class SessionHandle {
     return this._prompting
   }
 
+  get lastMessageUuid(): string | null {
+    return this._lastMessageUuid
+  }
+
+  get ready(): boolean {
+    return this._status === 'running'
+  }
+
+  get silent(): boolean {
+    return this.opts.silent ?? false
+  }
+
+  async waitReady(timeoutMs = 30000): Promise<void> {
+    if (this._status === 'running') return
+    if (this._status === 'stopped') {
+      throw new Error(`Session ${this.sessionId} is stopped`)
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Session ${this.sessionId} init timed out`))
+      }, timeoutMs)
+      const origResolve = this.initResolve
+      this.initResolve = (data: InitData) => {
+        clearTimeout(timer)
+        origResolve?.(data)
+        resolve()
+      }
+    })
+  }
+
   constructor(private opts: SessionHandleOptions) {
     this.sessionId = opts.sessionId
     this.cwd = opts.cwd
@@ -178,12 +214,17 @@ export class SessionHandle {
     this.verbose = opts.verbose ?? false
   }
 
+  private emitEvent(event: string, data: Record<string, unknown>): void {
+    if (this.opts.silent) return
+    this.eventBus.publishSessionEvent(this.sessionId, event, data)
+  }
+
   onMessage(listener: MessageListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
 
-  async start(): Promise<void> {
+  spawn(): void {
     const printArgs = [
       '--print',
       '--input-format',
@@ -194,10 +235,18 @@ export class SessionHandle {
       this.sessionId,
       ...(this.opts.model ? ['--model', this.opts.model] : []),
       ...(this.opts.permissionMode
-        ? ['--permission-mode', this.opts.permissionMode]
+        ? [
+            '--permission-mode',
+            this.opts.permissionMode,
+            '--permission-prompt-tool',
+            'stdio',
+          ]
         : []),
       ...(this.opts.resumeSessionId
         ? ['--resume', this.opts.resumeSessionId]
+        : []),
+      ...(this.opts.resumeSessionAt
+        ? ['--resume-session-at', this.opts.resumeSessionAt]
         : []),
       '--verbose',
     ]
@@ -229,7 +278,7 @@ export class SessionHandle {
     this.child.on('close', (code, signal) => {
       if (this._status !== 'stopped') {
         this._status = 'stopped'
-        this.eventBus.publishSessionEvent(this.sessionId, 'deleted', {
+        this.emitEvent('deleted', {
           status: 'stopped',
           exit_code: code,
           signal: signal ?? null,
@@ -255,43 +304,58 @@ export class SessionHandle {
     })
 
     this.initRequestId = crypto.randomUUID()
-    const initPromise = new Promise<InitData>((resolve, reject) => {
-      this.initResolve = resolve
-      const timeout = setTimeout(() => {
-        this.initResolve = null
-        reject(new Error('Init handshake timed out (30s)'))
-      }, 30000)
-      const originalResolve = resolve
-      this.initResolve = (data: InitData) => {
-        clearTimeout(timeout)
-        originalResolve(data)
-      }
-    })
-
     this.sendInitialize()
 
-    try {
-      this._initData = await initPromise
-    } catch (err) {
+    const timeout = setTimeout(() => {
+      this.initResolve = null
+      this.initReject = null
       this._status = 'stopped'
-      throw err
-    }
+      this.emitEvent('deleted', {
+        status: 'stopped',
+        reason: 'init_timeout',
+      })
+    }, 30000)
 
-    this._status = 'running'
-    this.lastActiveAt = Date.now()
-    this.eventBus.publishSessionEvent(this.sessionId, 'ready', {
-      status: 'running',
-      model: this._model,
+    this.initResolve = (data: InitData) => {
+      clearTimeout(timeout)
+      this.initReject = null
+    }
+    this.initReject = (_err: unknown) => {
+      clearTimeout(timeout)
+      this.initResolve = null
+    }
+  }
+
+  async start(): Promise<void> {
+    if (!this.child) {
+      this.spawn()
+    }
+    if (this._status === 'running') return
+    return new Promise((resolve, reject) => {
+      const origResolve = this.initResolve
+      const origReject = this.initReject
+      this.initResolve = (data: InitData) => {
+        origResolve?.(data)
+        resolve()
+      }
+      this.initReject = (err: unknown) => {
+        origReject?.(err)
+        reject(err)
+      }
     })
   }
 
   private sendInitialize(): void {
+    const request: Record<string, unknown> = {
+      subtype: 'initialize',
+    }
+    if (this.opts.hooks) {
+      request.hooks = this.opts.hooks
+    }
     const msg = jsonStringify({
       type: 'control_request',
       request_id: this.initRequestId,
-      request: {
-        subtype: 'initialize',
-      },
+      request,
     })
     this.writeStdin(msg)
   }
@@ -347,8 +411,17 @@ export class SessionHandle {
           const first = (initData.models as Array<Record<string, string>>)[0]
           this._model = first?.value ?? first?.name
         }
-        this.initResolve(initData)
+        this._status = 'running'
+        this.lastActiveAt = Date.now()
+        const resolve = this.initResolve
         this.initResolve = null
+        this.initReject = null
+        resolve?.(initData)
+        this.emitEvent('ready', {
+          status: 'running',
+          model: this._model,
+        })
+        this.opts.onInit?.(initData)
         return
       }
     }
@@ -372,14 +445,13 @@ export class SessionHandle {
     this.emitMessage(msg)
 
     switch (msg.type) {
-      case 'system': {
-        this.eventBus.publishSessionEvent(this.sessionId, 'message', msg)
-        break
-      }
       case 'assistant': {
         this.lastActiveAt = Date.now()
         this._status = 'running'
-        this.eventBus.publishSessionEvent(this.sessionId, 'message', msg)
+        if (msg.uuid && typeof msg.uuid === 'string') {
+          this._lastMessageUuid = msg.uuid
+        }
+        this.emitEvent('message', msg)
         break
       }
       case 'result': {
@@ -392,7 +464,7 @@ export class SessionHandle {
         if (cost) this._costUsd += cost
         if (usage?.input_tokens) this._inputTokens += usage.input_tokens
         if (usage?.output_tokens) this._outputTokens += usage.output_tokens
-        this.eventBus.publishSessionEvent(this.sessionId, 'result', msg)
+        this.emitEvent('result', msg)
         if (this.promptResolve) {
           this.promptResolve({ done: true })
           this.promptResolve = null
@@ -414,11 +486,7 @@ export class SessionHandle {
             description: `Execute ${request.tool_name}`,
           }
           this.pendingPermissions.set(requestId, perm)
-          this.eventBus.publishSessionEvent(
-            this.sessionId,
-            'control_request',
-            { request_id: requestId, request },
-          )
+          this.emitEvent('control_request', { request_id: requestId, request })
         } else if (request?.subtype === 'elicitation') {
           const question: PendingQuestion = {
             requestId,
@@ -430,22 +498,24 @@ export class SessionHandle {
               (request.requested_schema as Record<string, unknown>) ?? {},
           }
           this.pendingQuestions.set(requestId, question)
-          this.eventBus.publishSessionEvent(
-            this.sessionId,
-            'control_request',
-            { request_id: requestId, request },
-          )
+          this.emitEvent('control_request', { request_id: requestId, request })
+        } else if (request?.subtype === 'hook_callback') {
+          this.emitEvent('control_request', { request_id: requestId, request })
         }
         break
       }
+      case 'control_cancel_request': {
+        const cancelRequestId = msg.request_id as string
+        this.pendingPermissions.delete(cancelRequestId)
+        this.pendingQuestions.delete(cancelRequestId)
+        break
+      }
       default: {
-        this.eventBus.publishSessionEvent(this.sessionId, 'message', msg)
         break
       }
     }
   }
 
-  private _outputTokens = 0
   private pendingControlResponses = new Map<
     string,
     {
@@ -503,10 +573,13 @@ export class SessionHandle {
   }
 
   async prompt(content: string): Promise<{ done: boolean; error?: string }> {
-    if (this._status !== 'running') {
+    if (this._status === 'stopped') {
       throw new Error(
-        `Session ${this.sessionId} is not running (status: ${this._status})`,
+        `Session ${this.sessionId} is stopped`,
       )
+    }
+    if (this._status !== 'running') {
+      await this.waitReady()
     }
     if (this._prompting) {
       throw new Error(
@@ -518,8 +591,16 @@ export class SessionHandle {
 
     const userMsg = jsonStringify({
       type: 'user',
+      content,
+      uuid: crypto.randomUUID(),
+      session_id: this.sessionId,
       message: { role: 'user', content },
       parent_tool_use_id: null,
+    })
+
+    this.emitEvent('message', {
+      type: 'user',
+      content,
       session_id: this.sessionId,
     })
 
@@ -565,7 +646,12 @@ export class SessionHandle {
   replyPermission(
     requestId: string,
     behavior: 'allow' | 'deny',
-    opts?: { updatedInput?: Record<string, unknown>; message?: string },
+    opts?: {
+      updatedInput?: Record<string, unknown>
+      updatedPermissions?: Record<string, unknown>[]
+      message?: string
+      interrupt?: boolean
+    },
   ): void {
     const response = {
       type: 'control_response',
@@ -574,8 +660,18 @@ export class SessionHandle {
         request_id: requestId,
         response:
           behavior === 'allow'
-            ? { behavior: 'allow', updatedInput: opts?.updatedInput }
-            : { behavior: 'deny', message: opts?.message ?? 'Denied' },
+            ? {
+                behavior: 'allow',
+                updatedInput: opts?.updatedInput,
+                ...(opts?.updatedPermissions
+                  ? { updatedPermissions: opts.updatedPermissions }
+                  : {}),
+              }
+            : {
+                behavior: 'deny',
+                message: opts?.message ?? 'Denied',
+                ...(opts?.interrupt ? { interrupt: true } : {}),
+              },
       },
     }
     this.writeStdin(jsonStringify(response))
@@ -659,12 +755,16 @@ export class SessionHandle {
       cost_usd: this._costUsd,
       input_tokens: this._inputTokens,
       output_tokens: this._outputTokens,
+      last_message_uuid: this._lastMessageUuid,
     }
   }
 
   private writeStdin(data: string): void {
     if (this.child?.stdin && !this.child.stdin.destroyed) {
-      this.child.stdin.write(data + '\n')
+      const flushed = this.child.stdin.write(data + '\n')
+      if (!flushed) {
+        this.child.stdin.once('drain', () => {})
+      }
     }
   }
 
