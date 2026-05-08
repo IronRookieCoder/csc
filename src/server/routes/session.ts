@@ -122,6 +122,11 @@ export function createSessionRoutes(
         hooks?: Record<string, unknown>
       }>()
 
+      const headerDir = c.req.header('x-csc-directory')
+        || c.req.header('x-opencode-directory')
+      const cwd = body.cwd
+        || (headerDir ? decodeURIComponent(headerDir) : undefined)
+
       let permissionMode = body.permission_mode
       if (!permissionMode && body.permission) {
         const hasDeny = body.permission.some(r => r.action === 'deny')
@@ -135,7 +140,7 @@ export function createSessionRoutes(
 
       try {
         const handle = await sessionManager.createSession({
-          cwd: body.cwd,
+          cwd,
           model: body.model,
           permissionMode,
           systemPrompt: body.system_prompt,
