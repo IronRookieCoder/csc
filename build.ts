@@ -1,12 +1,51 @@
 import { readdir, readFile, writeFile, cp } from 'fs/promises'
 import { join } from 'path'
-import { getMacroDefines, DEFAULT_BUILD_FEATURES } from './scripts/defines.ts'
+import { getMacroDefines } from './scripts/defines.ts'
 
 const outdir = 'dist'
 
 // Step 1: Clean output directory
 const { rmSync } = await import('fs')
 rmSync(outdir, { recursive: true, force: true })
+
+// Default features that match the official CLI build.
+// Additional features can be enabled via FEATURE_<NAME>=1 env vars.
+const DEFAULT_BUILD_FEATURES = [
+  'AGENT_TRIGGERS_REMOTE',
+  'CHICAGO_MCP',
+  'VOICE_MODE',
+  'SHOT_STATS',
+  'PROMPT_CACHE_BREAK_DETECTION',
+  'TOKEN_BUDGET',
+  // P0: local features
+  'AGENT_TRIGGERS',
+  'ULTRATHINK',
+  'BUILTIN_EXPLORE_PLAN_AGENTS',
+  'LODESTONE',
+  // P1: API-dependent features
+  'EXTRACT_MEMORIES',
+  'VERIFICATION_AGENT',
+  'KAIROS_BRIEF',
+  'AWAY_SUMMARY',
+  'ULTRAPLAN',
+  // P2: daemon + remote control server
+  'DAEMON',
+  // PR-package restored features
+  'WORKFLOW_SCRIPTS',
+  'HISTORY_SNIP',
+  'CONTEXT_COLLAPSE',
+  'MONITOR_TOOL',
+  'FORK_SUBAGENT',
+//   'UDS_INBOX',
+  'KAIROS',
+  'COORDINATOR_MODE',
+  'LAN_PIPES',
+  // 'REVIEW_ARTIFACT', // API 请求无响应，需进一步排查 schema 兼容性
+  // P3: poor mode (disable extract_memories + prompt_suggestion)
+  'POOR',
+  // P3: serve mode (HTTP API server)
+  'DIRECT_CONNECT',
+]
 
 // Collect FEATURE_* env vars → Bun.build features
 const envFeatures = Object.keys(process.env)
@@ -51,65 +90,81 @@ for (const file of files) {
   }
 }
 
-// Step 3.5: Replace feature('FLAG_NAME') with true/false at build time
-// Bun.build does not natively replace feature flags, so we do it manually here
-// to match the behavior of vite-plugin-feature-flags.ts.
-const FEATURE_CALL_RE = /feature\s*\(\s*['"]([\w]+)['"]\s*\)/g
-let featureReplaced = 0
-for (const file of files) {
-  if (!file.endsWith('.js')) continue
-  const filePath = join(outdir, file)
-  const content = await readFile(filePath, 'utf-8')
-  let matchCount = 0
-  const transformed = content.replace(FEATURE_CALL_RE, (match, flagName) => {
-    matchCount++
-    return features.includes(flagName) ? 'true' : 'false'
-  })
-  if (matchCount > 0) {
-    await writeFile(filePath, transformed)
-    featureReplaced += matchCount
-  }
-}
-
-// Also patch unguarded globalThis.Bun destructuring from third-party deps
-// (e.g. @anthropic-ai/sandbox-runtime) so Node.js doesn't crash at import time.
-let bunPatched = 0
-const BUN_DESTRUCTURE = /var \{([^}]+)\} = globalThis\.Bun;?/g
-const BUN_DESTRUCTURE_SAFE = 'var {$1} = typeof globalThis.Bun !== "undefined" ? globalThis.Bun : {};'
-for (const file of files) {
-  if (!file.endsWith('.js')) continue
-  const filePath = join(outdir, file)
-  const content = await readFile(filePath, 'utf-8')
-  if (BUN_DESTRUCTURE.test(content)) {
-    await writeFile(
-      filePath,
-      content.replace(BUN_DESTRUCTURE, BUN_DESTRUCTURE_SAFE),
-    )
-    bunPatched++
-  }
-}
-BUN_DESTRUCTURE.lastIndex = 0
-
 console.log(
-  `Bundled ${result.outputs.length} files to ${outdir}/ (patched ${patched} for import.meta.require, ${bunPatched} for Bun destructure, ${featureReplaced} feature flags)`,
+  `Bundled ${result.outputs.length} files to ${outdir}/ (patched ${patched} for Node.js compat)`,
 )
 
-// Step 4: Copy native .node addon files (audio-capture) and vendored binaries (ripgrep)
-const audioCaptureDir = join(outdir, 'vendor', 'audio-capture')
-await cp('vendor/audio-capture', audioCaptureDir, { recursive: true })
-console.log(`Copied vendor/audio-capture/ → ${audioCaptureDir}/`)
+// Step 4: Copy native .node addon files (audio-capture)
+const vendorDir = join(outdir, 'vendor', 'audio-capture')
+await cp('vendor/audio-capture', vendorDir, { recursive: true })
+console.log(`Copied vendor/audio-capture/ → ${vendorDir}/`)
 
-const ripgrepDir = join(outdir, 'vendor', 'ripgrep')
-await cp('src/utils/vendor/ripgrep', ripgrepDir, { recursive: true })
-console.log(`Copied src/utils/vendor/ripgrep/ → ${ripgrepDir}/`)
+// Step 5: Bundle download-ripgrep script as standalone JS for postinstall
+if (await Bun.file('scripts/download-ripgrep.ts').exists()) {
+  const rgScript = await Bun.build({
+    entrypoints: ['scripts/download-ripgrep.ts'],
+    outdir,
+    target: 'node',
+  })
+  if (!rgScript.success) {
+    console.error('Failed to bundle download-ripgrep script:')
+    for (const log of rgScript.logs) {
+      console.error(log)
+    }
+    // Non-fatal — postinstall fallback to bun run scripts/download-ripgrep.ts
+  } else {
+    console.log(`Bundled download-ripgrep script to ${outdir}/`)
+  }
+} else {
+  console.log('Skipping download-ripgrep script (not found)')
+}
 
-// Step 5: Generate cli-bun and cli-node executable entry points
+// Step 6: Generate cli-bun and cli-node executable entry points
 const cliBun = join(outdir, 'cli-bun.js')
 const cliNode = join(outdir, 'cli-node.js')
 
 await writeFile(cliBun, '#!/usr/bin/env bun\nimport "./cli.js"\n')
 
-await writeFile(cliNode, '#!/usr/bin/env node\nimport "./cli.js"\n')
+// Node.js entry needs a Bun API polyfill because Bun.build({ target: 'bun' })
+// emits globalThis.Bun references (e.g. Bun.$ shell tag in computer-use-input,
+// Bun.which in chunk-ys6smqg9) that crash at import time under plain Node.js.
+const NODE_BUN_POLYFILL = `#!/usr/bin/env node
+// Bun API polyfill for Node.js runtime
+if (typeof globalThis.Bun === "undefined") {
+  const { execFileSync } = await import("child_process");
+  const { resolve, delimiter } = await import("path");
+  const { accessSync, constants: { X_OK } } = await import("fs");
+  function which(bin) {
+    const isWin = process.platform === "win32";
+    const pathExt = isWin ? (process.env.PATHEXT || ".EXE").split(";") : [""];
+    for (const dir of (process.env.PATH || "").split(delimiter)) {
+      for (const ext of pathExt) {
+        const candidate = resolve(dir, bin + ext);
+        try { accessSync(candidate, X_OK); return candidate; } catch {}
+      }
+    }
+    return null;
+  }
+  // Bun.$ is the shell template tag (e.g. $\`osascript ...\`). Only used by
+  // computer-use-input/darwin — stub it so the top-level destructuring
+  // \`var { $ } = globalThis.Bun\` doesn't crash.
+  function $(parts, ...args) {
+    throw new Error("Bun.$ shell API is not available in Node.js. Use Bun runtime for this feature.");
+  }
+  function hash(data, seed) {
+    let h = ((seed || 0) ^ 0x811c9dc5) >>> 0;
+    for (let i = 0; i < data.length; i++) {
+      h ^= data.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h;
+  }
+  globalThis.Bun = { which, $, hash };
+}
+import "./cli.js"
+`
+await writeFile(cliNode, NODE_BUN_POLYFILL)
+// NOTE: when new Bun-specific globals appear in bundled output, add them here.
 
 // Make both executable
 const { chmodSync } = await import('fs')

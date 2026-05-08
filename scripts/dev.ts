@@ -6,7 +6,7 @@
  */
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getMacroDefines, DEFAULT_BUILD_FEATURES } from "./defines.ts";
+import { getMacroDefines } from "./defines.ts";
 
 // Resolve project root from this script's location
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +22,37 @@ const defineArgs = Object.entries(defines).flatMap(([k, v]) => [
 ]);
 
 // Bun --feature flags: enable feature() gates at runtime.
-// Uses the shared DEFAULT_BUILD_FEATURES list from defines.ts.
+// Default features enabled in dev mode.
+const DEFAULT_FEATURES = [
+  "BUDDY", "TRANSCRIPT_CLASSIFIER", "BRIDGE_MODE",
+  "AGENT_TRIGGERS_REMOTE", "CHICAGO_MCP", "VOICE_MODE",
+  "SHOT_STATS", "PROMPT_CACHE_BREAK_DETECTION", "TOKEN_BUDGET",
+  // P0: local features
+  "AGENT_TRIGGERS",
+  "ULTRATHINK",
+  "BUILTIN_EXPLORE_PLAN_AGENTS",
+  "LODESTONE",
+  // P1: API-dependent features
+  "EXTRACT_MEMORIES", "VERIFICATION_AGENT",
+  "KAIROS_BRIEF", "AWAY_SUMMARY", "ULTRAPLAN",
+  // P2: daemon + remote control server
+  "DAEMON",
+  // PR-package restored features
+  "WORKFLOW_SCRIPTS",
+  "HISTORY_SNIP",
+  "CONTEXT_COLLAPSE",
+  "MONITOR_TOOL",
+  "FORK_SUBAGENT",
+  "UDS_INBOX",
+  "KAIROS",
+  "COORDINATOR_MODE",
+  "LAN_PIPES",
+  // "REVIEW_ARTIFACT", // API 请求无响应，需进一步排查 schema 兼容性
+  // P3: poor mode (disable extract_memories + prompt_suggestion)
+  "POOR",
+  // P3: serve mode (HTTP API server)
+  "DIRECT_CONNECT",
+];
 
 // Any env var matching FEATURE_<NAME>=1 will also enable that feature.
 // e.g. FEATURE_PROACTIVE=1 bun run dev
@@ -30,16 +60,8 @@ const envFeatures = Object.entries(process.env)
     .filter(([k]) => k.startsWith("FEATURE_"))
     .map(([k]) => k.replace("FEATURE_", ""));
 
-const allFeatures = [...new Set([...DEFAULT_BUILD_FEATURES, ...envFeatures])];
+const allFeatures = [...new Set([...DEFAULT_FEATURES, ...envFeatures])];
 const featureArgs = allFeatures.flatMap((name) => ["--feature", name]);
-
-// Dev mode should stay interactive for real terminal launches. Nested Bun
-// launches on Windows can lose TTY metadata, but we should not force
-// interactive mode when stdin is piped because that breaks headless usage like
-// `"hello" | bun run dev`.
-if (process.stdin.isTTY) {
-    process.env.CLAUDE_CODE_FORCE_INTERACTIVE ??= "1";
-}
 
 // If BUN_INSPECT is set, pass --inspect-wait to the child process
 const inspectArgs = process.env.BUN_INSPECT
@@ -51,13 +73,26 @@ const inspectArgs = process.env.BUN_INSPECT
 // npm, etc.) and on all platforms.
 const bunCmd = process.execPath;
 
-const result = Bun.spawnSync(
-    [bunCmd, ...inspectArgs, "run", ...defineArgs, ...featureArgs, cliPath, ...process.argv.slice(2)],
-    {
+const args = [bunCmd, ...inspectArgs, "run", ...defineArgs, ...featureArgs, cliPath, ...process.argv.slice(2)];
+
+if (process.platform === "win32") {
+    const child = Bun.spawn(args, {
         stdio: ["inherit", "inherit", "inherit"],
         cwd: projectRoot,
-        env: process.env,
-    },
-);
-
-process.exit(result.exitCode ?? 0);
+        onExit(proc, exitCode) {
+            process.exit(exitCode ?? 0);
+        },
+    });
+    const cleanup = (sig: string) => {
+        child.kill(sig as Bun.Signal);
+        setTimeout(() => process.exit(1), 3000);
+    };
+    process.on("SIGINT", () => cleanup("SIGINT"));
+    process.on("SIGTERM", () => cleanup("SIGTERM"));
+} else {
+    const result = Bun.spawnSync(args, {
+        stdio: ["inherit", "inherit", "inherit"],
+        cwd: projectRoot,
+    });
+    process.exit(result.exitCode ?? 0);
+}

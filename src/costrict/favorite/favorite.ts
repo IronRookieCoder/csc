@@ -117,6 +117,22 @@ async function mutateState(fn: (state: FavoriteState) => void | Promise<void>) {
   await writeState(state)
 }
 
+const FETCH_TIMEOUT_MS = 15000
+
+async function fetchWithTimeout(
+  costrictFetch: ReturnType<typeof createCoStrictFetch>,
+  url: string,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  try {
+    const response = await costrictFetch(url, { signal: controller.signal })
+    return response
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 async function listRemoteCandidates(storeType?: string, extraParams?: Record<string, string>) {
   const baseUrl = getCoStrictBaseURL()
   const costrictFetch = createCoStrictFetch()
@@ -133,8 +149,8 @@ async function listRemoteCandidates(storeType?: string, extraParams?: Record<str
         params.set(key, value)
       }
     }
-    const url = `${baseUrl}/api/items?${params.toString()}`
-    const response = await costrictFetch(url)
+    const url = `${baseUrl}/cloud-api/api/items?${params.toString()}`
+    const response = await fetchWithTimeout(costrictFetch, url)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       throw new Error(`Request failed: ${response.status} ${text}`)
@@ -153,6 +169,11 @@ function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | un
   const localType = STORE_TYPE_MAP[storeType]
   if (!localType) return undefined
 
+  const favorited =
+    typeof data.favorited === 'boolean'
+      ? data.favorited
+      : data.favorited === 'true' || data.favorited === 1
+
   return {
     id: String(data.id),
     slug: String(data.slug ?? data.id),
@@ -163,7 +184,7 @@ function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | un
     category: typeof data.category === 'string' ? data.category : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
     favoriteCount: typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
-    favorited: typeof data.favorited === 'boolean' ? data.favorited : undefined,
+    favorited,
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
@@ -173,7 +194,10 @@ function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | un
 async function getRemoteItem(id: string): Promise<FavoriteItem> {
   const baseUrl = getCoStrictBaseURL()
   const costrictFetch = createCoStrictFetch()
-  const response = await costrictFetch(`${baseUrl}/api/items/${id}`)
+  const response = await fetchWithTimeout(
+    costrictFetch,
+    `${baseUrl}/cloud-api/api/items/${id}`,
+  )
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     throw new Error(`Request failed: ${response.status} ${text}`)
@@ -549,15 +573,22 @@ async function readItemForConfig(installed: FavoriteStateRecord): Promise<Favori
 
 export async function listFavoriteItems(type?: FavoriteItemType): Promise<FavoriteItemWithStatus[]> {
   const storeTypes = type ? [LOCAL_TO_STORE_TYPE[type]] : Object.values(LOCAL_TO_STORE_TYPE)
+  const errors: Error[] = []
   const candidatePages = await Promise.all(
     [...new Set(storeTypes)].map(async (st) =>
       listRemoteCandidates(st, { favorited: 'true' }).catch((error) => {
         console.warn('failed to fetch remote favorite candidates', { type: st, error })
+        if (error instanceof Error) errors.push(error)
         return []
       }),
     ),
   )
   const candidates = candidatePages.flat()
+
+  // If all remote fetches failed, propagate the first error so the UI can show it
+  if (candidates.length === 0 && errors.length > 0) {
+    throw new Error(`Cloud service unavailable (${errors[0].message})`)
+  }
 
   const [activeSkillSlugs, activeAgentNames, activeCommandNames, activeMcpNames, state] = await Promise.all([
     getActiveSkillSlugs(),
@@ -573,7 +604,6 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
   for (const candidate of candidates) {
     const item = parseFavoriteListItem(candidate)
     if (!item) continue
-    if (!item?.favorited) continue
     if (seen.has(item.slug)) continue
     seen.add(item.slug)
     const local = state.items[item.slug]
@@ -618,18 +648,6 @@ export async function viewFavoriteItem(slugOrId: string): Promise<FavoriteItemWi
   }
 }
 
-export async function downloadFavoriteItem(slugOrId: string) {
-  const item = await viewFavoriteItem(slugOrId)
-  const localPath = await persistInstalledItem(item)
-  await mutateState((state) => {
-    const record = state.items[item.slug]
-    record.lifecycle = 'downloaded'
-    record.updatedAt = new Date().toISOString()
-    record.localPath = localPath
-  })
-  return { ...item, status: 'Downloaded' as const, localPath }
-}
-
 export async function loadFavoriteItem(slugOrId: string) {
   const installed = await ensureInstalled(slugOrId)
   const itemForConfig = await readItemForConfig(installed)
@@ -653,12 +671,20 @@ export async function unloadFavoriteItem(slugOrId: string) {
   return installed
 }
 
-export async function uninstallFavoriteItem(slugOrId: string) {
-  const installed = await ensureInstalled(slugOrId)
-  await removeItemFromConfig(installed.itemType, installed.slug, installed.localPath)
-  await rm(installed.localPath, { recursive: true, force: true })
-  await mutateState((state) => {
-    delete state.items[installed.slug]
-  })
-  return installed
+/**
+ * Auto-enable all cloud favorite items that are not already active.
+ * Runs in the background so slow network or many items never blocks startup.
+ */
+export async function autoEnableCloudFavorites(): Promise<void> {
+  try {
+    const items = await listFavoriteItems()
+    const toEnable = items.filter((item) => item.status !== 'Active')
+    if (toEnable.length === 0) return
+
+    await Promise.allSettled(
+      toEnable.map((item) => loadFavoriteItem(item.slug)),
+    )
+  } catch {
+    // Silently ignore so a flaky cloud API doesn't break startup
+  }
 }

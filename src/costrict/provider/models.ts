@@ -36,6 +36,9 @@ export async function fetchCoStrictModels(
     return modelCache.models
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
   try {
     const response = await fetch(`${baseUrl}/ai-gateway/api/v1/models`, {
       method: 'GET',
@@ -43,7 +46,10 @@ export async function fetchCoStrictModels(
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
       },
+      signal: controller.signal,
     })
+
+    clearTimeout(timeout)
 
     if (!response.ok) {
       throw new Error(`Failed to fetch models: HTTP ${response.status}`)
@@ -57,6 +63,7 @@ export async function fetchCoStrictModels(
     modelCache = { models, timestamp: Date.now() }
     return models
   } catch {
+    clearTimeout(timeout)
     // 有旧缓存则使用旧缓存
     if (modelCache) return modelCache.models
     return getDefaultModels()

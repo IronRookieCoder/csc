@@ -13,7 +13,7 @@ export const connectResponseSchema = lazySchema(() =>
 export type ServerConfig = {
   port: number
   host: string
-  authToken: string
+  authToken?: string
   unix?: string
   /** Idle timeout for detached sessions (ms). 0 = never expire. */
   idleTimeoutMs?: number

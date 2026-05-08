@@ -218,7 +218,7 @@ import exit from './commands/exit/index.js'
 import exportCommand from './commands/export/index.js'
 import model from './commands/model/index.js'
 import tag from './commands/tag/index.js'
-import favorite from './commands/favorite/index.js'
+import knowledgeHub from './commands/knowledge-hub/index.js'
 import outputStyle from './commands/output-style/index.js'
 import remoteEnv from './commands/remote-env/index.js'
 import upgrade from './commands/upgrade/index.js'
@@ -348,7 +348,7 @@ const COMMANDS = memoize((): Command[] => [
   statusline,
   stickers,
   tag,
-  favorite,
+  knowledgeHub,
   theme,
   feedback,
   review,
