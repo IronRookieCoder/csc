@@ -9,6 +9,7 @@ import {
   sessionError,
   conflict,
 } from '../errors.js'
+import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
 
 function ssePrompt(
   handle: import('../sessionHandle.js').SessionHandle,
@@ -153,20 +154,96 @@ export function createSessionRoutes(
         throw sessionError(msg)
       }
     })
-    .get('/session', c => {
+    .get('/session', async c => {
       const url = new URL(c.req.url)
       const limit = parseInt(url.searchParams.get('limit') ?? '50', 10)
       const offset = parseInt(url.searchParams.get('offset') ?? '0', 10)
+      const dir = url.searchParams.get('dir') ?? undefined
+      // roots=true 时只返回没有 parentID 的顶层 session（csc 无 parent 概念，全部视为 root）
+      // const rootsOnly = url.searchParams.get('roots') === 'true'
 
-      const handles = sessionManager.getAllSessions()
-      const sessions = handles
-        .slice(offset, offset + limit)
-        .map(h => h.getInfo())
+      // 从磁盘读取历史 session 列表
+      let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
+      try {
+        historySessions = await listSessionsImpl({ dir, limit: limit + offset })
+        process.stderr.write(`[server:session] listSessionsImpl dir=${dir ?? 'all'} found=${historySessions.length}\n`)
+      } catch (err) {
+        process.stderr.write(`[server:session] listSessionsImpl error: ${err}\n`)
+      }
 
+      // 内存中活跃的 handle，用于覆盖运行时状态
+      const handleMap = new Map(
+        sessionManager.getAllSessions().map(h => [h.sessionId, h])
+      )
+
+      // 把磁盘历史会话转成统一格式，如果内存中有对应 handle 则合并运行时字段
+      const merged = historySessions.map(s => {
+        const handle = handleMap.get(s.sessionId)
+        const info = handle?.getInfo()
+        return {
+          session_id: s.sessionId,
+          status: info?.status ?? 'stopped',
+          cwd: info?.cwd ?? s.cwd ?? '',
+          title: (info?.title ?? s.customTitle ?? s.firstPrompt ?? s.summary) ?? '',
+          model: info?.model,
+          permission_mode: info?.permission_mode,
+          created_at: s.createdAt ?? info?.created_at ?? 0,
+          last_active_at: s.lastModified ?? info?.last_active_at ?? 0,
+          cost_usd: info?.cost_usd ?? 0,
+          input_tokens: info?.input_tokens ?? 0,
+          output_tokens: info?.output_tokens ?? 0,
+        }
+      })
+
+      // 补充内存中有但磁盘还没落盘的活跃 session（刚创建还没写过消息的）
+      const historyIds = new Set(historySessions.map(s => s.sessionId))
+      for (const handle of sessionManager.getAllSessions()) {
+        if (!historyIds.has(handle.sessionId)) {
+          const info = handle.getInfo()
+          merged.push({ ...info, title: info.title ?? '' })
+        }
+      }
+
+      // 按最后活跃时间倒序
+      merged.sort((a, b) => (b.last_active_at ?? 0) - (a.last_active_at ?? 0))
+
+      const sessions = merged.slice(offset, offset + limit)
+      process.stderr.write(`[server:session] GET /session -> history=${historySessions.length} active=${handleMap.size} merged=${merged.length} returned=${sessions.length}\n`)
       return c.json({ sessions })
     })
-    .get('/session/status', c => {
-      return c.json({ sessions: sessionManager.getSessionStatuses() })
+    .get('/session/status', async c => {
+      // 内存中活跃 session 的状态
+      const activeStatuses = sessionManager.getSessionStatuses()
+
+      // 补充磁盘历史 session（全部视为 idle）
+      let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
+      try {
+        historySessions = await listSessionsImpl({ limit: 200 })
+      } catch {}
+
+      const sessions: Record<string, { status: string; state: string; has_pending_permission: boolean; type: string }> = {}
+
+      // 先把历史 session 全部标为 idle/stopped
+      for (const s of historySessions) {
+        sessions[s.sessionId] = {
+          status: 'stopped',
+          state: 'stopped',
+          has_pending_permission: false,
+          type: 'idle',
+        }
+      }
+
+      // 用内存中活跃的 handle 状态覆盖
+      for (const [id, st] of Object.entries(activeStatuses)) {
+        sessions[id] = {
+          status: st.status,
+          state: st.status,
+          has_pending_permission: st.has_pending_permission,
+          type: st.status === 'running' ? 'busy' : 'idle',
+        }
+      }
+
+      return c.json({ sessions })
     })
     .get('/session/:sessionID', c => {
       const id = c.req.param('sessionID')
@@ -274,5 +351,30 @@ export function createSessionRoutes(
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')
       return ssePrompt(handle, id, body.command, c)
+    })
+    .post('/session/:sessionID/command_async', async c => {
+      const id = c.req.param('sessionID')
+      const handle = sessionManager.getSession(id)
+      if (!handle) throw notFound('session not found')
+
+      const body = await c.req.json<{ command: string }>()
+      if (!body.command) throw badRequest('command is required')
+      if (handle.prompting) throw conflict('session is already processing a prompt')
+
+      handle.prompt(body.command).catch(() => {})
+
+      return new Response(null, { status: 204 })
+    })
+    .post('/session/:sessionID/revert', async c => {
+      const id = c.req.param('sessionID')
+      const handle = sessionManager.getSession(id)
+      if (!handle) throw notFound('session not found')
+      return c.json(handle.getInfo())
+    })
+    .post('/session/:sessionID/summarize', async c => {
+      const id = c.req.param('sessionID')
+      const handle = sessionManager.getSession(id)
+      if (!handle) throw notFound('session not found')
+      return c.json({ ok: true })
     })
 }
