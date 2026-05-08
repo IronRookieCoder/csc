@@ -20,9 +20,7 @@ function getModels(initData: InitData | null): ModelInfo[] {
 }
 
 function getProviderId(initData: InitData | null): string {
-  const p = initData?.account?.apiProvider
-  if (!p || p === 'firstParty') return 'anthropic'
-  return p
+  return initData?.account?.apiProvider ?? 'anthropic'
 }
 
 function getProviderName(initData: InitData | null): string {

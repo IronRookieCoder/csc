@@ -117,6 +117,7 @@ export class SessionHandle {
   private child: ChildProcess | null = null
   private _status: SessionState = 'starting'
   private _model?: string
+  private _providerId?: string
   private _permissionMode?: string
   private _title?: string
   private _costUsd = 0
@@ -411,6 +412,9 @@ export class SessionHandle {
           const first = (initData.models as Array<Record<string, string>>)[0]
           this._model = first?.value ?? first?.name
         }
+        if (initData.account?.apiProvider) {
+          this._providerId = initData.account.apiProvider
+        }
         this._status = 'running'
         this.lastActiveAt = Date.now()
         const resolve = this.initResolve
@@ -420,6 +424,7 @@ export class SessionHandle {
         this.emitEvent('ready', {
           status: 'running',
           model: this._model,
+          provider_id: this._providerId,
         })
         this.opts.onInit?.(initData)
         return
@@ -453,6 +458,9 @@ export class SessionHandle {
         }
         if (!msg.model && this._model) {
           msg = { ...msg, model: this._model }
+        }
+        if (!msg.provider_id && this._providerId) {
+          msg = { ...msg, provider_id: this._providerId }
         }
         this.emitEvent('message', msg)
         break
@@ -606,6 +614,7 @@ export class SessionHandle {
       content,
       session_id: this.sessionId,
       model: this._model ?? '',
+      provider_id: this._providerId ?? '',
     })
 
     this.writeStdin(userMsg)
