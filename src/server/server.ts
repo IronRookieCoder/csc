@@ -13,6 +13,7 @@ import { createQuestionRoutes } from './routes/question.js'
 import { createMessageRoutes } from './routes/message.js'
 import { createProviderRoutes } from './routes/provider.js'
 import { createFindRoutes } from './routes/find.js'
+import { createFavoriteRoutes } from './routes/favorite.js'
 import type { ServerConfig } from './types.js'
 
 export function startServer(
@@ -51,6 +52,7 @@ export function startServer(
   app.route('/', createMessageRoutes(sessionManager))
   app.route('/', createProviderRoutes(sessionManager))
   app.route('/', createFindRoutes())
+  app.route('/', createFavoriteRoutes())
 
   const server = Bun.serve({
     hostname: config.host,

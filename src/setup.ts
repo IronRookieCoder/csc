@@ -420,7 +420,16 @@ export async function setup(
 
         if (tokenReady && activeCreds.access_token) {
           const baseUrl = getCoStrictBaseURL(activeCreds.base_url)
-          await fetchCoStrictModels(baseUrl, activeCreds.access_token)
+          // 5s cap so REPL startup isn't blocked by slow/unreachable network.
+          // Serve/SDK mode still benefits from the prefetch when it finishes in time.
+          await Promise.race([
+            fetchCoStrictModels(baseUrl, activeCreds.access_token),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('CoStrict models fetch timeout')), 5000),
+            ),
+          ]).catch(() => {
+            // 预取超时或失败不阻断启动，下次调用会走默认模型
+          })
           process.env.CLAUDE_CODE_USE_COSTRICT = '1'
         }
       }
@@ -521,4 +530,9 @@ export async function setup(
     // They're needed for cost restoration when resuming sessions.
     // The values will be overwritten when the next session exits.
   }
+
+  // Auto-enable cloud favorite items in the background.
+  // Skills/agents/commands/mcps from CoStrict cloud become available without
+  // requiring the user to manually open /hub and press Update.
+  void import('./costrict/favorite/favorite.js').then((m) => m.autoEnableCloudFavorites())
 }
