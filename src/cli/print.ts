@@ -38,6 +38,7 @@ import {
   isBuiltInAgent,
   parseAgentsFromJson,
 } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { resolveAgentTools } from '@claude-code-best/builtin-tools/tools/AgentTool/agentToolUtils.js'
 import type { Message, NormalizedUserMessage } from 'src/types/message.js'
 import type { QueuedCommand } from 'src/types/textInputTypes.js'
 import {
@@ -2027,7 +2028,13 @@ function runHeadlessStreaming(
             reregisterChannelHandlerAfterReconnect(client)
           }
 
-          const allTools = buildAllTools(appState)
+          const rawTools = buildAllTools(appState)
+          const mainThreadAgentDef = currentAgents.find(
+            a => a.agentType === getMainThreadAgentType(),
+          )
+          const allTools = mainThreadAgentDef
+            ? resolveAgentTools(mainThreadAgentDef, rawTools, false, true).resolvedTools
+            : rawTools
 
           for (const uuid of batchUuids) {
             notifyCommandLifecycle(uuid, 'started')
