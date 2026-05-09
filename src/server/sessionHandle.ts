@@ -37,6 +37,7 @@ export type PendingPermission = {
   input: Record<string, unknown>
   title: string
   description: string
+  suggestions: Record<string, unknown>[]
 }
 
 export type PendingQuestion = {
@@ -211,7 +212,7 @@ export class SessionHandle {
     this.cwd = opts.cwd
     this.eventBus = opts.eventBus
     this._model = opts.model
-    this._permissionMode = opts.permissionMode
+    this._permissionMode = opts.permissionMode ?? 'acceptEdits'
     this.verbose = opts.verbose ?? false
   }
 
@@ -235,14 +236,10 @@ export class SessionHandle {
       '--session-id',
       this.sessionId,
       ...(this.opts.model ? ['--model', this.opts.model] : []),
-      ...(this.opts.permissionMode
-        ? [
-            '--permission-mode',
-            this.opts.permissionMode,
-            '--permission-prompt-tool',
-            'stdio',
-          ]
-        : []),
+      '--permission-mode',
+      this._permissionMode,
+      '--permission-prompt-tool',
+      'stdio',
       ...(this.opts.resumeSessionId
         ? ['--resume', this.opts.resumeSessionId]
         : []),
@@ -495,6 +492,8 @@ export class SessionHandle {
             input: (request.input as Record<string, unknown>) ?? {},
             title: `${request.tool_name}: ${JSON.stringify(request.input).slice(0, 80)}`,
             description: `Execute ${request.tool_name}`,
+            suggestions:
+              (request.permission_suggestions as Record<string, unknown>[]) ?? [],
           }
           this.pendingPermissions.set(requestId, perm)
           this.emitEvent('control_request', { request_id: requestId, request })
@@ -512,6 +511,38 @@ export class SessionHandle {
           this.emitEvent('control_request', { request_id: requestId, request })
         } else if (request?.subtype === 'hook_callback') {
           this.emitEvent('control_request', { request_id: requestId, request })
+          const callbackId = request.callback_id as string | undefined
+          if (!callbackId || callbackId === 'AUTO_APPROVE_CALLBACK_ID') {
+            this.writeStdin(jsonStringify({
+              type: 'control_response',
+              response: {
+                subtype: 'success',
+                request_id: requestId,
+                response: {
+                  hookSpecificOutput: {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: 'allow',
+                    permissionDecisionReason: 'Auto-approved by serve',
+                  },
+                },
+              },
+            }))
+          } else {
+            this.writeStdin(jsonStringify({
+              type: 'control_response',
+              response: {
+                subtype: 'success',
+                request_id: requestId,
+                response: {
+                  hookSpecificOutput: {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: 'ask',
+                    permissionDecisionReason: 'Forwarding to can_use_tool',
+                  },
+                },
+              },
+            }))
+          }
         }
         break
       }
@@ -669,6 +700,7 @@ export class SessionHandle {
       updatedPermissions?: Record<string, unknown>[]
       message?: string
       interrupt?: boolean
+      decisionClassification?: string
     },
   ): void {
     const response = {
@@ -680,9 +712,12 @@ export class SessionHandle {
           behavior === 'allow'
             ? {
                 behavior: 'allow',
-                updatedInput: opts?.updatedInput,
+                updatedInput: opts?.updatedInput ?? {},
                 ...(opts?.updatedPermissions
                   ? { updatedPermissions: opts.updatedPermissions }
+                  : {}),
+                ...(opts?.decisionClassification
+                  ? { decisionClassification: opts.decisionClassification }
                   : {}),
               }
             : {
@@ -694,6 +729,10 @@ export class SessionHandle {
     }
     this.writeStdin(jsonStringify(response))
     this.pendingPermissions.delete(requestId)
+    this.emitEvent('permission_replied', {
+      request_id: requestId,
+      behavior,
+    })
   }
 
   replyQuestion(
@@ -714,6 +753,10 @@ export class SessionHandle {
     }
     this.writeStdin(jsonStringify(response))
     this.pendingQuestions.delete(requestId)
+    this.emitEvent('question_replied', {
+      request_id: requestId,
+      action,
+    })
   }
 
   kill(): void {
