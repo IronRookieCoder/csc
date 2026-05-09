@@ -245,8 +245,8 @@ export class SessionHandle {
       'stream-json',
       '--output-format',
       'stream-json',
-      '--session-id',
-      this.sessionId,
+      // resume 时不传 --session-id，csc 会继承历史 session 的 id
+      ...(this.opts.resumeSessionId ? [] : ['--session-id', this.sessionId]),
       ...(this.opts.model ? ['--model', this.opts.model] : []),
       '--permission-mode',
       this._permissionMode,
@@ -299,6 +299,7 @@ export class SessionHandle {
         const reject = this.initReject
         this.initResolve = null
         this.initReject = null
+        process.stderr.write(`[serve:${this.sessionId}] exit_code=${code} cwd=${this.cwd} stderr:\n${this.lastStderr.slice(-5).join('\n')}\n`)
         reject(new Error(`Process exited with code ${code}`))
       }
       if (this.promptReject) {

@@ -155,6 +155,7 @@ export class SessionManager {
     execPath: string
     scriptArgs: string[]
     silent?: boolean
+    sessionId?: string
   }): Promise<SessionHandle> {
     if (this.maxSessions > 0 && this.sessions.size >= this.maxSessions) {
       throw new Error(
@@ -162,7 +163,7 @@ export class SessionManager {
       )
     }
 
-    const sessionId = crypto.randomUUID()
+    const sessionId = opts.sessionId ?? crypto.randomUUID()
     let cwd = opts.cwd || this.defaultWorkspace || process.cwd()
     if (!isAbsolute(cwd)) {
       cwd = resolve(process.cwd(), cwd)

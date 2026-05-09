@@ -11,6 +11,16 @@ import {
 } from '../errors.js'
 import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
 
+/** 从磁盘历史记录查找 session 的原始 cwd，用于 resume 时恢复正确的工作目录 */
+async function getHistoryCwd(sessionId: string): Promise<string | undefined> {
+  try {
+    const list = await listSessionsImpl({ limit: 1000 })
+    return list.find(s => s.sessionId === sessionId)?.cwd
+  } catch {
+    return undefined
+  }
+}
+
 function ssePrompt(
   handle: import('../sessionHandle.js').SessionHandle,
   id: string,
@@ -354,8 +364,22 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/prompt', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      let handle = sessionManager.getSession(id)
+      if (!handle) {
+        const cwd = await getHistoryCwd(id)
+        try {
+          handle = await sessionManager.createSession({
+            cwd,
+            sessionId: id,
+            resumeSessionId: id,
+            execPath: process.execPath,
+            scriptArgs: getScriptArgsForChild(),
+          })
+          await handle.waitReady(30000)
+        } catch (err) {
+          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+        }
+      }
 
       const body = await c.req.json<{
         content?: string
@@ -381,9 +405,23 @@ export function createSessionRoutes(
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
 
-      const handle = sessionManager.getSession(id)
+      let handle = sessionManager.getSession(id)
+
+      // 历史 session 不在内存中，自动恢复
       if (!handle) {
-        throw notFound('session not found')
+        const cwd = await getHistoryCwd(id)
+        try {
+          handle = await sessionManager.createSession({
+            cwd,
+            sessionId: id,
+            resumeSessionId: id,
+            execPath: process.execPath,
+            scriptArgs: getScriptArgsForChild(),
+          })
+          await handle.waitReady(30000)
+        } catch (err) {
+          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+        }
       }
 
       const body = await c.req.json<{
