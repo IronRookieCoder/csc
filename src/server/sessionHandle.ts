@@ -684,18 +684,19 @@ export class SessionHandle {
     })
     this.writeStdin(interrupt)
 
+    if (!this.promptResolve) return
+
     await new Promise<void>(resolve => {
       const timeout = setTimeout(() => {
         this.kill()
         resolve()
-      }, 5000)
-      const check = setInterval(() => {
-        if (!this.child || this.child.killed) {
-          clearTimeout(timeout)
-          clearInterval(check)
-          resolve()
-        }
-      }, 200)
+      }, 2000)
+      const originalResolve = this.promptResolve
+      this.promptResolve = (value) => {
+        clearTimeout(timeout)
+        originalResolve?.(value)
+        resolve()
+      }
     })
   }
 
