@@ -462,6 +462,13 @@ export class SessionHandle {
         this.emitEvent('message', msg)
         break
       }
+      case 'user': {
+        if (msg.isReplay) break
+        const content = typeof msg.content === 'string' ? msg.content : ''
+        if (content.includes('<local-command-stdout>')) break
+        this.emitEvent('message', msg)
+        break
+      }
       case 'result': {
         this.lastActiveAt = Date.now()
         this._status = 'running'
