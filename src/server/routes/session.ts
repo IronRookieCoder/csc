@@ -11,6 +11,33 @@ import {
 } from '../errors.js'
 import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
 
+async function getOrCreateSession(
+  sessionManager: SessionManager,
+  id: string,
+): Promise<import('../sessionHandle.js').SessionHandle> {
+  const existing = sessionManager.getSession(id)
+  if (existing) return existing
+
+  try {
+    const handle = await sessionManager.createSession({
+      resumeSessionId: id,
+      execPath: process.execPath,
+      scriptArgs: getScriptArgsForChild(),
+    })
+    await handle.start()
+    return handle
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to create session'
+    if (msg.includes('Maximum concurrent')) {
+      throw tooManySessions(msg)
+    }
+    if (msg.includes('Working directory does not exist')) {
+      throw sessionError(msg)
+    }
+    throw notFound('session not found')
+  }
+}
+
 function ssePrompt(
   handle: import('../sessionHandle.js').SessionHandle,
   id: string,
@@ -355,8 +382,7 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/prompt', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrCreateSession(sessionManager, id)
 
       const body = await c.req.json<{
         content?: string
@@ -382,10 +408,7 @@ export function createSessionRoutes(
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
 
-      const handle = sessionManager.getSession(id)
-      if (!handle) {
-        throw notFound('session not found')
-      }
+      const handle = await getOrCreateSession(sessionManager, id)
 
       const body = await c.req.json<{
         content?: string
@@ -422,15 +445,13 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/abort', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrCreateSession(sessionManager, id)
       await handle.abort()
       return c.json({ aborted: true })
     })
     .post('/session/:sessionID/shell', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrCreateSession(sessionManager, id)
 
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')
@@ -438,8 +459,7 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/command', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrCreateSession(sessionManager, id)
 
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')
@@ -447,8 +467,7 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/command_async', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrCreateSession(sessionManager, id)
 
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')

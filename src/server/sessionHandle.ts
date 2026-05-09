@@ -252,6 +252,7 @@ export class SessionHandle {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      CSC_SERVE_MODE: '1',
     }
 
     if (this.opts.systemPrompt) {
