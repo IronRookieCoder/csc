@@ -174,7 +174,12 @@ export function createSessionRoutes(
       const url = new URL(c.req.url)
       const limit = parseInt(url.searchParams.get('limit') ?? '50', 10)
       const offset = parseInt(url.searchParams.get('offset') ?? '0', 10)
-      const dir = url.searchParams.get('dir') ?? undefined
+      // 优先从请求头 x-csc-directory 取工作目录（cs-cloud 通过此头传递），
+      // fallback 到 query string 的 dir 参数
+      const headerDir = c.req.header('x-csc-directory')
+      const dir = (headerDir ? decodeURIComponent(headerDir) : undefined)
+        ?? url.searchParams.get('dir')
+        ?? undefined
       // roots=true 时只返回没有 parentID 的顶层 session（csc 无 parent 概念，全部视为 root）
       // const rootsOnly = url.searchParams.get('roots') === 'true'
 
@@ -247,10 +252,16 @@ export function createSessionRoutes(
       // 内存中活跃 session 的状态
       const activeStatuses = sessionManager.getSessionStatuses()
 
+      // 从请求头或 query 取目录过滤
+      const headerDir = c.req.header('x-csc-directory')
+      const statusDir = (headerDir ? decodeURIComponent(headerDir) : undefined)
+        ?? c.req.query('dir')
+        ?? undefined
+
       // 补充磁盘历史 session（全部视为 idle）
       let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
       try {
-        historySessions = await listSessionsImpl({ limit: 200 })
+        historySessions = await listSessionsImpl({ dir: statusDir, limit: 200 })
       } catch {}
 
       const sessions: Record<string, { status: string; state: string; has_pending_permission: boolean; type: string }> = {}
