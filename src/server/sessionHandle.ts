@@ -115,6 +115,8 @@ function loadChildSpawnPrefix(): { execPath: string; scriptArgs: string[]; defin
 export class SessionHandle {
   readonly sessionId: string
   readonly cwd: string
+  /** 子进程实际的工作目录，dev 模式下与 cwd 不同（csc 根目录），用于定位 transcript 文件 */
+  private _spawnCwd: string | undefined
   private child: ChildProcess | null = null
   private _status: SessionState = 'starting'
   private _model?: string
@@ -189,6 +191,10 @@ export class SessionHandle {
     return this.opts.silent ?? false
   }
 
+  get spawnCwd(): string {
+    return this._spawnCwd ?? this.cwd
+  }
+
   async waitReady(timeoutMs = 30000): Promise<void> {
     if (this._status === 'running') return
     if (this._status === 'stopped') {
@@ -199,10 +205,16 @@ export class SessionHandle {
         reject(new Error(`Session ${this.sessionId} init timed out`))
       }, timeoutMs)
       const origResolve = this.initResolve
+      const origReject = this.initReject
       this.initResolve = (data: InitData) => {
         clearTimeout(timer)
         origResolve?.(data)
         resolve()
+      }
+      this.initReject = (err: unknown) => {
+        clearTimeout(timer)
+        origReject?.(err)
+        reject(err)
       }
     })
   }
@@ -263,6 +275,7 @@ export class SessionHandle {
     const featureArgs = saved?.featureArgs ?? []
     const spawnArgs = [...defineArgs, ...featureArgs, ...this.opts.scriptArgs, ...printArgs]
 
+    this._spawnCwd = this.opts.cwd
     this.child = spawn(this.opts.execPath, spawnArgs, {
       cwd: this.opts.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -282,8 +295,11 @@ export class SessionHandle {
           signal: signal ?? null,
         })
       }
-      if (this.initResolve) {
+      if (this.initReject) {
+        const reject = this.initReject
         this.initResolve = null
+        this.initReject = null
+        reject(new Error(`Process exited with code ${code}`))
       }
       if (this.promptReject) {
         this.promptReject(new Error(`Process exited with code ${code}`))
@@ -293,8 +309,11 @@ export class SessionHandle {
     this.child.on('error', err => {
       logError(err)
       this._status = 'stopped'
-      if (this.initResolve) {
+      if (this.initReject) {
+        const reject = this.initReject
         this.initResolve = null
+        this.initReject = null
+        reject(err)
       }
       if (this.promptReject) {
         this.promptReject(err)
@@ -305,13 +324,17 @@ export class SessionHandle {
     this.sendInitialize()
 
     const timeout = setTimeout(() => {
-      this.initResolve = null
-      this.initReject = null
-      this._status = 'stopped'
-      this.emitEvent('deleted', {
-        status: 'stopped',
-        reason: 'init_timeout',
-      })
+      if (this.initReject) {
+        const reject = this.initReject
+        this.initResolve = null
+        this.initReject = null
+        this._status = 'stopped'
+        this.emitEvent('deleted', {
+          status: 'stopped',
+          reason: 'init_timeout',
+        })
+        reject(new Error(`Session ${this.sessionId} init timed out`))
+      }
     }, 30000)
 
     this.initResolve = (data: InitData) => {

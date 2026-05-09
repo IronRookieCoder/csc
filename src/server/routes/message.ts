@@ -20,7 +20,7 @@ export function createMessageRoutes(sessionManager: SessionManager): Hono {
 
       const { messages, nextCursor } = await readSessionMessages({
         sessionId: id,
-        cwd: handle?.cwd,
+        cwd: handle?.spawnCwd ?? handle?.cwd,
         limit,
         before,
         includeSystem,
@@ -39,7 +39,7 @@ export function createMessageRoutes(sessionManager: SessionManager): Hono {
 
       const todos = await readSessionTodos({
         sessionId: id,
-        cwd: handle?.cwd,
+        cwd: handle?.spawnCwd ?? handle?.cwd,
       })
 
       return c.json({ todos })
@@ -53,7 +53,7 @@ export function createMessageRoutes(sessionManager: SessionManager): Hono {
 
       const { diffs } = await readSessionDiff({
         sessionId: id,
-        cwd: handle?.cwd,
+        cwd: handle?.spawnCwd ?? handle?.cwd,
         messageID,
       })
 

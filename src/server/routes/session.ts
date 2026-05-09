@@ -151,6 +151,9 @@ export function createSessionRoutes(
           scriptArgs: getScriptArgsForChild(),
         })
 
+        // 等待子进程初始化完成，确保 ready 后再返回，避免立即发 prompt 时子进程还未就绪
+        await handle.waitReady(30000)
+
         const info = handle.getInfo()
         return c.json(
           {
@@ -187,10 +190,7 @@ export function createSessionRoutes(
       let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
       try {
         historySessions = await listSessionsImpl({ dir, limit: limit + offset })
-        process.stderr.write(`[server:session] listSessionsImpl dir=${dir ?? 'all'} found=${historySessions.length}\n`)
-      } catch (err) {
-        process.stderr.write(`[server:session] listSessionsImpl error: ${err}\n`)
-      }
+      } catch {}
 
       // 内存中活跃的 handle，用于覆盖运行时状态
       const handleMap = new Map(
@@ -245,7 +245,6 @@ export function createSessionRoutes(
       filtered.sort((a, b) => (b.last_active_at ?? 0) - (a.last_active_at ?? 0))
 
       const sessions = filtered.slice(offset, offset + limit)
-      process.stderr.write(`[server:session] GET /session -> history=${historySessions.length} active=${handleMap.size} merged=${merged.length} returned=${sessions.length}\n`)
       return c.json({ sessions })
     })
     .get('/session/status', async c => {
@@ -282,7 +281,7 @@ export function createSessionRoutes(
           status: st.status,
           state: st.status,
           has_pending_permission: st.has_pending_permission,
-          type: st.status === 'running' ? 'busy' : 'idle',
+          type: st.prompting ? 'busy' : 'idle',
         }
       }
 

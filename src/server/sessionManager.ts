@@ -128,16 +128,17 @@ export class SessionManager {
 
   getSessionStatuses(): Record<
     string,
-    { status: SessionState; has_pending_permission: boolean }
+    { status: SessionState; has_pending_permission: boolean; prompting: boolean }
   > {
     const result: Record<
       string,
-      { status: SessionState; has_pending_permission: boolean }
+      { status: SessionState; has_pending_permission: boolean; prompting: boolean }
     > = {}
     for (const [id, handle] of this.sessions) {
       result[id] = {
         status: handle.status,
         has_pending_permission: handle.getPendingPermissions().length > 0,
+        prompting: handle.prompting,
       }
     }
     return result
