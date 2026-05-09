@@ -42,3 +42,10 @@ data
 .costrict
 .claude
 .tmp/
+
+# Auto-generated review builtin files
+src/costrict/review/agent/builtin.ts
+src/costrict/review/skill/builtin.ts
+
+# Review builtin cache
+packages/builtin-tools/bundled-review/
