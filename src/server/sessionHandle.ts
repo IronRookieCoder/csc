@@ -521,6 +521,11 @@ export class SessionHandle {
         this.pendingQuestions.delete(cancelRequestId)
         break
       }
+      case 'stream_event': {
+        this.lastActiveAt = Date.now()
+        this.emitEvent('stream_event', msg)
+        break
+      }
       default: {
         break
       }

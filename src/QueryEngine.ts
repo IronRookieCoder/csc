@@ -837,14 +837,12 @@ export class QueryEngine {
             )
           }
 
-          if (includePartialMessages) {
-            yield {
-              type: 'stream_event' as const,
-              event,
-              session_id: getSessionId(),
-              parent_tool_use_id: null,
-              uuid: randomUUID(),
-            }
+          yield {
+            type: 'stream_event' as const,
+            event,
+            session_id: getSessionId(),
+            parent_tool_use_id: null,
+            uuid: randomUUID(),
           }
 
           break
