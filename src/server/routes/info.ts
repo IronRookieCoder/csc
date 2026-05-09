@@ -45,8 +45,17 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
     })
     .get('/agent', c => {
       const allAgents = getBuiltInAgents()
-      return c.json(
-        allAgents.map(a => ({
+      const defaultMode = {
+        name: 'build',
+        description: 'Default mode for software engineering tasks: writing code, editing files, running commands, and building projects.',
+        mode: 'primary' as const,
+        hidden: false,
+        options: {},
+        permission: [],
+      }
+      return c.json([
+        defaultMode,
+        ...allAgents.map(a => ({
           name: a.agentType,
           description: a.whenToUse,
           mode: a.isMainThread ? ('primary' as const) : ('subagent' as const),
@@ -54,7 +63,7 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
           options: {},
           permission: [],
         })),
-      )
+      ])
     })
     .get('/mcp', async c => {
       for (const handle of sessionManager.getAllSessions()) {

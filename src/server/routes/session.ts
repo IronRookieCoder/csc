@@ -11,6 +11,16 @@ import {
 } from '../errors.js'
 import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
 
+/** 从磁盘历史记录查找 session 的原始 cwd，用于 resume 时恢复正确的工作目录 */
+async function getHistoryCwd(sessionId: string): Promise<string | undefined> {
+  try {
+    const list = await listSessionsImpl({ limit: 1000 })
+    return list.find(s => s.sessionId === sessionId)?.cwd
+  } catch {
+    return undefined
+  }
+}
+
 function ssePrompt(
   handle: import('../sessionHandle.js').SessionHandle,
   id: string,
@@ -151,6 +161,9 @@ export function createSessionRoutes(
           scriptArgs: getScriptArgsForChild(),
         })
 
+        // 等待子进程初始化完成，确保 ready 后再返回，避免立即发 prompt 时子进程还未就绪
+        await handle.waitReady(30000)
+
         const info = handle.getInfo()
         return c.json(
           {
@@ -187,10 +200,7 @@ export function createSessionRoutes(
       let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
       try {
         historySessions = await listSessionsImpl({ dir, limit: limit + offset })
-        process.stderr.write(`[server:session] listSessionsImpl dir=${dir ?? 'all'} found=${historySessions.length}\n`)
-      } catch (err) {
-        process.stderr.write(`[server:session] listSessionsImpl error: ${err}\n`)
-      }
+      } catch {}
 
       // 内存中活跃的 handle，用于覆盖运行时状态
       const handleMap = new Map(
@@ -245,7 +255,6 @@ export function createSessionRoutes(
       filtered.sort((a, b) => (b.last_active_at ?? 0) - (a.last_active_at ?? 0))
 
       const sessions = filtered.slice(offset, offset + limit)
-      process.stderr.write(`[server:session] GET /session -> history=${historySessions.length} active=${handleMap.size} merged=${merged.length} returned=${sessions.length}\n`)
       return c.json({ sessions })
     })
     .get('/session/status', async c => {
@@ -282,7 +291,7 @@ export function createSessionRoutes(
           status: st.status,
           state: st.status,
           has_pending_permission: st.has_pending_permission,
-          type: st.status === 'running' ? 'busy' : 'idle',
+          type: st.prompting ? 'busy' : 'idle',
         }
       }
 
@@ -355,8 +364,22 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/prompt', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      let handle = sessionManager.getSession(id)
+      if (!handle) {
+        const cwd = await getHistoryCwd(id)
+        try {
+          handle = await sessionManager.createSession({
+            cwd,
+            sessionId: id,
+            resumeSessionId: id,
+            execPath: process.execPath,
+            scriptArgs: getScriptArgsForChild(),
+          })
+          await handle.waitReady(30000)
+        } catch (err) {
+          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+        }
+      }
 
       const body = await c.req.json<{
         content?: string
@@ -382,9 +405,23 @@ export function createSessionRoutes(
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
 
-      const handle = sessionManager.getSession(id)
+      let handle = sessionManager.getSession(id)
+
+      // 历史 session 不在内存中，自动恢复
       if (!handle) {
-        throw notFound('session not found')
+        const cwd = await getHistoryCwd(id)
+        try {
+          handle = await sessionManager.createSession({
+            cwd,
+            sessionId: id,
+            resumeSessionId: id,
+            execPath: process.execPath,
+            scriptArgs: getScriptArgsForChild(),
+          })
+          await handle.waitReady(30000)
+        } catch (err) {
+          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+        }
       }
 
       const body = await c.req.json<{
