@@ -128,16 +128,17 @@ export class SessionManager {
 
   getSessionStatuses(): Record<
     string,
-    { status: SessionState; has_pending_permission: boolean }
+    { status: SessionState; has_pending_permission: boolean; prompting: boolean }
   > {
     const result: Record<
       string,
-      { status: SessionState; has_pending_permission: boolean }
+      { status: SessionState; has_pending_permission: boolean; prompting: boolean }
     > = {}
     for (const [id, handle] of this.sessions) {
       result[id] = {
         status: handle.status,
         has_pending_permission: handle.getPendingPermissions().length > 0,
+        prompting: handle.prompting,
       }
     }
     return result
@@ -154,6 +155,7 @@ export class SessionManager {
     execPath: string
     scriptArgs: string[]
     silent?: boolean
+    sessionId?: string
   }): Promise<SessionHandle> {
     if (this.maxSessions > 0 && this.sessions.size >= this.maxSessions) {
       throw new Error(
@@ -161,7 +163,7 @@ export class SessionManager {
       )
     }
 
-    const sessionId = crypto.randomUUID()
+    const sessionId = opts.sessionId ?? crypto.randomUUID()
     let cwd = opts.cwd || this.defaultWorkspace || process.cwd()
     if (!isAbsolute(cwd)) {
       cwd = resolve(process.cwd(), cwd)

@@ -63,10 +63,13 @@ async function resolveTranscriptPath(
 ): Promise<string | null> {
   const cacheKey = `${sessionId}:${cwd ?? ''}`
   const cached = pathCache.get(cacheKey)
-  if (cached !== undefined) return cached
+  // 只缓存找到的路径，不缓存 null（文件可能还未写入）
+  if (cached !== undefined && cached !== null) return cached
 
   const result = await resolveTranscriptPathUncached(sessionId, cwd)
-  pathCache.set(cacheKey, result)
+  if (result !== null) {
+    pathCache.set(cacheKey, result)
+  }
   return result
 }
 
