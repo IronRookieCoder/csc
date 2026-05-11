@@ -322,29 +322,30 @@ export function createSessionRoutes(
     .patch('/session/:sessionID', async c => {
       const id = c.req.param('sessionID')
       const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
 
       const body = await c.req.json<{
         title?: string
         model?: string
         permission_mode?: string
+        time?: { archived?: number }
       }>()
 
-      if (body.title) handle.setTitle(body.title)
-      if (body.model) await handle.setModel(body.model)
-      if (body.permission_mode) await handle.setPermissionMode(body.permission_mode)
+      if (handle) {
+        if (body.title) handle.setTitle(body.title)
+        if (body.model) await handle.setModel(body.model)
+        if (body.permission_mode) await handle.setPermissionMode(body.permission_mode)
+      }
 
       return c.json({
         session_id: id,
-        title: handle.title ?? body.title,
-        model: handle.model,
-        permission_mode: handle.permissionMode,
+        title: handle?.title ?? body.title,
+        model: handle?.model,
+        permission_mode: handle?.permissionMode,
       })
     })
     .delete('/session/:sessionID', async c => {
       const id = c.req.param('sessionID')
-      const deleted = await sessionManager.deleteSession(id)
-      if (!deleted) throw notFound('session not found')
+      await sessionManager.deleteSession(id)
       return c.json({ deleted: true })
     })
     .post('/session/:sessionID/prompt', async c => {
