@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
-import { existsSync, statSync } from 'fs'
+import { existsSync, statSync, unlinkSync } from 'fs'
 import { join, resolve, isAbsolute } from 'path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
@@ -7,7 +7,7 @@ import type { EventBus } from './eventBus.js'
 import { SessionHandle } from './sessionHandle.js'
 import type { InitData } from './types.js'
 import type { SessionIndex, SessionIndexEntry, SessionBusyStatus, SessionState } from './types.js'
-import { canonicalizePath } from '../utils/sessionStoragePortable.js'
+import { canonicalizePath, findProjectDir, resolveSessionFilePath } from '../utils/sessionStoragePortable.js'
 
 const INDEX_FILE = 'server-sessions.json'
 
@@ -264,16 +264,29 @@ export class SessionManager {
 
   async deleteSession(id: string): Promise<boolean> {
     const handle = this.sessions.get(id)
-    if (!handle) return false
-    const silent = handle.silent
-    handle.forceKill()
-    this.sessions.delete(id)
-    this.eventBus.unregisterSessionCwd(id)
-    if (!silent) {
-      this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+    if (handle) {
+      const silent = handle.silent
+      handle.forceKill()
+      this.sessions.delete(id)
+      this.eventBus.unregisterSessionCwd(id)
+      if (!silent) {
+        this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+      }
+      this.scheduleIndexSave()
+      return true
     }
-    this.scheduleIndexSave()
-    return true
+
+    // 历史 session 不在内存中，删除磁盘 transcript 文件
+    try {
+      const resolved = await resolveSessionFilePath(id)
+      if (resolved) {
+        unlinkSync(resolved.filePath)
+        this.loadedIndex.delete(id)
+        this.scheduleIndexSave()
+        return true
+      }
+    } catch {}
+    return false
   }
 
   async destroyAll(): Promise<void> {
