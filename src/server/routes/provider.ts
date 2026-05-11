@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { SessionManager } from '../sessionManager.js'
-import type { InitData } from '../sessionHandle.js'
+import type { InitData } from '../types.js'
 
 type ModelInfo = {
   value: string

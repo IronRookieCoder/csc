@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { SessionManager } from '../sessionManager.js'
-import { getScriptArgsForChild } from '../sessionHandle.js'
+import { getScriptArgsForChild } from '../childSpawn.js'
 import {
   badRequest,
   notFound,
@@ -26,6 +26,7 @@ function ssePrompt(
   id: string,
   content: string,
   c: import('hono').Context,
+  parts?: Array<Record<string, unknown>>,
 ) {
   return streamSSE(c, async stream => {
     const startTime = Date.now()
@@ -81,7 +82,7 @@ function ssePrompt(
     })
 
     try {
-      await handle.prompt(content)
+      await handle.prompt(content, { parts })
     } catch {
       if (!resultWritten) {
         pendingWrite = pendingWrite.then(() =>
@@ -123,6 +124,7 @@ export function createSessionRoutes(
     .post('/session', async c => {
       const body = await c.req.json<{
         cwd?: string
+        session_id?: string
         permission_mode?: string
         permission?: Array<{ permission: string; pattern: string; action: string }>
         model?: string
@@ -151,6 +153,7 @@ export function createSessionRoutes(
       try {
         const handle = await sessionManager.createSession({
           cwd,
+          sessionId: body.session_id,
           model: body.model,
           permissionMode,
           systemPrompt: body.system_prompt,
@@ -365,16 +368,21 @@ export function createSessionRoutes(
 
       const body = await c.req.json<{
         content?: string
-        parts?: Array<{ type: string; text?: string }>
+        parts?: Array<Record<string, unknown>>
         files?: string[]
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
       }>()
 
-      const content = body.content ?? body.parts
-        ?.filter((p) => p.type === 'text' && p.text)
-        .map((p) => p.text)
+      const textContent = body.content ?? body.parts
+        ?.filter((p): p is Record<string, unknown> & { type: string; text?: string } => p.type === 'text' && !!(p as { text?: string }).text)
+        .map((p) => (p as { text: string }).text)
         .join('\n') ?? ''
+
+      const agentParts = body.parts?.filter((p) => p.type === 'agent' && p.name) ?? []
+      const agentMentions = agentParts.map((p) => `@agent-${p.name}`).join(' ')
+      const content = [textContent, agentMentions].filter(Boolean).join('\n')
+
       if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
 
@@ -382,7 +390,7 @@ export function createSessionRoutes(
         try { await handle.setModel(body.model.modelID) } catch {}
       }
 
-      return ssePrompt(handle, id, content, c)
+      return ssePrompt(handle, id, content, c, body.parts)
     })
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
@@ -408,16 +416,21 @@ export function createSessionRoutes(
 
       const body = await c.req.json<{
         content?: string
-        parts?: Array<{ type: string; text?: string }>
+        parts?: Array<Record<string, unknown>>
         files?: string[]
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
       }>()
 
-      const content = body.content ?? body.parts
-        ?.filter((p) => p.type === 'text' && p.text)
-        .map((p) => p.text)
+      const textContent = body.content ?? body.parts
+        ?.filter((p): p is Record<string, unknown> & { type: string; text?: string } => p.type === 'text' && !!(p as { text?: string }).text)
+        .map((p) => (p as { text: string }).text)
         .join('\n') ?? ''
+
+      const agentParts = body.parts?.filter((p) => p.type === 'agent' && p.name) ?? []
+      const agentMentions = agentParts.map((p) => `@agent-${p.name}`).join(' ')
+      const content = [textContent, agentMentions].filter(Boolean).join('\n')
+
       if (!content) {
         throw badRequest('content is required')
       }
@@ -433,7 +446,7 @@ export function createSessionRoutes(
           if (body.model?.modelID) {
             try { await handle.setModel(body.model.modelID) } catch {}
           }
-          handle.prompt(content).catch(() => {})
+          handle.prompt(content, { parts: body.parts }).catch(() => {})
         } catch {}
       })()
 
