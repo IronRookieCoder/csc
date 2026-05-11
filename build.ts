@@ -172,3 +172,40 @@ chmodSync(cliBun, 0o755)
 chmodSync(cliNode, 0o755)
 
 console.log(`Generated ${cliBun} (shebang: bun) and ${cliNode} (shebang: node)`)
+
+// Step 7: Compile standalone executable (csc.exe on Windows, csc on Unix)
+// Must use Bun.build({ compile: true, features }) instead of `bun build --compile`
+// because the CLI command doesn't support the --feature flag.
+// NOTE: compile mode uses outdir (not outfile) — Bun names the output after the entrypoint.
+const isWin = process.platform === 'win32'
+const exeName = isWin ? 'csc.exe' : 'csc'
+
+const compileResult = await Bun.build({
+  entrypoints: ['src/entrypoints/cli.tsx'],
+  target: 'bun',
+  compile: true,
+  define: getMacroDefines(),
+  features,
+  outdir: import.meta.dir,
+})
+
+if (!compileResult.success) {
+  console.error('Compile failed:')
+  for (const log of compileResult.logs) {
+    console.error(log)
+  }
+  process.exit(1)
+}
+
+// Rename auto-generated cli.tsx.exe → csc.exe
+const generated = compileResult.outputs[0]
+const targetPath = join(import.meta.dir, exeName)
+if (generated && generated.path !== targetPath) {
+  const { renameSync, unlinkSync, existsSync } = await import('fs')
+  if (existsSync(targetPath)) {
+    try { unlinkSync(targetPath) } catch { /* locked by running process */ }
+  }
+  renameSync(generated.path, targetPath)
+}
+
+console.log(`Compiled standalone executable: ${join(import.meta.dir, exeName)}`)
