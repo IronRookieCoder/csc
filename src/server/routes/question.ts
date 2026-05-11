@@ -146,9 +146,9 @@ export function createQuestionRoutes(sessionManager: SessionManager): Hono {
         ))
       }
 
-      // 2. AskUserQuestionTool permissions exposed as questions
+      // 2. AskUserQuestion permissions exposed as questions
       for (const p of sessionManager.getAllPendingPermissions()) {
-        if (p.toolName === 'AskUserQuestionTool') {
+        if (p.toolName === 'AskUserQuestion') {
           result.push(convertAskUserQuestionToOpencode(
             p.requestId,
             p.sessionId,
@@ -171,9 +171,9 @@ export function createQuestionRoutes(sessionManager: SessionManager): Hono {
         return c.json({ resolved: true })
       }
 
-      // 2. Try AskUserQuestionTool permission
+      // 2. Try AskUserQuestion permission
       const pFound = sessionManager.findPermissionAcrossSessions(requestId)
-      if (pFound && pFound.perm.toolName === 'AskUserQuestionTool') {
+      if (pFound && pFound.perm.toolName === 'AskUserQuestion') {
         const body = await c.req.json<QuestionReplyBody>()
         const input = pFound.perm.input as {
           questions: Array<{ question: string }>
@@ -208,9 +208,9 @@ export function createQuestionRoutes(sessionManager: SessionManager): Hono {
         return c.json({ resolved: true })
       }
 
-      // 2. Try AskUserQuestionTool permission
+      // 2. Try AskUserQuestion permission
       const pFound = sessionManager.findPermissionAcrossSessions(requestId)
-      if (pFound && pFound.perm.toolName === 'AskUserQuestionTool') {
+      if (pFound && pFound.perm.toolName === 'AskUserQuestion') {
         pFound.handle.replyPermission(requestId, 'deny')
         return c.json({ resolved: true })
       }

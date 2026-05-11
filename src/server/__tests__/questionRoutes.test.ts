@@ -93,13 +93,13 @@ describe('createQuestionRoutes', () => {
       expect(body[0].questions[0].custom).toBe(true)
     })
 
-    test('returns AskUserQuestionTool permissions as questions', async () => {
+    test('returns AskUserQuestion permissions as questions', async () => {
       const mgr = createMockSessionManager({
         permissions: [
           {
             requestId: 'perm-1',
             sessionId: 'sess-1',
-            toolName: 'AskUserQuestionTool',
+            toolName: 'AskUserQuestion',
             toolUseId: 'tu-1',
             input: {
               questions: [
@@ -114,7 +114,7 @@ describe('createQuestionRoutes', () => {
                 },
               ],
             },
-            title: 'AskUserQuestionTool',
+            title: 'AskUserQuestion',
             description: '',
             suggestions: [],
           },
@@ -200,7 +200,7 @@ describe('createQuestionRoutes', () => {
       )
     })
 
-    test('replies to AskUserQuestionTool permission', async () => {
+    test('replies to AskUserQuestion permission', async () => {
       const handle = createMockHandle()
       const mgr = createMockSessionManager({
         findPermission: {
@@ -208,7 +208,7 @@ describe('createQuestionRoutes', () => {
           perm: {
             requestId: 'perm-1',
             sessionId: 'sess-1',
-            toolName: 'AskUserQuestionTool',
+            toolName: 'AskUserQuestion',
             toolUseId: 'tu-1',
             input: {
               questions: [
@@ -266,14 +266,14 @@ describe('createQuestionRoutes', () => {
       expect(handle.replyQuestion).toHaveBeenCalledWith('req-1', 'decline')
     })
 
-    test('rejects AskUserQuestionTool permission', async () => {
+    test('rejects AskUserQuestion permission', async () => {
       const handle = createMockHandle()
       const mgr = createMockSessionManager({
         findPermission: {
           handle,
           perm: {
             requestId: 'perm-1',
-            toolName: 'AskUserQuestionTool',
+            toolName: 'AskUserQuestion',
           },
         },
       })

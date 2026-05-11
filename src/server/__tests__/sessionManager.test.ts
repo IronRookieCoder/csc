@@ -21,10 +21,10 @@ describe('SessionManager', () => {
     expect(mgr.getAllSessions()).toEqual([])
   })
 
-  test('getSessionStatuses returns empty object', () => {
+  test('getSessionStatuses returns empty object', async () => {
     const bus = new EventBus()
     const mgr = new SessionManager({ eventBus: bus })
-    expect(mgr.getSessionStatuses()).toEqual({})
+    expect(await mgr.getSessionStatuses()).toEqual({})
   })
 
   test('getAllPendingPermissions returns empty', () => {

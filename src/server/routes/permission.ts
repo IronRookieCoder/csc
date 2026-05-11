@@ -80,8 +80,27 @@ export function createPermissionRoutes(sessionManager: SessionManager): Hono {
         body.behavior === 'once' || body.behavior === 'always' ? 'allow' :
         body.behavior === 'deny' ? 'deny' : 'allow'
 
-      const updatedPermissions = body.updated_permissions
+      let updatedPermissions = body.updated_permissions
         ?? (isAlways ? found.perm.suggestions : undefined)
+      // Fallback: if user chose "always" but no suggestions were generated,
+      // construct a default allow rule for this tool so the decision persists.
+      if (
+        isAlways &&
+        (!updatedPermissions || (updatedPermissions as Record<string, unknown>[]).length === 0)
+      ) {
+        updatedPermissions = [
+          {
+            type: 'addRules',
+            destination: 'session',
+            behavior: 'allow',
+            rules: [
+              {
+                toolName: found.perm.toolName,
+              },
+            ],
+          },
+        ]
+      }
 
       found.handle.replyPermission(requestId, mappedBehavior, {
         updatedInput: body.updated_input ?? {},

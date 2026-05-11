@@ -3,7 +3,13 @@ import { createInterface } from 'readline'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
-import type { SessionState } from './types.js'
+import type { SessionBusyStatus, SessionState } from './types.js'
+
+// 子进程冷启动 + MCP 加载 + 鉴权可能远超 30s；env 可调
+const INIT_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.CSC_SERVE_INIT_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 120000
+})()
 
 type StdoutMessage = {
   type: string
@@ -119,6 +125,7 @@ export class SessionHandle {
   private _spawnCwd: string | undefined
   private child: ChildProcess | null = null
   private _status: SessionState = 'starting'
+  private _busyStatus: SessionBusyStatus = { type: 'idle' }
   private _model?: string
   private _providerId?: string
   private _permissionMode?: string
@@ -147,6 +154,9 @@ export class SessionHandle {
 
   get status(): SessionState {
     return this._status
+  }
+  get busyStatus(): SessionBusyStatus {
+    return this._busyStatus
   }
   get model(): string | undefined {
     return this._model
@@ -195,7 +205,7 @@ export class SessionHandle {
     return this._spawnCwd ?? this.cwd
   }
 
-  async waitReady(timeoutMs = 30000): Promise<void> {
+  async waitReady(timeoutMs = INIT_TIMEOUT_MS): Promise<void> {
     if (this._status === 'running') return
     if (this._status === 'stopped') {
       throw new Error(`Session ${this.sessionId} is stopped`)
@@ -233,6 +243,60 @@ export class SessionHandle {
     this.eventBus.publishSessionEvent(this.sessionId, event, data)
   }
 
+  private emitOpencodeEvent(event: string, properties: Record<string, unknown>): void {
+    if (this.opts.silent) return
+    // Guard against double-wrapping when runtime code is out of sync
+    if (properties.type === event && 'properties' in properties) {
+      this.eventBus.publish(event, properties as Record<string, unknown>)
+      return
+    }
+    // Send flat shape with session_id at the top level so cs-cloud's
+    // wrapEventStream can extract it and inject sessionID into properties.
+    // The frontend then uses inferDirectory -> dirForSession to route the
+    // event to the correct workspace child store.
+    this.eventBus.publish(event, {
+      session_id: properties.sessionID,
+      ...properties,
+    })
+  }
+
+  private emitBusyStatus(): void {
+    if (this.opts.silent) return
+    this.eventBus.publish('session.status', {
+      sessionID: this.sessionId,
+      status: this._busyStatus,
+    })
+  }
+
+  private toPermissionKey(toolName: string): string {
+    const map: Record<string, string> = {
+      Read: 'read',
+      Edit: 'edit',
+      Write: 'edit',
+      Glob: 'glob',
+      Grep: 'grep',
+      LS: 'list',
+      Bash: 'bash',
+      PowerShell: 'bash',
+      Agent: 'task',
+      WebFetch: 'webfetch',
+      WebSearch: 'websearch',
+      TodoRead: 'todoread',
+      TodoWrite: 'todowrite',
+    }
+    return map[toolName] ?? toolName.toLowerCase()
+  }
+
+  private extractPatterns(input: Record<string, unknown>): string[] {
+    const patterns: string[] = []
+    for (const key of ['file_path', 'path', 'pattern', 'glob'] as const) {
+      const v = typeof input[key] === 'string' ? input[key] : ''
+      if (v) patterns.push(v)
+    }
+    const cmd = typeof input.command === 'string' ? input.command : ''
+    if (cmd) patterns.push(cmd)
+    return patterns
+  }
   onMessage(listener: MessageListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -290,6 +354,8 @@ export class SessionHandle {
     this.child.on('close', (code, signal) => {
       if (this._status !== 'stopped') {
         this._status = 'stopped'
+        this._busyStatus = { type: 'idle' }
+        this.emitBusyStatus()
         this.emitEvent('deleted', {
           status: 'stopped',
           exit_code: code,
@@ -311,6 +377,8 @@ export class SessionHandle {
     this.child.on('error', err => {
       logError(err)
       this._status = 'stopped'
+      this._busyStatus = { type: 'idle' }
+      this.emitBusyStatus()
       if (this.initReject) {
         const reject = this.initReject
         this.initResolve = null
@@ -337,7 +405,7 @@ export class SessionHandle {
         })
         reject(new Error(`Session ${this.sessionId} init timed out`))
       }
-    }, 30000)
+    }, INIT_TIMEOUT_MS)
 
     this.initResolve = (data: InitData) => {
       clearTimeout(timeout)
@@ -504,6 +572,8 @@ export class SessionHandle {
         if (cost) this._costUsd += cost
         if (usage?.input_tokens) this._inputTokens += usage.input_tokens
         if (usage?.output_tokens) this._outputTokens += usage.output_tokens
+        this._busyStatus = { type: 'idle' }
+        this.emitBusyStatus()
         this.emitEvent('result', msg)
         if (this.promptResolve) {
           this.promptResolve({ done: true })
@@ -516,10 +586,11 @@ export class SessionHandle {
         const request = msg.request as Record<string, unknown> | undefined
         const requestId = msg.request_id as string
         if (request?.subtype === 'can_use_tool') {
+          const toolName = (request.tool_name as string) ?? 'Unknown'
           const perm: PendingPermission = {
             requestId,
             sessionId: this.sessionId,
-            toolName: (request.tool_name as string) ?? 'Unknown',
+            toolName,
             toolUseId: (request.tool_use_id as string) ?? '',
             input: (request.input as Record<string, unknown>) ?? {},
             title: `${request.tool_name}: ${JSON.stringify(request.input).slice(0, 80)}`,
@@ -529,6 +600,43 @@ export class SessionHandle {
           }
           this.pendingPermissions.set(requestId, perm)
           this.emitEvent('control_request', { request_id: requestId, request })
+
+          // opencode-compatible events
+          if (toolName === 'AskUserQuestion') {
+            const input = (request.input as Record<string, unknown>) ?? {}
+            const questions = (input.questions as Array<Record<string, unknown>>) ?? []
+            this.emitOpencodeEvent('question.asked', {
+              sessionID: this.sessionId,
+              id: requestId,
+              questions: questions.map(q => ({
+                question: q.question as string,
+                header: (q.header as string) ?? '',
+                options: ((q.options as Array<{ label: string; description: string }>) ?? []).map(o => ({
+                  label: o.label,
+                  description: o.description,
+                })),
+                multiple: (q.multiSelect as boolean) ?? false,
+                custom: false,
+              })),
+              tool: {
+                messageID: '',
+                callID: perm.toolUseId,
+              },
+            })
+          } else {
+            this.emitOpencodeEvent('permission.asked', {
+              sessionID: this.sessionId,
+              id: requestId,
+              permission: this.toPermissionKey(toolName),
+              patterns: this.extractPatterns(perm.input),
+              metadata: { input: perm.input },
+              always: [] as string[],
+              tool: {
+                messageID: '',
+                callID: perm.toolUseId,
+              },
+            })
+          }
         } else if (request?.subtype === 'elicitation') {
           const question: PendingQuestion = {
             requestId,
@@ -541,6 +649,19 @@ export class SessionHandle {
           }
           this.pendingQuestions.set(requestId, question)
           this.emitEvent('control_request', { request_id: requestId, request })
+
+          // opencode-compatible event
+          this.emitOpencodeEvent('question.asked', {
+            sessionID: this.sessionId,
+            id: requestId,
+            questions: [{
+              question: question.message,
+              header: question.mcpServerName || 'MCP',
+              options: [] as Array<{ label: string; description: string }>,
+              multiple: false,
+              custom: true,
+            }],
+          })
         } else if (request?.subtype === 'hook_callback') {
           this.emitEvent('control_request', { request_id: requestId, request })
           const callbackId = request.callback_id as string | undefined
@@ -580,8 +701,22 @@ export class SessionHandle {
       }
       case 'control_cancel_request': {
         const cancelRequestId = msg.request_id as string
+        const wasPerm = this.pendingPermissions.has(cancelRequestId)
+        const wasQuestion = this.pendingQuestions.has(cancelRequestId)
         this.pendingPermissions.delete(cancelRequestId)
         this.pendingQuestions.delete(cancelRequestId)
+        if (wasQuestion) {
+          this.emitOpencodeEvent('question.rejected', {
+            sessionID: this.sessionId,
+            requestID: cancelRequestId,
+          })
+        }
+        if (wasPerm) {
+          this.emitOpencodeEvent('permission.replied', {
+            sessionID: this.sessionId,
+            requestID: cancelRequestId,
+          })
+        }
         break
       }
       case 'stream_event': {
@@ -666,6 +801,8 @@ export class SessionHandle {
       )
     }
     this._prompting = true
+    this._busyStatus = { type: 'busy' }
+    this.emitBusyStatus()
     this.lastActiveAt = Date.now()
 
     const userMsg = jsonStringify({
@@ -708,6 +845,9 @@ export class SessionHandle {
       request: { subtype: 'interrupt' },
     })
     this.writeStdin(interrupt)
+
+    this._busyStatus = { type: 'idle' }
+    this.emitBusyStatus()
 
     if (!this.promptResolve) return
 
@@ -761,11 +901,25 @@ export class SessionHandle {
       },
     }
     this.writeStdin(jsonStringify(response))
+    const perm = this.getPendingPermission(requestId)
+    const toolName = perm?.toolName
     this.pendingPermissions.delete(requestId)
     this.emitEvent('permission_replied', {
       request_id: requestId,
       behavior,
     })
+    if (toolName === 'AskUserQuestion') {
+      const eventType = behavior === 'allow' ? 'question.replied' : 'question.rejected'
+      this.emitOpencodeEvent(eventType, {
+        sessionID: this.sessionId,
+        requestID: requestId,
+      })
+    } else {
+      this.emitOpencodeEvent('permission.replied', {
+        sessionID: this.sessionId,
+        requestID: requestId,
+      })
+    }
   }
 
   replyQuestion(
@@ -789,6 +943,11 @@ export class SessionHandle {
     this.emitEvent('question_replied', {
       request_id: requestId,
       action,
+    })
+    const eventType = action === 'accept' ? 'question.replied' : 'question.rejected'
+    this.emitOpencodeEvent(eventType, {
+      sessionID: this.sessionId,
+      requestID: requestId,
     })
   }
 
@@ -838,10 +997,19 @@ export class SessionHandle {
 
   getInfo() {
     return {
+      id: this.sessionId,
       session_id: this.sessionId,
-      status: this._status,
+      slug: this.sessionId,
+      projectID: '',
+      directory: this.cwd,
       cwd: this.cwd,
       title: this._title,
+      version: '',
+      time: {
+        created: this.createdAt,
+        updated: this.lastActiveAt,
+      },
+      status: this._status,
       model: this._model,
       permission_mode: this._permissionMode,
       created_at: this.createdAt,

@@ -161,9 +161,7 @@ export function createSessionRoutes(
           scriptArgs: getScriptArgsForChild(),
         })
 
-        // 等待子进程初始化完成，确保 ready 后再返回，避免立即发 prompt 时子进程还未就绪
-        await handle.waitReady(30000)
-
+        // 不阻塞等待 ready：子进程冷启动可能 >30s 撞上反代超时；prompt() 内部已有 waitReady 兜底
         const info = handle.getInfo()
         return c.json(
           {
@@ -212,10 +210,19 @@ export function createSessionRoutes(
         const handle = handleMap.get(s.sessionId)
         const info = handle?.getInfo()
         return {
+          id: s.sessionId,
           session_id: s.sessionId,
+          slug: info?.slug ?? s.sessionId,
+          projectID: info?.projectID ?? '',
           status: info?.status ?? 'stopped',
+          directory: info?.directory ?? s.cwd ?? '',
           cwd: info?.cwd ?? s.cwd ?? '',
           title: (info?.title ?? s.customTitle ?? s.firstPrompt ?? s.summary) ?? '',
+          version: info?.version ?? '',
+          time: info?.time ?? {
+            created: s.createdAt ?? 0,
+            updated: s.lastModified ?? 0,
+          },
           model: info?.model,
           permission_mode: info?.permission_mode,
           created_at: s.createdAt ?? info?.created_at ?? 0,
@@ -255,47 +262,13 @@ export function createSessionRoutes(
       filtered.sort((a, b) => (b.last_active_at ?? 0) - (a.last_active_at ?? 0))
 
       const sessions = filtered.slice(offset, offset + limit)
-      return c.json({ sessions })
+      return c.json(sessions)
     })
     .get('/session/status', async c => {
-      // 内存中活跃 session 的状态
-      const activeStatuses = sessionManager.getSessionStatuses()
-
-      // 从请求头或 query 取目录过滤
       const headerDir = c.req.header('x-csc-directory')
-      const statusDir = (headerDir ? decodeURIComponent(headerDir) : undefined)
-        ?? c.req.query('dir')
-        ?? undefined
-
-      // 补充磁盘历史 session（全部视为 idle）
-      let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
-      try {
-        historySessions = await listSessionsImpl({ dir: statusDir, limit: 200 })
-      } catch {}
-
-      const sessions: Record<string, { status: string; state: string; has_pending_permission: boolean; type: string }> = {}
-
-      // 先把历史 session 全部标为 idle/stopped
-      for (const s of historySessions) {
-        sessions[s.sessionId] = {
-          status: 'stopped',
-          state: 'stopped',
-          has_pending_permission: false,
-          type: 'idle',
-        }
-      }
-
-      // 用内存中活跃的 handle 状态覆盖
-      for (const [id, st] of Object.entries(activeStatuses)) {
-        sessions[id] = {
-          status: st.status,
-          state: st.status,
-          has_pending_permission: st.has_pending_permission,
-          type: st.prompting ? 'busy' : 'idle',
-        }
-      }
-
-      return c.json({ sessions })
+      const dir = headerDir ? decodeURIComponent(headerDir) : undefined
+      const statuses = sessionManager.getSessionStatuses(dir)
+      return c.json(statuses)
     })
     .get('/session/:sessionID', async c => {
       const id = c.req.param('sessionID')
@@ -315,10 +288,19 @@ export function createSessionRoutes(
         const s = history.find(h => h.sessionId === id)
         if (s) {
           return c.json({
+            id: s.sessionId,
             session_id: s.sessionId,
+            slug: s.sessionId,
+            projectID: '',
             status: 'stopped',
+            directory: s.cwd ?? '',
             cwd: s.cwd ?? '',
             title: (s.customTitle ?? s.firstPrompt ?? s.summary) ?? '',
+            version: '',
+            time: {
+              created: s.createdAt ?? 0,
+              updated: s.lastModified ?? 0,
+            },
             model: undefined,
             permission_mode: undefined,
             created_at: s.createdAt ?? 0,
