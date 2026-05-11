@@ -30,6 +30,11 @@ export type SessionState =
   | 'stopping'
   | 'stopped'
 
+export type SessionBusyStatus =
+  | { type: 'idle' }
+  | { type: 'busy' }
+  | { type: 'retry'; attempt: number; message: string; next: number }
+
 export type SessionInfo = {
   id: string
   status: SessionState

@@ -5,7 +5,8 @@ import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
 import { SessionHandle, type InitData } from './sessionHandle.js'
-import type { SessionIndex, SessionIndexEntry, SessionState } from './types.js'
+import type { SessionIndex, SessionIndexEntry, SessionBusyStatus, SessionState } from './types.js'
+import { canonicalizePath } from '../utils/sessionStoragePortable.js'
 
 const INDEX_FILE = 'server-sessions.json'
 
@@ -108,6 +109,7 @@ export class SessionManager {
             reason: 'idle_timeout',
           })
           this.sessions.delete(id)
+          this.eventBus.unregisterSessionCwd(id)
           this.scheduleIndexSave()
         }
       }
@@ -126,20 +128,15 @@ export class SessionManager {
     return [...this.sessions.values()]
   }
 
-  getSessionStatuses(): Record<
-    string,
-    { status: SessionState; has_pending_permission: boolean; prompting: boolean }
-  > {
-    const result: Record<
-      string,
-      { status: SessionState; has_pending_permission: boolean; prompting: boolean }
-    > = {}
+  async getSessionStatuses(cwd?: string): Promise<Record<string, SessionBusyStatus>> {
+    const canonicalCwd = cwd ? await canonicalizePath(cwd) : undefined
+    const result: Record<string, SessionBusyStatus> = {}
     for (const [id, handle] of this.sessions) {
-      result[id] = {
-        status: handle.status,
-        has_pending_permission: handle.getPendingPermissions().length > 0,
-        prompting: handle.prompting,
+      if (canonicalCwd) {
+        const handleCwd = await canonicalizePath(handle.cwd)
+        if (handleCwd !== canonicalCwd) continue
       }
+      result[id] = handle.busyStatus
     }
     return result
   }
@@ -193,6 +190,9 @@ export class SessionManager {
 
     this.sessions.set(sessionId, handle)
     if (!opts.silent) {
+      void canonicalizePath(cwd).then(canonical => {
+        this.eventBus.registerSessionCwd(sessionId, canonical)
+      })
       this.eventBus.publishSessionEvent(sessionId, 'created', {
         status: 'starting',
       })
@@ -203,6 +203,7 @@ export class SessionManager {
       handle.spawn()
     } catch (err) {
       this.sessions.delete(sessionId)
+      this.eventBus.unregisterSessionCwd(sessionId)
       this.scheduleIndexSave()
       throw err
     }
@@ -266,6 +267,7 @@ export class SessionManager {
     const silent = handle.silent
     handle.forceKill()
     this.sessions.delete(id)
+    this.eventBus.unregisterSessionCwd(id)
     if (!silent) {
       this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
     }

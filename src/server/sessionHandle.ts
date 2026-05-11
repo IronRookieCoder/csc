@@ -3,7 +3,7 @@ import { createInterface } from 'readline'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
-import type { SessionState } from './types.js'
+import type { SessionBusyStatus, SessionState } from './types.js'
 
 type StdoutMessage = {
   type: string
@@ -119,6 +119,7 @@ export class SessionHandle {
   private _spawnCwd: string | undefined
   private child: ChildProcess | null = null
   private _status: SessionState = 'starting'
+  private _busyStatus: SessionBusyStatus = { type: 'idle' }
   private _model?: string
   private _providerId?: string
   private _permissionMode?: string
@@ -147,6 +148,9 @@ export class SessionHandle {
 
   get status(): SessionState {
     return this._status
+  }
+  get busyStatus(): SessionBusyStatus {
+    return this._busyStatus
   }
   get model(): string | undefined {
     return this._model
@@ -233,6 +237,14 @@ export class SessionHandle {
     this.eventBus.publishSessionEvent(this.sessionId, event, data)
   }
 
+  private emitBusyStatus(): void {
+    if (this.opts.silent) return
+    this.eventBus.publish('session.status', {
+      sessionID: this.sessionId,
+      status: this._busyStatus,
+    })
+  }
+
   onMessage(listener: MessageListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -289,6 +301,8 @@ export class SessionHandle {
     this.child.on('close', (code, signal) => {
       if (this._status !== 'stopped') {
         this._status = 'stopped'
+        this._busyStatus = { type: 'idle' }
+        this.emitBusyStatus()
         this.emitEvent('deleted', {
           status: 'stopped',
           exit_code: code,
@@ -310,6 +324,8 @@ export class SessionHandle {
     this.child.on('error', err => {
       logError(err)
       this._status = 'stopped'
+      this._busyStatus = { type: 'idle' }
+      this.emitBusyStatus()
       if (this.initReject) {
         const reject = this.initReject
         this.initResolve = null
@@ -503,6 +519,8 @@ export class SessionHandle {
         if (cost) this._costUsd += cost
         if (usage?.input_tokens) this._inputTokens += usage.input_tokens
         if (usage?.output_tokens) this._outputTokens += usage.output_tokens
+        this._busyStatus = { type: 'idle' }
+        this.emitBusyStatus()
         this.emitEvent('result', msg)
         if (this.promptResolve) {
           this.promptResolve({ done: true })
@@ -665,6 +683,8 @@ export class SessionHandle {
       )
     }
     this._prompting = true
+    this._busyStatus = { type: 'busy' }
+    this.emitBusyStatus()
     this.lastActiveAt = Date.now()
 
     const userMsg = jsonStringify({
@@ -707,6 +727,9 @@ export class SessionHandle {
       request: { subtype: 'interrupt' },
     })
     this.writeStdin(interrupt)
+
+    this._busyStatus = { type: 'idle' }
+    this.emitBusyStatus()
 
     if (!this.promptResolve) return
 

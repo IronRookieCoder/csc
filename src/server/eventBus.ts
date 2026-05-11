@@ -7,6 +7,7 @@ type SSEClient = {
   writer: SSEWriter | null
   rawWrite: ((event: string, data: unknown) => void) | null
   sessionIdFilter?: string
+  cwdFilter?: string
 }
 
 type BusEvent = {
@@ -19,10 +20,19 @@ export class EventBus {
   private buffer: BusEvent[] = []
   private bufferSize = 100
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
+  private sessionCwds = new Map<string, string>()
 
-  addClient(writer: SSEWriter, sessionIdFilter?: string): string {
+  registerSessionCwd(sessionId: string, cwd: string): void {
+    this.sessionCwds.set(sessionId, cwd)
+  }
+
+  unregisterSessionCwd(sessionId: string): void {
+    this.sessionCwds.delete(sessionId)
+  }
+
+  addClient(writer: SSEWriter, sessionIdFilter?: string, cwdFilter?: string): string {
     const id = crypto.randomUUID()
-    const client: SSEClient = { id, writer, rawWrite: null, sessionIdFilter }
+    const client: SSEClient = { id, writer, rawWrite: null, sessionIdFilter, cwdFilter }
     this.clients.set(id, client)
 
     const sendAndCleanup = (opts: { event: string; data: string }) =>
@@ -63,6 +73,16 @@ export class EventBus {
           const dataObj = data as Record<string, unknown> | undefined
           if (dataObj?.session_id && dataObj.session_id !== client.sessionIdFilter) {
             continue
+          }
+        }
+        if (client.cwdFilter) {
+          const dataObj = data as Record<string, unknown> | undefined
+          const sid = dataObj?.session_id ?? dataObj?.sessionID
+          if (typeof sid === 'string') {
+            const sessionCwd = this.sessionCwds.get(sid)
+            if (sessionCwd && sessionCwd !== client.cwdFilter) {
+              continue
+            }
           }
         }
         client.writer.writeSSE({ event, data: payload }).catch(() => {
