@@ -3,56 +3,16 @@ import { createInterface } from 'readline'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
-import type { SessionBusyStatus, SessionState } from './types.js'
-// 子进程冷启动 + MCP 加载 + 鉴权可能远超 30s；env 可调
-const INIT_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.CSC_SERVE_INIT_TIMEOUT_MS)
-  return Number.isFinite(raw) && raw > 0 ? raw : 120000
-})()
+import { INIT_TIMEOUT_MS, getScriptArgsForChild, loadChildSpawnPrefix } from './childSpawn.js'
+import { ControlChannel } from './sessionControlChannel.js'
+import { routeMessage, type StdoutMessage, type MessageRouterCtx } from './sessionMessageRouter.js'
+import type { SessionBusyStatus, SessionState, InitData, PendingPermission, PendingQuestion } from './types.js'
 
-type StdoutMessage = {
-  type: string
-  [key: string]: unknown
-}
+export type { InitData, PendingPermission, PendingQuestion }
+export { getScriptArgsForChild }
+export { getChildSpawnArgs, saveChildSpawnPrefix } from './childSpawn.js'
 
 type MessageListener = (msg: StdoutMessage) => void
-
-export type InitData = {
-  commands?: Array<{ name: string; description: string; argumentHint?: string }>
-  agents?: Array<{ name: string; description?: string; model?: string }>
-  models?: unknown
-  account?: {
-    email?: string
-    organization?: string
-    subscriptionType?: string
-    tokenSource?: string
-    apiKeySource?: string
-    apiProvider?: string
-  }
-  output_style?: string
-  available_output_styles?: string[]
-  pid?: number
-}
-
-export type PendingPermission = {
-  requestId: string
-  sessionId: string
-  toolName: string
-  toolUseId: string
-  input: Record<string, unknown>
-  title: string
-  description: string
-  suggestions: Record<string, unknown>[]
-}
-
-export type PendingQuestion = {
-  requestId: string
-  sessionId: string
-  mcpServerName: string
-  message: string
-  mode: string
-  requestedSchema: Record<string, unknown>
-}
 
 export type SessionHandleOptions = {
   sessionId: string
@@ -71,56 +31,9 @@ export type SessionHandleOptions = {
   onInit?: (data: InitData) => void
 }
 
-export function getScriptArgsForChild(): string[] {
-  const argv1 = process.argv[1]
-  if (!argv1) return []
-  if (argv1.endsWith('.ts') || argv1.endsWith('.tsx') || argv1.includes('/') || argv1.includes('\\')) {
-    return [argv1]
-  }
-  return []
-}
-
-export function getChildSpawnArgs(): { execPath: string; scriptArgs: string[] } {
-  const execPath = process.execPath
-  const scriptArgs = getScriptArgsForChild()
-  return { execPath, scriptArgs }
-}
-
-export async function saveChildSpawnPrefix(): Promise<void> {
-  if (process.env._CSC_CHILD_SPAWN_PREFIX) return
-  const { execPath, scriptArgs } = getChildSpawnArgs()
-  let defineArgs: string[] = []
-  let featureArgs: string[] = []
-  try {
-    const definesMod = await import('../../scripts/defines.js') as { getMacroDefines: () => Record<string, string>; DEFAULT_BUILD_FEATURES: readonly string[] }
-    const defines = definesMod.getMacroDefines()
-    defineArgs = Object.entries(defines).flatMap(([k, v]) => ['-d', `${k}:${v}`])
-    const features = definesMod.DEFAULT_BUILD_FEATURES
-    featureArgs = features.flatMap((f: string) => ['--feature', f])
-  } catch {}
-  const envFeatures = Object.entries(process.env)
-    .filter(([k]) => k.startsWith('FEATURE_') && k.slice(8))
-    .map(([k]) => ['--feature', k.slice(8)] as [string, string])
-    .flat()
-  const allFeatureArgs = [...featureArgs, ...envFeatures]
-  const prefix = JSON.stringify({ execPath, scriptArgs, defineArgs, featureArgs: allFeatureArgs })
-  process.env._CSC_CHILD_SPAWN_PREFIX = prefix
-}
-
-function loadChildSpawnPrefix(): { execPath: string; scriptArgs: string[]; defineArgs?: string[]; featureArgs?: string[] } | null {
-  const raw = process.env._CSC_CHILD_SPAWN_PREFIX
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as { execPath: string; scriptArgs: string[]; defineArgs?: string[]; featureArgs?: string[] }
-  } catch {
-    return null
-  }
-}
-
 export class SessionHandle {
   readonly sessionId: string
   readonly cwd: string
-  /** 子进程实际的工作目录，dev 模式下与 cwd 不同（csc 根目录），用于定位 transcript 文件 */
   private _spawnCwd: string | undefined
   private child: ChildProcess | null = null
   private _status: SessionState = 'starting'
@@ -150,6 +63,7 @@ export class SessionHandle {
   private initReject: ((reason: unknown) => void) | null = null
   private _prompting = false
   private _lastMessageUuid: string | null = null
+  private _controlChannel = new ControlChannel()
 
   get status(): SessionState {
     return this._status
@@ -237,65 +151,6 @@ export class SessionHandle {
     this.verbose = opts.verbose ?? false
   }
 
-  private emitEvent(event: string, data: Record<string, unknown>): void {
-    if (this.opts.silent) return
-    this.eventBus.publishSessionEvent(this.sessionId, event, data)
-  }
-
-  private emitOpencodeEvent(event: string, properties: Record<string, unknown>): void {
-    if (this.opts.silent) return
-    // Guard against double-wrapping when runtime code is out of sync
-    if (properties.type === event && 'properties' in properties) {
-      this.eventBus.publish(event, properties as Record<string, unknown>)
-      return
-    }
-    // Send flat shape with session_id at the top level so cs-cloud's
-    // wrapEventStream can extract it and inject sessionID into properties.
-    // The frontend then uses inferDirectory -> dirForSession to route the
-    // event to the correct workspace child store.
-    this.eventBus.publish(event, {
-      session_id: properties.sessionID,
-      ...properties,
-    })
-  }
-
-  private emitBusyStatus(): void {
-    if (this.opts.silent) return
-    this.eventBus.publish('session.status', {
-      sessionID: this.sessionId,
-      status: this._busyStatus,
-    })
-  }
-
-  private toPermissionKey(toolName: string): string {
-    const map: Record<string, string> = {
-      Read: 'read',
-      Edit: 'edit',
-      Write: 'edit',
-      Glob: 'glob',
-      Grep: 'grep',
-      LS: 'list',
-      Bash: 'bash',
-      PowerShell: 'bash',
-      Agent: 'task',
-      WebFetch: 'webfetch',
-      WebSearch: 'websearch',
-      TodoRead: 'todoread',
-      TodoWrite: 'todowrite',
-    }
-    return map[toolName] ?? toolName.toLowerCase()
-  }
-
-  private extractPatterns(input: Record<string, unknown>): string[] {
-    const patterns: string[] = []
-    for (const key of ['file_path', 'path', 'pattern', 'glob'] as const) {
-      const v = typeof input[key] === 'string' ? input[key] : ''
-      if (v) patterns.push(v)
-    }
-    const cmd = typeof input.command === 'string' ? input.command : ''
-    if (cmd) patterns.push(cmd)
-    return patterns
-  }
   onMessage(listener: MessageListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -308,7 +163,6 @@ export class SessionHandle {
       'stream-json',
       '--output-format',
       'stream-json',
-      // resume 时不传 --session-id，csc 会继承历史 session 的 id
       ...(this.opts.resumeSessionId ? [] : ['--session-id', this.sessionId]),
       ...(this.opts.model ? ['--model', this.opts.model] : []),
       '--permission-mode',
@@ -337,7 +191,7 @@ export class SessionHandle {
     const saved = loadChildSpawnPrefix()
     const defineArgs = saved?.defineArgs ?? []
     const featureArgs = saved?.featureArgs ?? []
-    const spawnArgs = [...defineArgs, ...featureArgs, ...this.opts.scriptArgs, ...printArgs]
+    const spawnArgs = [...defineArgs, ...featureArgs, ...this.opts.scriptArgs, ...printArgs.filter((x): x is string => x != null)]
 
     this._spawnCwd = this.opts.cwd
     this.child = spawn(this.opts.execPath, spawnArgs, {
@@ -350,7 +204,7 @@ export class SessionHandle {
     this.setupStdout()
     this.setupStderr()
 
-    this.child.on('close', (code, signal) => {
+    this.child!.on('close', (code, signal) => {
       if (this._status !== 'stopped') {
         this._status = 'stopped'
         this._busyStatus = { type: 'idle' }
@@ -373,7 +227,7 @@ export class SessionHandle {
       }
     })
 
-    this.child.on('error', err => {
+    this.child!.on('error', err => {
       logError(err)
       this._status = 'stopped'
       this._busyStatus = { type: 'idle' }
@@ -461,7 +315,7 @@ export class SessionHandle {
       } catch {
         return
       }
-      this.routeMessage(msg)
+      routeMessage(msg, this.createRouterCtx())
     })
   }
 
@@ -479,6 +333,31 @@ export class SessionHandle {
     })
   }
 
+  private emitEvent(event: string, data: Record<string, unknown>): void {
+    if (this.opts.silent) return
+    this.eventBus.publishSessionEvent(this.sessionId, event, data)
+  }
+
+  private emitOpencodeEvent(event: string, properties: Record<string, unknown>): void {
+    if (this.opts.silent) return
+    if (properties.type === event && 'properties' in properties) {
+      this.eventBus.publish(event, properties as Record<string, unknown>)
+      return
+    }
+    this.eventBus.publish(event, {
+      session_id: properties.sessionID,
+      ...properties,
+    })
+  }
+
+  private emitBusyStatus(): void {
+    if (this.opts.silent) return
+    this.eventBus.publish('session.status', {
+      sessionID: this.sessionId,
+      status: this._busyStatus,
+    })
+  }
+
   private emitMessage(msg: StdoutMessage): void {
     for (const listener of this.listeners) {
       try {
@@ -487,256 +366,61 @@ export class SessionHandle {
     }
   }
 
-  private routeMessage(msg: StdoutMessage): void {
-    if (
-      this._status === 'starting' &&
-      msg.type === 'control_response' &&
-      this.initResolve
-    ) {
-      const response = msg.response as Record<string, unknown> | undefined
-      if (response?.subtype === 'success' && response?.request_id === this.initRequestId) {
-        const initData = (response.response ?? {}) as InitData
-        this._initData = initData
-        if (Array.isArray(initData.models) && initData.models.length > 0 && !this._model) {
-          const first = (initData.models as Array<Record<string, string>>)[0]
-          this._model = first?.value ?? first?.name
-        }
-        if (initData.account?.apiProvider) {
-          this._providerId = initData.account.apiProvider
-        }
-        this._status = 'running'
-        this.lastActiveAt = Date.now()
-        const resolve = this.initResolve
-        this.initResolve = null
-        this.initReject = null
-        resolve?.(initData)
-        this.emitEvent('ready', {
-          status: 'running',
-          model: this._model,
-          provider_id: this._providerId,
-        })
-        this.opts.onInit?.(initData)
-        return
-      }
-    }
-
-    if (msg.type === 'control_response') {
-      const response = msg.response as Record<string, unknown> | undefined
-      const requestId = response?.request_id as string | undefined
-      if (requestId && this.pendingControlResponses.has(requestId)) {
-        const pending = this.pendingControlResponses.get(requestId)!
-        this.pendingControlResponses.delete(requestId)
-        clearTimeout(pending.timeout)
-        if (response?.subtype === 'error') {
-          pending.reject(new Error((response.error as string) ?? 'Unknown error'))
-        } else {
-          pending.resolve((response?.response ?? {}) as Record<string, unknown>)
-        }
-        return
-      }
-    }
-
-    this.emitMessage(msg)
-
-    switch (msg.type) {
-      case 'assistant': {
-        this.lastActiveAt = Date.now()
-        this._status = 'running'
-        if (msg.uuid && typeof msg.uuid === 'string') {
-          this._lastMessageUuid = msg.uuid
-        }
-        if (!msg.model && this._model) {
-          msg = { ...msg, model: this._model }
-        }
-        if (!msg.provider_id && this._providerId) {
-          msg = { ...msg, provider_id: this._providerId }
-        }
-        this.emitEvent('message', msg)
-        break
-      }
-      case 'user': {
-        if (msg.isReplay) break
-        const content = typeof msg.content === 'string' ? msg.content : ''
-        if (content.includes('<local-command-stdout>')) break
-        this.emitEvent('message', msg)
-        break
-      }
-      case 'result': {
-        this.lastActiveAt = Date.now()
-        this._status = 'running'
-        const cost = msg.cost_usd as number | undefined
-        const usage = msg.usage as
-          | { input_tokens?: number; output_tokens?: number }
-          | undefined
-        if (cost) this._costUsd += cost
-        if (usage?.input_tokens) this._inputTokens += usage.input_tokens
-        if (usage?.output_tokens) this._outputTokens += usage.output_tokens
-        this._busyStatus = { type: 'idle' }
-        this.emitBusyStatus()
-        this.emitEvent('result', msg)
-        if (this.promptResolve) {
-          this.promptResolve({ done: true })
-          this.promptResolve = null
-          this.promptReject = null
-        }
-        break
-      }
-      case 'control_request': {
-        const request = msg.request as Record<string, unknown> | undefined
-        const requestId = msg.request_id as string
-        if (request?.subtype === 'can_use_tool') {
-          const toolName = (request.tool_name as string) ?? 'Unknown'
-          const perm: PendingPermission = {
-            requestId,
-            sessionId: this.sessionId,
-            toolName,
-            toolUseId: (request.tool_use_id as string) ?? '',
-            input: (request.input as Record<string, unknown>) ?? {},
-            title: `${request.tool_name}: ${JSON.stringify(request.input).slice(0, 80)}`,
-            description: `Execute ${request.tool_name}`,
-            suggestions:
-              (request.permission_suggestions as Record<string, unknown>[]) ?? [],
-          }
-          this.pendingPermissions.set(requestId, perm)
-          this.emitEvent('control_request', { request_id: requestId, request })
-
-          // opencode-compatible events
-          if (toolName === 'AskUserQuestion') {
-            const input = (request.input as Record<string, unknown>) ?? {}
-            const questions = (input.questions as Array<Record<string, unknown>>) ?? []
-            this.emitOpencodeEvent('question.asked', {
-              sessionID: this.sessionId,
-              id: requestId,
-              questions: questions.map(q => ({
-                question: q.question as string,
-                header: (q.header as string) ?? '',
-                options: ((q.options as Array<{ label: string; description: string }>) ?? []).map(o => ({
-                  label: o.label,
-                  description: o.description,
-                })),
-                multiple: (q.multiSelect as boolean) ?? false,
-                custom: false,
-              })),
-              tool: {
-                messageID: '',
-                callID: perm.toolUseId,
-              },
-            })
-          } else {
-            this.emitOpencodeEvent('permission.asked', {
-              sessionID: this.sessionId,
-              id: requestId,
-              permission: this.toPermissionKey(toolName),
-              patterns: this.extractPatterns(perm.input),
-              metadata: { input: perm.input },
-              always: [] as string[],
-              tool: {
-                messageID: '',
-                callID: perm.toolUseId,
-              },
-            })
-          }
-        } else if (request?.subtype === 'elicitation') {
-          const question: PendingQuestion = {
-            requestId,
-            sessionId: this.sessionId,
-            mcpServerName: (request.mcp_server_name as string) ?? '',
-            message: (request.message as string) ?? '',
-            mode: (request.mode as string) ?? 'form',
-            requestedSchema:
-              (request.requested_schema as Record<string, unknown>) ?? {},
-          }
-          this.pendingQuestions.set(requestId, question)
-          this.emitEvent('control_request', { request_id: requestId, request })
-
-          // opencode-compatible event
-          this.emitOpencodeEvent('question.asked', {
-            sessionID: this.sessionId,
-            id: requestId,
-            questions: [{
-              question: question.message,
-              header: question.mcpServerName || 'MCP',
-              options: [] as Array<{ label: string; description: string }>,
-              multiple: false,
-              custom: true,
-            }],
-          })
-        } else if (request?.subtype === 'hook_callback') {
-          this.emitEvent('control_request', { request_id: requestId, request })
-          const callbackId = request.callback_id as string | undefined
-          if (!callbackId || callbackId === 'AUTO_APPROVE_CALLBACK_ID') {
-            this.writeStdin(jsonStringify({
-              type: 'control_response',
-              response: {
-                subtype: 'success',
-                request_id: requestId,
-                response: {
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse',
-                    permissionDecision: 'allow',
-                    permissionDecisionReason: 'Auto-approved by serve',
-                  },
-                },
-              },
-            }))
-          } else {
-            this.writeStdin(jsonStringify({
-              type: 'control_response',
-              response: {
-                subtype: 'success',
-                request_id: requestId,
-                response: {
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse',
-                    permissionDecision: 'ask',
-                    permissionDecisionReason: 'Forwarding to can_use_tool',
-                  },
-                },
-              },
-            }))
-          }
-        }
-        break
-      }
-      case 'control_cancel_request': {
-        const cancelRequestId = msg.request_id as string
-        const wasPerm = this.pendingPermissions.has(cancelRequestId)
-        const wasQuestion = this.pendingQuestions.has(cancelRequestId)
-        this.pendingPermissions.delete(cancelRequestId)
-        this.pendingQuestions.delete(cancelRequestId)
-        if (wasQuestion) {
-          this.emitOpencodeEvent('question.rejected', {
-            sessionID: this.sessionId,
-            requestID: cancelRequestId,
-          })
-        }
-        if (wasPerm) {
-          this.emitOpencodeEvent('permission.replied', {
-            sessionID: this.sessionId,
-            requestID: cancelRequestId,
-          })
-        }
-        break
-      }
-      case 'stream_event': {
-        this.lastActiveAt = Date.now()
-        this.emitEvent('stream_event', msg)
-        break
-      }
-      default: {
-        break
+  private writeStdin(data: string): void {
+    if (this.child?.stdin && !this.child.stdin.destroyed) {
+      const flushed = this.child.stdin.write(data + '\n')
+      if (!flushed) {
+        this.child.stdin.once('drain', () => {})
       }
     }
   }
 
-  private pendingControlResponses = new Map<
-    string,
-    {
-      resolve: (response: Record<string, unknown>) => void
-      reject: (error: Error) => void
-      timeout: ReturnType<typeof setTimeout>
+  private createRouterCtx(): MessageRouterCtx {
+    return {
+      sessionId: this.sessionId,
+      silent: this.opts.silent ?? false,
+      getStatus: () => this._status,
+      getBusyStatus: () => this._busyStatus,
+      getModel: () => this._model,
+      getProviderId: () => this._providerId,
+      getInitRequestId: () => this.initRequestId,
+      getLastMessageUuid: () => this._lastMessageUuid,
+      setStatus: (s) => { this._status = s },
+      setBusyStatus: (s) => { this._busyStatus = s },
+      setModel: (m) => { this._model = m },
+      setProviderId: (id) => { this._providerId = id },
+      setInitData: (d) => { this._initData = d },
+      setLastMessageUuid: (u) => { this._lastMessageUuid = u },
+      setLastActiveAt: (t) => { this.lastActiveAt = t },
+      addCost: (c) => { this._costUsd += c },
+      addInputTokens: (t) => { this._inputTokens += t },
+      addOutputTokens: (t) => { this._outputTokens += t },
+      getControlChannel: () => this._controlChannel,
+      getPendingPermissions: () => this.pendingPermissions,
+      getPendingQuestions: () => this.pendingQuestions,
+      resolveInit: (data) => {
+        const resolve = this.initResolve
+        this.initResolve = null
+        this.initReject = null
+        resolve?.(data)
+        this.opts.onInit?.(data)
+      },
+      resolvePrompt: (value) => {
+        this._busyStatus = { type: 'idle' }
+        this.emitBusyStatus()
+        if (this.promptResolve) {
+          this.promptResolve(value)
+          this.promptResolve = null
+          this.promptReject = null
+        }
+      },
+      emitEvent: (event, data) => this.emitEvent(event, data),
+      emitOpencodeEvent: (event, props) => this.emitOpencodeEvent(event, props),
+      emitBusyStatus: () => this.emitBusyStatus(),
+      emitMessage: (msg) => this.emitMessage(msg),
+      writeStdin: (data) => this.writeStdin(data),
     }
-  >()
+  }
 
   setTitle(title: string): void {
     this._title = title
@@ -754,7 +438,7 @@ export class SessionHandle {
         request,
       }),
     )
-    return this.waitForControlResponse(requestId, timeoutMs)
+    return this._controlChannel.register(requestId, timeoutMs)
   }
 
   async setModel(model: string): Promise<void> {
@@ -772,20 +456,7 @@ export class SessionHandle {
     return (response.mcpServers as unknown[]) ?? []
   }
 
-  private waitForControlResponse(
-    requestId: string,
-    timeoutMs = 10000,
-  ): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingControlResponses.delete(requestId)
-        reject(new Error(`Control response timed out for ${requestId}`))
-      }, timeoutMs)
-      this.pendingControlResponses.set(requestId, { resolve, reject, timeout })
-    })
-  }
-
-  async prompt(content: string): Promise<{ done: boolean; error?: string }> {
+  async prompt(content: string, _opts?: { parts?: Array<Record<string, unknown>> }): Promise<{ done: boolean; error?: string }> {
     if (this._status === 'stopped') {
       throw new Error(
         `Session ${this.sessionId} is stopped`,
@@ -959,7 +630,7 @@ export class SessionHandle {
       }
     }
     this._status = 'stopped'
-    this.rejectAllPendingControlResponses(new Error('Session killed'))
+    this._controlChannel.rejectAll(new Error('Session killed'))
   }
 
   forceKill(): void {
@@ -971,7 +642,7 @@ export class SessionHandle {
       }
     }
     this._status = 'stopped'
-    this.rejectAllPendingControlResponses(new Error('Session force killed'))
+    this._controlChannel.rejectAll(new Error('Session force killed'))
   }
 
   getPendingPermissions(): PendingPermission[] {
@@ -1018,22 +689,5 @@ export class SessionHandle {
       output_tokens: this._outputTokens,
       last_message_uuid: this._lastMessageUuid,
     }
-  }
-
-  private writeStdin(data: string): void {
-    if (this.child?.stdin && !this.child.stdin.destroyed) {
-      const flushed = this.child.stdin.write(data + '\n')
-      if (!flushed) {
-        this.child.stdin.once('drain', () => {})
-      }
-    }
-  }
-
-  private rejectAllPendingControlResponses(error: Error): void {
-    for (const [id, pending] of this.pendingControlResponses) {
-      clearTimeout(pending.timeout)
-      pending.reject(error)
-    }
-    this.pendingControlResponses.clear()
   }
 }
