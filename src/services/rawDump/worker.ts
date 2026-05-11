@@ -412,7 +412,7 @@ export async function uploadConversation(
   }
 
   log('debug', 'sending conversation request', { task_id: payload.sessionID, request_id: requestID, bodyKeys: Object.keys(body) })
-  await postJson(authData.baseUrl, authData.headers, '/raw-store/task-conversation', body)
+  await postJson(authData.baseUrl, authData.headers, '/raw-store/task-conversation', body as unknown as Record<string, unknown>)
   state.conversation[key] = true
   log('info', 'conversation uploaded', { task_id: payload.sessionID, request_id: requestID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens })
   return true
@@ -433,13 +433,13 @@ export async function uploadSummary(
 
   const assistants = payload.messages.filter((m) => m.type === 'assistant')
   const { upstream_tokens, downstream_tokens } = assistants.reduce(
-    (acc, m) => {
+    (acc: { upstream_tokens: number; downstream_tokens: number }, m) => {
       const usage = extractUsage(m)
       acc.upstream_tokens += usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
       acc.downstream_tokens += usage.output_tokens
       return acc
     },
-    { upstream_tokens: 0, downstream_tokens: 0 },
+    { upstream_tokens: 0, downstream_tokens: 0 } as { upstream_tokens: number; downstream_tokens: number },
   )
 
   const firstMsg = payload.messages[0]
@@ -467,7 +467,7 @@ export async function uploadSummary(
     files: rawDiff ? extractFilesFromDiff(rawDiff) : [],
   }
 
-  await postJson(authData.baseUrl, authData.headers, '/raw-store/task-summary', body)
+  await postJson(authData.baseUrl, authData.headers, '/raw-store/task-summary', body as unknown as Record<string, unknown>)
   log('info', 'summary uploaded', { task_id: payload.sessionID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens, diff_lines: body.diff_lines })
 }
 
@@ -525,7 +525,7 @@ export async function uploadCommits(
       comment: toCommitComment(commit.subject),
       subject: commit.subject,
     }
-    await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body)
+    await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body as unknown as Record<string, unknown>)
     // 每成功一个 commit 立即更新 state，避免失败后全部重传
     state.commits[stateKey] = commit.commit_id
     log('info', 'commit uploaded', { commit_id: commit.commit_id, progress: `${i + 1}/${commits.length}` })
