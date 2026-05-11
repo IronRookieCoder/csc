@@ -1524,11 +1524,14 @@ async function run(): Promise<CommanderCommand> {
 			new Option("--dangerously-skip-permissions", "Bypass all permission checks. Recommended only for sandboxes with no internet access.")
 				.argParser(() => true),
 		)
-	// 		.option(
-	// 			"--allow-dangerously-skip-permissions",
-	// 			"Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.",
-	// 			() => true,
-	// 		)
+		.addOption(
+			new Option(
+				"--allow-dangerously-skip-permissions",
+				"Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.",
+			)
+				.argParser(() => true)
+				.hideHelp(),
+		)
 		.addOption(
 			new Option(
 				"--thinking <mode>",

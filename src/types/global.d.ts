@@ -79,3 +79,31 @@ declare module '*.css' {
   const content: string
   export default content
 }
+declare module 'doubaoime-asr' {
+  export interface ASRResponse {
+    type: number
+    text: string
+    is_final: boolean
+    errorMsg?: string
+    [key: string]: unknown
+  }
+  export class ASRConfig {
+    constructor(options?: Record<string, unknown>)
+    ensureCredentials(): Promise<void>
+    [key: string]: unknown
+  }
+  export const ResponseType: {
+    SESSION_STARTED: number
+    VAD_START: number
+    INTERIM_RESULT: number
+    FINAL_RESULT: number
+    ERROR: number
+    SESSION_FINISHED: number
+    [key: string]: number
+  }
+  export function transcribeRealtime(
+    audioSource: AsyncIterable<Uint8Array>,
+    options?: { config: ASRConfig },
+  ): AsyncGenerator<ASRResponse>
+  export function createASRStream(options?: Record<string, unknown>): AsyncGenerator<ASRResponse>
+}
