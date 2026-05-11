@@ -66,6 +66,8 @@ export class SessionHandle {
   private _prompting = false
   private _lastMessageUuid: string | null = null
   private _controlChannel = new ControlChannel()
+  private _titleGenerationAttempted = false
+  private _firstPromptContent?: string
 
   get status(): SessionState {
     return this._status
@@ -420,6 +422,19 @@ export class SessionHandle {
           this.promptResolve = null
           this.promptReject = null
         }
+        if (this._firstPromptContent && !this._titleGenerationAttempted) {
+          this._titleGenerationAttempted = true
+          const content = this._firstPromptContent
+          void this.sendControlRequest(
+            { subtype: 'generate_session_title', description: content, persist: true },
+            30_000,
+          ).then((res) => {
+            const title = (res.title as string) || content.slice(0, 100)
+            this.setTitle(title)
+          }).catch(() => {
+            this.setTitle(content.slice(0, 100))
+          })
+        }
       },
       emitEvent: (event, data) => this.emitEvent(event, data),
       emitOpencodeEvent: (event, props) => this.emitOpencodeEvent(event, props),
@@ -431,6 +446,7 @@ export class SessionHandle {
 
   setTitle(title: string): void {
     this._title = title
+    this.emitEvent('ready', this.getInfo())
   }
 
   async sendControlRequest(
@@ -508,6 +524,10 @@ export class SessionHandle {
     })
 
     this.writeStdin(userMsg)
+
+    if (!this._title && !this._titleGenerationAttempted) {
+      this._firstPromptContent = content
+    }
 
     return new Promise((resolve, reject) => {
       this.promptResolve = (value) => {
