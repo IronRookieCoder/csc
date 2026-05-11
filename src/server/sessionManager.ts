@@ -196,6 +196,7 @@ export class SessionManager {
       })
       this.eventBus.publishSessionEvent(sessionId, 'created', {
         status: 'starting',
+        created_at: Date.now(),
       })
     }
     this.scheduleIndexSave()
