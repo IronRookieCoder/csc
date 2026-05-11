@@ -161,9 +161,7 @@ export function createSessionRoutes(
           scriptArgs: getScriptArgsForChild(),
         })
 
-        // 等待子进程初始化完成，确保 ready 后再返回，避免立即发 prompt 时子进程还未就绪
-        await handle.waitReady(30000)
-
+        // 不阻塞等待 ready：子进程冷启动可能 >30s 撞上反代超时；prompt() 内部已有 waitReady 兜底
         const info = handle.getInfo()
         return c.json(
           {
@@ -212,10 +210,19 @@ export function createSessionRoutes(
         const handle = handleMap.get(s.sessionId)
         const info = handle?.getInfo()
         return {
+          id: s.sessionId,
           session_id: s.sessionId,
+          slug: info?.slug ?? s.sessionId,
+          projectID: info?.projectID ?? '',
           status: info?.status ?? 'stopped',
+          directory: info?.directory ?? s.cwd ?? '',
           cwd: info?.cwd ?? s.cwd ?? '',
           title: (info?.title ?? s.customTitle ?? s.firstPrompt ?? s.summary) ?? '',
+          version: info?.version ?? '',
+          time: info?.time ?? {
+            created: s.createdAt ?? 0,
+            updated: s.lastModified ?? 0,
+          },
           model: info?.model,
           permission_mode: info?.permission_mode,
           created_at: s.createdAt ?? info?.created_at ?? 0,
@@ -255,7 +262,7 @@ export function createSessionRoutes(
       filtered.sort((a, b) => (b.last_active_at ?? 0) - (a.last_active_at ?? 0))
 
       const sessions = filtered.slice(offset, offset + limit)
-      return c.json({ sessions })
+      return c.json(sessions)
     })
     .get('/session/status', async c => {
       const headerDir = c.req.header('x-csc-directory')
@@ -281,10 +288,19 @@ export function createSessionRoutes(
         const s = history.find(h => h.sessionId === id)
         if (s) {
           return c.json({
+            id: s.sessionId,
             session_id: s.sessionId,
+            slug: s.sessionId,
+            projectID: '',
             status: 'stopped',
+            directory: s.cwd ?? '',
             cwd: s.cwd ?? '',
             title: (s.customTitle ?? s.firstPrompt ?? s.summary) ?? '',
+            version: '',
+            time: {
+              created: s.createdAt ?? 0,
+              updated: s.lastModified ?? 0,
+            },
             model: undefined,
             permission_mode: undefined,
             created_at: s.createdAt ?? 0,

@@ -2743,7 +2743,7 @@ function runHeadlessStreaming(
           uuid: randomUUID(),
         })
         void run()
-      } else {
+      } else if (!process.env.CSC_SERVE_MODE) {
         // Wait for any in-flight push suggestion before closing the output stream.
         if (suggestionState.inflightPromise) {
           await Promise.race([suggestionState.inflightPromise, sleep(5000)])
@@ -4296,7 +4296,7 @@ function runHeadlessStreaming(
     }
     inputClosed = true
     cronScheduler?.stop()
-    if (!running) {
+    if (!running && !process.env.CSC_SERVE_MODE) {
       // If a push-suggestion is in-flight, wait for it to emit before closing
       // the output stream (5 s safety timeout to prevent hanging).
       if (suggestionState.inflightPromise) {
