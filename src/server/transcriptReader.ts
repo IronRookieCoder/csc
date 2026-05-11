@@ -21,6 +21,10 @@ type TranscriptEntry = {
     content?: unknown
   }
   content?: unknown
+  compactMetadata?: {
+    preservedSegment?: unknown
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 

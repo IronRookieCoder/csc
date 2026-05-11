@@ -20,7 +20,7 @@ export function startServer(
   config: ServerConfig,
   sessionManager: SessionManager,
   eventBus: EventBus,
-): BunServer & { port?: number } {
+): BunServer<undefined> & { port?: number } {
   eventBus.startHeartbeat()
 
   const app = new Hono()

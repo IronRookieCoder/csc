@@ -1,4 +1,5 @@
 import type { Context } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { HTTPException } from 'hono/http-exception'
 
 export class ServeError extends Error {
@@ -42,18 +43,18 @@ export function sessionError(message: string): ServeError {
 
 export function errorHandler(err: Error, c: Context) {
   if (err instanceof ServeError) {
-    return c.json(err.json(), { status: err.status })
+    return c.json(err.json(), { status: err.status as ContentfulStatusCode })
   }
   if (err instanceof HTTPException) {
     return c.json(
       { error: 'HTTP_ERROR', message: err.message },
-      { status: err.status },
+      { status: err.status as ContentfulStatusCode },
     )
   }
   const message =
     err instanceof Error && err.stack ? err.stack : err.toString()
   return c.json(
     { error: 'INTERNAL', message },
-    { status: 500 },
+    { status: 500 as ContentfulStatusCode },
   )
 }
