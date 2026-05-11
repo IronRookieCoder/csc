@@ -27,6 +27,7 @@ function ssePrompt(
   content: string,
   c: import('hono').Context,
   parts?: Array<Record<string, unknown>>,
+  messageID?: string,
 ) {
   return streamSSE(c, async stream => {
     const startTime = Date.now()
@@ -82,7 +83,7 @@ function ssePrompt(
     })
 
     try {
-      await handle.prompt(content, { parts })
+      await handle.prompt(content, { parts, messageID })
     } catch {
       if (!resultWritten) {
         pendingWrite = pendingWrite.then(() =>
@@ -374,6 +375,7 @@ export function createSessionRoutes(
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
         agent?: string
+        messageID?: string
       }>()
 
       const textContent = body.content ?? body.parts
@@ -396,7 +398,7 @@ export function createSessionRoutes(
         try { await handle.setAgent(effectiveAgent) } catch {}
       }
 
-      return ssePrompt(handle, id, content, c, body.parts)
+      return ssePrompt(handle, id, content, c, body.parts, body.messageID)
     })
     .post('/session/:sessionID/prompt_async', async c => {
       const id = c.req.param('sessionID')
@@ -427,6 +429,7 @@ export function createSessionRoutes(
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
         agent?: string
+        messageID?: string
       }>()
 
       const textContent = body.content ?? body.parts
@@ -457,7 +460,8 @@ export function createSessionRoutes(
           if (effectiveAgent && effectiveAgent !== handle.agent) {
             try { await handle.setAgent(effectiveAgent) } catch {}
           }
-          handle.prompt(content, { parts: body.parts }).catch(() => {})
+          handle.prompt(content, { parts: body.parts, messageID: body.messageID }).catch(() => {})
+
         } catch {}
       })()
 

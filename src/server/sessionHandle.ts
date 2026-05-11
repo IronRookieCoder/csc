@@ -468,7 +468,7 @@ export class SessionHandle {
     return (response.mcpServers as unknown[]) ?? []
   }
 
-  async prompt(content: string, _opts?: { parts?: Array<Record<string, unknown>> }): Promise<{ done: boolean; error?: string }> {
+  async prompt(content: string, opts?: { parts?: Array<Record<string, unknown>>; messageID?: string }): Promise<{ done: boolean; error?: string }> {
     if (this._status === 'stopped') {
       throw new Error(
         `Session ${this.sessionId} is stopped`,
@@ -487,10 +487,12 @@ export class SessionHandle {
     this.emitBusyStatus()
     this.lastActiveAt = Date.now()
 
+    const uuid = opts?.messageID ?? crypto.randomUUID()
+
     const userMsg = jsonStringify({
       type: 'user',
       content,
-      uuid: crypto.randomUUID(),
+      uuid,
       session_id: this.sessionId,
       message: { role: 'user', content },
       parent_tool_use_id: null,
@@ -499,6 +501,7 @@ export class SessionHandle {
     this.emitEvent('message', {
       type: 'user',
       content,
+      uuid,
       session_id: this.sessionId,
       model: this._model ?? '',
       provider_id: this._providerId ?? '',
