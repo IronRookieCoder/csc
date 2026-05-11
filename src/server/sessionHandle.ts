@@ -4,7 +4,6 @@ import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
 import type { SessionBusyStatus, SessionState } from './types.js'
-
 // 子进程冷启动 + MCP 加载 + 鉴权可能远超 30s；env 可调
 const INIT_TIMEOUT_MS = (() => {
   const raw = Number(process.env.CSC_SERVE_INIT_TIMEOUT_MS)
