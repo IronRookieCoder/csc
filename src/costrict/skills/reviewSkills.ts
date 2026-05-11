@@ -7,51 +7,54 @@ import {
 
 const LOCALE_MAP: Record<string, string> = { zh: 'zh-CN', en: 'en' }
 
-export function registerReviewSkills(): void {
+function getLocale(): string {
   const lang = getResolvedLanguage()
-  const locale = LOCALE_MAP[lang] ?? 'zh-CN'
+  return LOCALE_MAP[lang] ?? 'zh-CN'
+}
 
+function registerSkillVariant(
+  name: string,
+  skillKey: string,
+  files: Record<string, string>,
+  description: string,
+): void {
+  registerBundledSkill({
+    name,
+    description,
+    whenToUse: description,
+    userInvocable: true,
+    disableModelInvocation: true,
+    allowedTools: [
+      'Glob',
+      'Grep',
+      'Read',
+      'TodoWrite',
+      'Bash',
+      'Agent',
+    ],
+    model: 'inherit',
+    context: 'fork',
+    files,
+    async getPromptForCommand(args) {
+      return [{ type: 'text', text: args.trim() || `Please perform a ${skillKey}.` }]
+    },
+  })
+}
+
+export function registerReviewSkills(): void {
+  const locale = getLocale()
   const localeFiles = SKILL_FILES[locale]
   const localeMetadata = SKILL_METADATA[locale]
-  if (!localeFiles) return
+  if (!localeFiles || !localeMetadata) return
 
-  for (const [skillName, files] of Object.entries(localeFiles)) {
-    const meta = localeMetadata?.[skillName]
-    if (!meta) continue
+  for (const [skillKey, files] of Object.entries(localeFiles)) {
+    const meta = localeMetadata[skillKey]
+    if (!meta || !files) continue
 
-    registerBundledSkill({
-      name: meta.name,
-      description: meta.description,
-      whenToUse: meta.description,
-      userInvocable: true,
-      disableModelInvocation: true,
-      allowedTools: [
-        'AskUserQuestion',
-        'Read',
-        'Glob',
-        'Grep',
-        'Bash',
-        'Agent',
-      ],
-      context: 'fork',
-      files,
-      async getPromptForCommand(args) {
-        const userRequest = args.trim()
-        if (!userRequest) {
-          return [
-            {
-              type: 'text',
-              text: `Please use the Skill tool to load '${meta.name}' skill.`,
-            },
-          ]
-        }
-        return [
-          {
-            type: 'text',
-            text: userRequest,
-          },
-        ]
-      },
-    })
+    // Register /review, /security-review
+    registerSkillVariant(meta.name, skillKey, files, meta.description)
+
+    // Register /strict:review, /strict:security-review
+    registerSkillVariant(`strict:${skillKey}`, skillKey, files, meta.description)
   }
 }

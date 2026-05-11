@@ -1,23 +1,13 @@
-import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.js'
-import type { Command } from '../commands.js'
-import type { ToolUseContext } from '../Tool.js'
 import { isUltrareviewEnabled } from './review/ultrareviewEnabled.js'
+import type { Command } from '../commands.js'
 
 // Legal wants the explicit surface name plus a docs link visible before the
 // user triggers, so the description carries "Claude Code on the web" + URL.
 const CCR_TERMS_URL = 'https://costrict.ai/docs/en/claude-code-on-the-web'
 
-const review: Command = {
-  type: 'prompt',
-  name: 'review',
-  description: 'Review code for defects, security vulnerabilities, memory issues, and logic errors',
-  progressMessage: 'reviewing code',
-  contentLength: 0,
-  source: 'builtin',
-  async getPromptForCommand(args, _context): Promise<ContentBlockParam[]> {
-    return [{ type: 'text', text: args }]
-  },
-}
+// /review is registered as a bundled skill via registerReviewSkills() in
+// src/costrict/skills/reviewSkills.ts, which provides the full SKILL.md
+// content and reference files. This file only provides /ultrareview.
 
 // /ultrareview is the ONLY entry point to the remote bughunter path —
 // /review stays purely local. local-jsx type renders the overage permission
@@ -30,5 +20,4 @@ const ultrareview: Command = {
   load: () => import('./review/ultrareviewCommand.js'),
 }
 
-export default review
 export { ultrareview }
