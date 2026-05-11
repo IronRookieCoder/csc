@@ -33,6 +33,7 @@ import { resolveCoStrictModel } from './modelMapping.js'
 import { getCoStrictBaseURL } from './auth.js'
 import { loadCoStrictCredentials } from './credentials.js'
 import { isOpenAIThinkingEnabled } from '../../services/api/openai/requestBody.js'
+import { getMainThreadAgentType, getActiveSkillName } from '../../bootstrap/state.js'
 
 /**
  * CoStrict 查询路径
@@ -93,7 +94,9 @@ export async function* queryModelCoStrict(
     const openaiToolChoice = anthropicToolChoiceToOpenAI(options.toolChoice)
 
     // 6. 创建专用的 CoStrict OpenAI 客户端（不缓存，每次使用新的 fetch）
-    const costrictFetch = createCoStrictFetch()
+    const costrictFetch = createCoStrictFetch({
+      agentType: getMainThreadAgentType() ?? getActiveSkillName(),
+    })
     const client = new OpenAI({
       apiKey: 'costrict-managed', // 实际 token 由 createCoStrictFetch 注入
       baseURL: chatBaseURL,
