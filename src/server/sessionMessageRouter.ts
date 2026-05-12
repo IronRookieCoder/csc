@@ -88,6 +88,10 @@ export function routeMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
       ctx.emitEvent('stream_event', msg)
       break
     }
+    case 'system': {
+      ctx.emitEvent('message', msg)
+      break
+    }
     default: {
       break
     }
