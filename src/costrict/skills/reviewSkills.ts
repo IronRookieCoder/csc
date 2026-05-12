@@ -34,7 +34,7 @@ function registerReviewSkill(
     description,
     whenToUse: description,
     userInvocable: true,
-    disableModelInvocation: true,
+    disableModelInvocation: false,
     allowedTools: ALLOWED_TOOLS,
     files,
     async getPromptForCommand(args) {
