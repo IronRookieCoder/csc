@@ -373,6 +373,7 @@ export function createSessionRoutes(
         files?: string[]
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
+        agent?: string
       }>()
 
       const textContent = body.content ?? body.parts
@@ -389,6 +390,10 @@ export function createSessionRoutes(
 
       if (body.model?.modelID) {
         try { await handle.setModel(body.model.modelID) } catch {}
+      }
+      const effectiveAgent = body.agent ?? (agentParts[0] as Record<string, unknown> | undefined)?.name as string | undefined
+      if (effectiveAgent && effectiveAgent !== handle.agent) {
+        try { await handle.setAgent(effectiveAgent) } catch {}
       }
 
       return ssePrompt(handle, id, content, c, body.parts)
@@ -421,6 +426,7 @@ export function createSessionRoutes(
         files?: string[]
         images?: unknown[]
         model?: { providerID?: string; modelID?: string }
+        agent?: string
       }>()
 
       const textContent = body.content ?? body.parts
@@ -446,6 +452,10 @@ export function createSessionRoutes(
           }
           if (body.model?.modelID) {
             try { await handle.setModel(body.model.modelID) } catch {}
+          }
+          const effectiveAgent = body.agent ?? (agentParts[0] as Record<string, unknown> | undefined)?.name as string | undefined
+          if (effectiveAgent && effectiveAgent !== handle.agent) {
+            try { await handle.setAgent(effectiveAgent) } catch {}
           }
           handle.prompt(content, { parts: body.parts }).catch(() => {})
         } catch {}
