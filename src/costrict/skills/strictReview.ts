@@ -23,7 +23,7 @@ const ALLOWED_TOOLS = [
   'Agent',
 ]
 
-function registerReviewSkill(
+function registerStrictReviewSkill(
   name: string,
   skillKey: string,
   files: Record<string, string>,
@@ -47,7 +47,7 @@ function registerReviewSkill(
   })
 }
 
-export function registerReviewSkills(): void {
+export function registerStrictReviewSkills(): void {
   const locale = getLocale()
   const localeFiles = SKILL_FILES[locale]
   const localeMetadata = SKILL_METADATA[locale]
@@ -57,7 +57,6 @@ export function registerReviewSkills(): void {
     const meta = localeMetadata[skillKey]
     if (!meta || !files) continue
 
-    registerReviewSkill(meta.name, skillKey, files, meta.description)
-    registerReviewSkill(`strict:${skillKey}`, skillKey, files, meta.description)
+    registerStrictReviewSkill(`strict:${skillKey}`, skillKey, files, meta.description)
   }
 }
