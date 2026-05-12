@@ -12,6 +12,7 @@ export interface CoStrictModel {
   supportsImages?: boolean
   contextWindow?: number
   maxTokens?: number
+  maxTokensKey?: string
   creditConsumption?: number
   creditDiscount?: number
   [key: string]: any
@@ -42,6 +43,7 @@ export async function fetchCoStrictModels(
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
+        'User-Agent': `csc/${MACRO.VERSION}`,
       },
     })
 
