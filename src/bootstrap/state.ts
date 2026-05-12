@@ -195,6 +195,8 @@ type State = {
   sdkBetas: string[] | undefined
   // Main thread agent type (from --agent flag or settings)
   mainThreadAgentType: string | undefined
+  // Currently active skill name (set when a /skill-name is invoked)
+  activeSkillName: string | undefined
   // Remote mode (--remote flag)
   isRemoteMode: boolean
   // Direct connect server URL (for display in header)
@@ -381,6 +383,8 @@ function getInitialState(): State {
     sdkBetas: undefined,
     // Main thread agent type
     mainThreadAgentType: undefined,
+    // Currently active skill name
+    activeSkillName: undefined,
     // Remote mode
     isRemoteMode: false,
     ...(process.env.USER_TYPE === 'ant'
@@ -1620,6 +1624,14 @@ export function getMainThreadAgentType(): string | undefined {
 
 export function setMainThreadAgentType(agentType: string | undefined): void {
   STATE.mainThreadAgentType = agentType
+}
+
+export function getActiveSkillName(): string | undefined {
+  return STATE.activeSkillName
+}
+
+export function setActiveSkillName(skillName: string | undefined): void {
+  STATE.activeSkillName = skillName
 }
 
 export function getIsRemoteMode(): boolean {

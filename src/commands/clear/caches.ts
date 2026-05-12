@@ -5,6 +5,7 @@
 import { feature } from 'bun:bundle'
 import {
   clearInvokedSkills,
+  setActiveSkillName,
   setLastEmittedDate,
 } from '../../bootstrap/state.js'
 import { clearCommandsCache } from '../../commands.js'
@@ -115,6 +116,8 @@ export function clearSessionCaches(
   if (!hasPreserved) clearAllDumpState()
   // Clear invoked skills cache (each entry holds full skill file content)
   clearInvokedSkills(preservedAgentIds)
+  // Reset active skill name so new session doesn't inherit previous session's agent-type
+  setActiveSkillName(undefined)
   // Clear git dir resolution cache
   clearResolveGitDirCache()
   // Clear dynamic skills (loaded from skill directories)

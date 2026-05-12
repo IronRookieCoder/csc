@@ -38,6 +38,15 @@ type CoStrictFetch = typeof fetch & {
   preconnect?: (url: string | URL) => void
 }
 
+// PascalCase / camelCase → kebab-case: "StrictSpec" → "strict-spec", "TDD" → "tdd"
+function toKebabCase(s: string | undefined): string | undefined {
+  if (!s) return undefined
+  return s
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/([a-z\d])([A-Z])/g, '$1-$2')
+    .toLowerCase()
+}
+
 /**
  * 创建自定义 fetch 函数，用于 CoStrict API 请求
  *
@@ -47,7 +56,10 @@ type CoStrictFetch = typeof fetch & {
  * 3. 注入 Authorization 和 CoStrict 特有 headers
  * 4. 反应性 401 错误恢复（自动重试一次）
  */
-export function createCoStrictFetch(): CoStrictFetch {
+export function createCoStrictFetch(options?: {
+  agentType?: string
+}): CoStrictFetch {
+  const agentType = toKebabCase(options?.agentType) || 'build'
   const costrictFetch = async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -94,6 +106,7 @@ export function createCoStrictFetch(): CoStrictFetch {
     headers.set('X-Title', 'CoStrict-CLI')
     headers.set('X-Costrict-Version', `costrict-cli-${VERSION}`)
     headers.set('X-Request-ID', randomUUID())
+    headers.set('agent-type', agentType)
     headers.set('zgsm-client-id', creds.machine_id)
     headers.set('zgsm-client-ide', 'cli')
 
