@@ -3108,9 +3108,28 @@ function runHeadlessStreaming(
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'set_agent') {
           const agent = typeof msg.request.agent === 'string' ? msg.request.agent : undefined
-          if (agent) {
-            setMainThreadAgentType(agent)
-            saveAgentSetting(agent)
+          // 'build' is the frontend display name for the default (no-agent) mode.
+          // Treat it as clearing the agent, same as undefined.
+          const resolvedAgent = agent === 'build' ? undefined : agent
+          setMainThreadAgentType(resolvedAgent)
+          saveAgentSetting(resolvedAgent ?? '')
+          if (resolvedAgent) {
+            // Apply the agent's system prompt so QueryEngine picks it up on the next turn.
+            // QueryEngine.ask() uses options.systemPrompt (customSystemPrompt) directly,
+            // bypassing buildEffectiveSystemPrompt/mainThreadAgentDefinition. For built-in
+            // agents the getSystemPrompt params are ignored; pass a minimal stub.
+            const agentDef = currentAgents.find(a => a.agentType === resolvedAgent)
+            if (agentDef) {
+              const agentSystemPrompt = isBuiltInAgent(agentDef)
+                ? agentDef.getSystemPrompt({ toolUseContext: { options: {} as never } })
+                : agentDef.getSystemPrompt()
+              if (agentSystemPrompt) {
+                options.systemPrompt = agentSystemPrompt
+              }
+            }
+          } else {
+            // Switching back to default mode: clear any previously applied agent system prompt.
+            options.systemPrompt = undefined
           }
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'set_max_thinking_tokens') {

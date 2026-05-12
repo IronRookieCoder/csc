@@ -393,8 +393,10 @@ export function createSessionRoutes(
         .join('\n') ?? ''
 
       const agentParts = body.parts?.filter((p) => p.type === 'agent' && p.name) ?? []
-      const agentMentions = agentParts.map((p) => `@agent-${p.name}`).join(' ')
-      const content = [textContent, agentMentions].filter(Boolean).join('\n')
+      // Agent switching is handled via setAgent() control message below.
+      // Do not append @agent-* mentions to content — they are REPL-only syntax
+      // and would be sent verbatim to the model in server mode.
+      const content = textContent
 
       if (!content) throw badRequest('content is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
@@ -432,8 +434,10 @@ export function createSessionRoutes(
         .join('\n') ?? ''
 
       const agentParts = body.parts?.filter((p) => p.type === 'agent' && p.name) ?? []
-      const agentMentions = agentParts.map((p) => `@agent-${p.name}`).join(' ')
-      const content = [textContent, agentMentions].filter(Boolean).join('\n')
+      // Agent switching is handled via setAgent() control message below.
+      // Do not append @agent-* mentions to content — they are REPL-only syntax
+      // and would be sent verbatim to the model in server mode.
+      const content = textContent
 
       if (!content) {
         throw badRequest('content is required')
