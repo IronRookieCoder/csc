@@ -49,3 +49,4 @@ src/costrict/review/skill/builtin.ts
 
 # Review builtin cache
 packages/builtin-tools/bundled-review/
+bundled-review/

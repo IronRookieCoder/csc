@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import { shouldAutoEnableClaudeInChrome } from 'src/utils/claudeInChrome/setup.js'
-import { registerReviewSkills } from 'src/costrict/skills/reviewSkills.js'
+import { Extension as ReviewExtension } from 'src/costrict/review/index.js'
 import { registerBatchSkill } from './batch.js'
 import { registerClaudeInChromeSkill } from './claudeInChrome.js'
 import { registerDebugSkill } from './debug.js'
@@ -30,8 +30,8 @@ import { registerTddSkill } from 'src/costrict/skills/tdd.js'
  * 3. Import and call that function here
  */
 export function initBundledSkills(): void {
-  // Register review skills (bundled with embedded files)
-  registerReviewSkills()
+  // Extract review skills to disk for standard scanner discovery
+  ReviewExtension.initializeBuiltinSkills().catch(() => {})
 
   registerUpdateConfigSkill()
   registerProjectWikiSkill()

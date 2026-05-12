@@ -258,6 +258,26 @@ export function getSkillFiles(skillName: string, locale: string): Record<string,
 export function getSkillMetadata(skillName: string, locale: string): { name: string; description: string } | undefined {
   return SKILL_METADATA[locale]?.[skillName]
 }
+
+export async function extractBundledSkill(skillName: string, targetDir: string, locale: string): Promise<void> {
+  const localeData = SKILL_FILES[locale]
+  if (!localeData) {
+    throw new Error(\`Locale not found: \${locale}\`)
+  }
+
+  const skillFiles = localeData[skillName]
+  if (!skillFiles) {
+    throw new Error(\`Skill not found: \${skillName}\`)
+  }
+
+  const { mkdir: mkdirSync, writeFile: writeFileSync } = await import('fs/promises')
+  const { join: pathJoin, dirname: pathDirname } = await import('path')
+  await mkdirSync(targetDir, { recursive: true })
+  for (const [relativePath, fileContent] of Object.entries(skillFiles)) {
+    await mkdirSync(pathJoin(targetDir, pathDirname(relativePath)), { recursive: true })
+    await writeFileSync(pathJoin(targetDir, relativePath), fileContent, 'utf-8')
+  }
+}
 `
 
   await mkdir(path.dirname(builtinSkillsFile), { recursive: true })
