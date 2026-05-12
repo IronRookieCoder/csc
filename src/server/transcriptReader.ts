@@ -184,16 +184,21 @@ export async function readSessionMessages(opts: {
     })
   }
 
-  const startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0
-  const sliced = allMessages.slice(startIndex)
-  const limited = opts.limit ? sliced.slice(0, opts.limit) : sliced
+  let sliced: SessionMessage[]
+  if (cursorIndex >= 0) {
+    sliced = allMessages.slice(cursorIndex + 1)
+  } else if (opts.limit) {
+    sliced = allMessages.slice(-opts.limit)
+  } else {
+    sliced = allMessages
+  }
 
   const nextCursor =
-    opts.limit && sliced.length > opts.limit
-      ? sliced[opts.limit]?.uuid
+    opts.limit && allMessages.length > sliced.length
+      ? sliced[0]?.uuid
       : undefined
 
-  return { messages: limited, nextCursor }
+  return { messages: sliced, nextCursor }
 }
 
 export async function readSessionTodos(opts: {
