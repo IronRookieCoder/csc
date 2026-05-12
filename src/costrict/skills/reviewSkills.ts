@@ -1,5 +1,6 @@
 import { registerBundledSkill } from 'src/skills/bundledSkills.js'
 import { getResolvedLanguage } from 'src/utils/language.js'
+import { CommandLocale } from 'src/costrict/command/locales/index.js'
 import {
   SKILL_FILES,
   SKILL_METADATA,
@@ -12,11 +13,22 @@ function getLocale(): string {
   return LOCALE_MAP[lang] ?? 'zh-CN'
 }
 
-function registerSkillVariant(
+const ALLOWED_TOOLS = [
+  'Skill',
+  'Glob',
+  'Grep',
+  'Read',
+  'TodoWrite',
+  'Bash',
+  'Agent',
+]
+
+function registerReviewSkill(
   name: string,
   skillKey: string,
   files: Record<string, string>,
   description: string,
+  forked: boolean,
 ): void {
   registerBundledSkill({
     name,
@@ -24,19 +36,15 @@ function registerSkillVariant(
     whenToUse: description,
     userInvocable: true,
     disableModelInvocation: true,
-    allowedTools: [
-      'Glob',
-      'Grep',
-      'Read',
-      'TodoWrite',
-      'Bash',
-      'Agent',
-    ],
-    model: 'inherit',
-    context: 'fork',
+    allowedTools: ALLOWED_TOOLS,
+    context: forked ? 'fork' : undefined,
     files,
     async getPromptForCommand(args) {
-      return [{ type: 'text', text: args.trim() || `Please perform a ${skillKey}.` }]
+      const template = CommandLocale.get(skillKey)
+      const text = template
+        ? template.replace('$ARGUMENTS', args.trim())
+        : args.trim() || `Please perform a ${skillKey}.`
+      return [{ type: 'text', text }]
     },
   })
 }
@@ -51,10 +59,10 @@ export function registerReviewSkills(): void {
     const meta = localeMetadata[skillKey]
     if (!meta || !files) continue
 
-    // Register /review, /security-review
-    registerSkillVariant(meta.name, skillKey, files, meta.description)
+    // /review, /security-review — inline in main session
+    registerReviewSkill(meta.name, skillKey, files, meta.description, false)
 
-    // Register /strict:review, /strict:security-review
-    registerSkillVariant(`strict:${skillKey}`, skillKey, files, meta.description)
+    // /strict:review, /strict:security-review — forked sub-agent
+    registerReviewSkill(`strict:${skillKey}`, skillKey, files, meta.description, true)
   }
 }
