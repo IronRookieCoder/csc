@@ -3098,6 +3098,13 @@ function runHeadlessStreaming(
           injectModelSwitchBreadcrumbs(requestedModel, model)
 
           sendControlResponseSuccess(msg)
+        } else if (msg.request.subtype === 'set_agent') {
+          const agent = typeof msg.request.agent === 'string' ? msg.request.agent : undefined
+          if (agent) {
+            setMainThreadAgentType(agent)
+            saveAgentSetting(agent)
+          }
+          sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'set_max_thinking_tokens') {
           if (msg.request.max_thinking_tokens === null) {
             options.thinkingConfig = undefined

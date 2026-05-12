@@ -18,6 +18,7 @@ export type SessionHandleOptions = {
   sessionId: string
   cwd: string
   model?: string
+  agent?: string
   permissionMode?: string
   systemPrompt?: string
   resumeSessionId?: string
@@ -39,6 +40,7 @@ export class SessionHandle {
   private _status: SessionState = 'starting'
   private _busyStatus: SessionBusyStatus = { type: 'idle' }
   private _model?: string
+  private _agent?: string
   private _providerId?: string
   private _permissionMode?: string
   private _title?: string
@@ -73,6 +75,9 @@ export class SessionHandle {
   }
   get model(): string | undefined {
     return this._model
+  }
+  get agent(): string | undefined {
+    return this._agent
   }
   get permissionMode(): string | undefined {
     return this._permissionMode
@@ -147,6 +152,7 @@ export class SessionHandle {
     this.cwd = opts.cwd
     this.eventBus = opts.eventBus
     this._model = opts.model
+    this._agent = opts.agent
     this._permissionMode = opts.permissionMode ?? 'acceptEdits'
     this.verbose = opts.verbose ?? false
   }
@@ -165,6 +171,7 @@ export class SessionHandle {
       'stream-json',
       ...(this.opts.resumeSessionId ? [] : ['--session-id', this.sessionId]),
       ...(this.opts.model ? ['--model', this.opts.model] : []),
+      ...(this._agent ? ['--agent', this._agent] : []),
       '--permission-mode',
       this._permissionMode,
       '--permission-prompt-tool',
@@ -444,6 +451,11 @@ export class SessionHandle {
   async setModel(model: string): Promise<void> {
     this._model = model
     await this.sendControlRequest({ subtype: 'set_model', model })
+  }
+
+  async setAgent(agent: string): Promise<void> {
+    this._agent = agent
+    await this.sendControlRequest({ subtype: 'set_agent', agent })
   }
 
   async setPermissionMode(mode: string): Promise<void> {
