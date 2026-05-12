@@ -5,7 +5,15 @@ import {
   readSessionMessages,
   readSessionTodos,
   readSessionDiff,
+  type SessionMessage,
 } from '../transcriptReader.js'
+
+function dedupeMessages(disk: SessionMessage[], memory: SessionMessage[]): SessionMessage[] {
+  if (disk.length === 0) return memory
+  const diskUuids = new Set(disk.map(m => m.uuid))
+  const tail = memory.filter(m => !diskUuids.has(m.uuid))
+  return [...disk, ...tail]
+}
 
 export function createMessageRoutes(sessionManager: SessionManager): Hono {
   return new Hono()
@@ -18,13 +26,17 @@ export function createMessageRoutes(sessionManager: SessionManager): Hono {
       const before = url.searchParams.get('before') ?? undefined
       const includeSystem = url.searchParams.get('include_system') === 'true'
 
-      const { messages, nextCursor } = await readSessionMessages({
+      const { messages: diskMessages, nextCursor } = await readSessionMessages({
         sessionId: id,
         cwd: handle?.spawnCwd ?? handle?.cwd,
         limit,
         before,
         includeSystem,
       })
+
+      const messages = handle && handle.messageBuffer.length > 0
+        ? dedupeMessages(diskMessages, [...handle.messageBuffer])
+        : diskMessages
 
       if (nextCursor) {
         c.header('Link', `<${url.pathname}?limit=${limit}&before=${nextCursor}>; rel="prev"`)

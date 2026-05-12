@@ -1,6 +1,7 @@
 import { jsonStringify } from '../utils/slowOperations.js'
 import type { ControlChannel } from './sessionControlChannel.js'
 import type { SessionBusyStatus, SessionState, InitData, PendingPermission, PendingQuestion } from './types.js'
+import type { SessionMessage } from './transcriptReader.js'
 
 export type StdoutMessage = {
   type: string
@@ -42,6 +43,7 @@ export type MessageRouterCtx = {
   emitBusyStatus(): void
   emitMessage(msg: StdoutMessage): void
   writeStdin(data: string): void
+  pushBufferMessage(msg: SessionMessage): void
 }
 
 export function routeMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
@@ -132,6 +134,16 @@ function handleAssistantMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void
     enriched = { ...enriched, provider_id: ctx.getProviderId() }
   }
   ctx.emitEvent('message', enriched)
+  if (msg.uuid) {
+    ctx.pushBufferMessage({
+      uuid: msg.uuid as string,
+      type: 'assistant',
+      role: 'assistant',
+      content: msg.message ?? msg.content ?? '',
+      timestamp: msg.timestamp ? new Date(msg.timestamp as string).getTime() : Date.now(),
+      parent_uuid: (msg.parentUuid as string) ?? null,
+    })
+  }
 }
 
 function handleUserMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
@@ -153,9 +165,6 @@ function handleResultMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
   if (usage?.output_tokens) ctx.addOutputTokens(usage.output_tokens)
   ctx.setBusyStatus({ type: 'idle' })
   ctx.emitBusyStatus()
-  process.stderr.write(
-    `[serve:timing:${ctx.sessionId}] result → idle emitted\n`,
-  )
   ctx.emitEvent('result', msg)
   ctx.resolvePrompt({ done: true })
 }

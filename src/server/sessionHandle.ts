@@ -7,6 +7,8 @@ import { INIT_TIMEOUT_MS, getScriptArgsForChild, loadChildSpawnPrefix } from './
 import { ControlChannel } from './sessionControlChannel.js'
 import { routeMessage, type StdoutMessage, type MessageRouterCtx } from './sessionMessageRouter.js'
 import type { SessionBusyStatus, SessionState, InitData, PendingPermission, PendingQuestion } from './types.js'
+import type { DisposableChildProcess } from '../utils/killOnDrop.js'
+import type { SessionMessage } from './transcriptReader.js'
 
 export type { InitData, PendingPermission, PendingQuestion }
 export { getScriptArgsForChild }
@@ -32,7 +34,7 @@ export type SessionHandleOptions = {
   onInit?: (data: InitData) => void
 }
 
-export class SessionHandle {
+export class SessionHandle implements DisposableChildProcess {
   readonly sessionId: string
   readonly cwd: string
   private _spawnCwd: string | undefined
@@ -68,6 +70,7 @@ export class SessionHandle {
   private _controlChannel = new ControlChannel()
   private _titleGenerationAttempted = false
   private _firstPromptContent?: string
+  private _messageBuffer: SessionMessage[] = []
 
   get status(): SessionState {
     return this._status
@@ -107,6 +110,17 @@ export class SessionHandle {
   }
   get prompting(): boolean {
     return this._prompting
+  }
+  get messageBuffer(): ReadonlyArray<SessionMessage> {
+    return this._messageBuffer
+  }
+
+  pushMessage(msg: SessionMessage): void {
+    if (this._messageBuffer.length > 0) {
+      const last = this._messageBuffer[this._messageBuffer.length - 1]
+      if (last.uuid === msg.uuid) return
+    }
+    this._messageBuffer.push(msg)
   }
 
   get lastMessageUuid(): string | null {
@@ -210,10 +224,12 @@ export class SessionHandle {
       windowsHide: true,
     })
 
+    // registerKillOnDrop(this, this.child)
     this.setupStdout()
     this.setupStderr()
 
     this.child!.on('close', (code, signal) => {
+      // unregisterKillOnDrop(this)
       if (this._status !== 'stopped') {
         this._status = 'stopped'
         this._busyStatus = { type: 'idle' }
@@ -441,6 +457,7 @@ export class SessionHandle {
       emitBusyStatus: () => this.emitBusyStatus(),
       emitMessage: (msg) => this.emitMessage(msg),
       writeStdin: (data) => this.writeStdin(data),
+      pushBufferMessage: (msg) => this.pushMessage(msg),
     }
   }
 
@@ -485,17 +502,9 @@ export class SessionHandle {
   }
 
   async prompt(content: string, opts?: { parts?: Array<Record<string, unknown>>; messageID?: string }): Promise<{ done: boolean; error?: string }> {
-    const tEnter = Date.now()
     if (this._status === 'stopped') {
       throw new Error(
         `Session ${this.sessionId} is stopped`,
-      )
-    }
-    if (this._status !== 'running') {
-      const tWaitStart = Date.now()
-      await this.waitReady()
-      process.stderr.write(
-        `[serve:timing:${this.sessionId}] prompt() waitReady took ${Date.now() - tWaitStart}ms\n`,
       )
     }
     if (this._prompting) {
@@ -505,12 +514,7 @@ export class SessionHandle {
     }
     this._prompting = true
 
-    // Busy status was already emitted from the route handler (immediate).
-    // Only emit here if this prompt() was called directly (not via prompt_async).
     const alreadyBusy = this._busyStatus?.type === 'busy'
-    process.stderr.write(
-      `[serve:timing:${this.sessionId}] prompt() entry, alreadyBusy=${alreadyBusy}, +0ms from prompt() call\n`,
-    )
 
     if (!alreadyBusy) {
       this._busyStatus = { type: 'busy' }
@@ -536,6 +540,15 @@ export class SessionHandle {
       session_id: this.sessionId,
       model: this._model ?? '',
       provider_id: this._providerId ?? '',
+    })
+
+    this.pushMessage({
+      uuid,
+      type: 'user',
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+      parent_uuid: null,
     })
 
     this.writeStdin(userMsg)
@@ -693,6 +706,10 @@ export class SessionHandle {
     }
     this._status = 'stopped'
     this._controlChannel.rejectAll(new Error('Session force killed'))
+  }
+
+  [Symbol.dispose](): void {
+    this.forceKill()
   }
 
   getPendingPermissions(): PendingPermission[] {

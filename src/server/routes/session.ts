@@ -12,6 +12,8 @@ import {
 } from '../errors.js'
 import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
 import { canonicalizePath } from '../../utils/sessionStoragePortable.js'
+import { buildHooksForPermissionMode, mergeHooks } from '../../utils/permissions/permissionModeHooks.js'
+import { permissionModeFromString } from '../../utils/permissions/PermissionMode.js'
 
 /** 从磁盘历史记录查找 session 的原始 cwd，用于 resume 时恢复正确的工作目录 */
 async function getHistoryCwd(sessionId: string): Promise<string | undefined> {
@@ -124,6 +126,26 @@ export function createSessionRoutes(
   sessionManager: SessionManager,
   eventBus: EventBus,
 ): Hono {
+  async function getOrResumeSession(id: string): Promise<import('../sessionHandle.js').SessionHandle> {
+    const handle = sessionManager.getSession(id)
+    if (handle) return handle
+
+    const cwd = await getHistoryCwd(id)
+    try {
+      const resumed = await sessionManager.createSession({
+        cwd,
+        sessionId: id,
+        resumeSessionId: id,
+        execPath: process.execPath,
+        scriptArgs: getScriptArgsForChild(),
+      })
+      await resumed.waitReady(30000)
+      return resumed
+    } catch (err) {
+      throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+    }
+  }
+
   return new Hono()
     .post('/session', async c => {
       const body = await c.req.json<{
@@ -155,6 +177,13 @@ export function createSessionRoutes(
       }
 
       try {
+        let hooks = body.hooks
+        if (permissionMode) {
+          const resolvedMode = permissionModeFromString(permissionMode)
+          const autoHooks = buildHooksForPermissionMode(resolvedMode)
+          hooks = mergeHooks(autoHooks, body.hooks)
+        }
+
         const handle = await sessionManager.createSession({
           cwd,
           sessionId: body.session_id,
@@ -163,7 +192,7 @@ export function createSessionRoutes(
           systemPrompt: body.system_prompt,
           resumeSessionId: body.resume_session_id,
           resumeSessionAt: body.resume_session_at,
-          hooks: body.hooks,
+          hooks,
           execPath: process.execPath,
           scriptArgs: getScriptArgsForChild(),
         })
@@ -360,22 +389,7 @@ export function createSessionRoutes(
     })
     .post('/session/:sessionID/prompt', async c => {
       const id = c.req.param('sessionID')
-      let handle = sessionManager.getSession(id)
-      if (!handle) {
-        const cwd = await getHistoryCwd(id)
-        try {
-          handle = await sessionManager.createSession({
-            cwd,
-            sessionId: id,
-            resumeSessionId: id,
-            execPath: process.execPath,
-            scriptArgs: getScriptArgsForChild(),
-          })
-          await handle.waitReady(30000)
-        } catch (err) {
-          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
-        }
-      }
+      const handle = await getOrResumeSession(id)
 
       const body = await c.req.json<{
         content?: string
@@ -450,82 +464,35 @@ export function createSessionRoutes(
         sessionID: id,
         status: { type: 'busy' },
       })
-      const tBusyEmitted = Date.now()
-      process.stderr.write(
-        `[serve:timing:${id}] busy emitted at +${tBusyEmitted - tEntry}ms (immediate)\n`,
-      )
 
       let handle = sessionManager.getSession(id)
 
-      // 历史 session 不在内存中，自动恢复
       if (!handle) {
-        process.stderr.write(
-          `[serve:timing:${id}] historical session, starting recovery...\n`,
-        )
-        const cwd = await getHistoryCwd(id)
         try {
-          handle = await sessionManager.createSession({
-            cwd,
-            sessionId: id,
-            resumeSessionId: id,
-            execPath: process.execPath,
-            scriptArgs: getScriptArgsForChild(),
-          })
-          const tCreated = Date.now()
-          process.stderr.write(
-            `[serve:timing:${id}] session created at +${tCreated - tEntry}ms, waiting for ready...\n`,
-          )
-          await handle.waitReady(30000)
-          const tReady = Date.now()
-          process.stderr.write(
-            `[serve:timing:${id}] session ready at +${tReady - tEntry}ms\n`,
-          )
+          handle = await getOrResumeSession(id)
         } catch (err) {
-          // Recovery failed — clear the busy status we emitted earlier
           eventBus.publish('session.status', {
             sessionID: id,
             status: { type: 'idle' },
           })
-          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+          throw err
         }
       } else if (handle.prompting) {
         throw conflict('session is already processing a prompt')
       }
 
-      const tQueued = Date.now()
-      process.stderr.write(
-        `[serve:timing:${id}] session ready, queuing prompt at +${tQueued - tEntry}ms\n`,
-      )
-
       void (async () => {
         try {
-          const tFire = Date.now()
-          process.stderr.write(
-            `[serve:timing:${id}] IIFE starts, status=${handle.status} at +${tFire - tEntry}ms\n`,
-          )
           if (handle.status !== 'running') {
             await handle.waitReady()
-            const tReady = Date.now()
-            process.stderr.write(
-              `[serve:timing:${id}] IIFE waitReady done at +${tReady - tEntry}ms\n`,
-            )
           }
           if (body.model?.modelID) {
-            const tModelStart = Date.now()
             try { await handle.setModel(body.model.modelID) } catch {}
-            const tModelDone = Date.now()
-            process.stderr.write(
-              `[serve:timing:${id}] setModel done at +${tModelDone - tEntry}ms (took ${tModelDone - tModelStart}ms)\n`,
-            )
           }
           const effectiveAgent = body.agent ?? (agentParts[0] as Record<string, unknown> | undefined)?.name as string | undefined
           if (effectiveAgent && effectiveAgent !== handle.agent) {
             try { await handle.setAgent(effectiveAgent) } catch {}
           }
-          const tPromptCall = Date.now()
-          process.stderr.write(
-            `[serve:timing:${id}] calling prompt() at +${tPromptCall - tEntry}ms\n`,
-          )
           handle.prompt(content, { parts: body.parts, messageID: body.messageID }).catch(() => {})
 
         } catch {}
@@ -536,51 +503,96 @@ export function createSessionRoutes(
     .post('/session/:sessionID/abort', async c => {
       const id = c.req.param('sessionID')
       const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      if (!handle) return c.json({ aborted: true })
       await handle.abort()
       return c.json({ aborted: true })
     })
     .post('/session/:sessionID/shell', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrResumeSession(id)
 
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')
       return ssePrompt(handle, id, body.command, c)
     })
     .post('/session/:sessionID/command', async c => {
+      const t0 = Date.now()
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
 
-      const body = await c.req.json<{ command: string }>()
+      const body = await c.req.json<{ command: string; arguments?: string; agent?: string; model?: string }>()
       if (!body.command) throw badRequest('command is required')
-      return ssePrompt(handle, id, body.command, c)
+
+      const cmdParts = '/' + [body.command, body.arguments].filter(Boolean).join(' ')
+
+      eventBus.publish('session.status', {
+        sessionID: id,
+        status: { type: 'busy' },
+      })
+
+      let handle = sessionManager.getSession(id)
+
+      if (!handle) {
+        void (async () => {
+          try {
+            handle = await getOrResumeSession(id)
+
+            if (body.agent && body.agent !== handle.agent) {
+              try { await handle.setAgent(body.agent) } catch {}
+            }
+            if (body.model) {
+              const modelID = body.model.includes('/') ? body.model.split('/').slice(1).join('/') : body.model
+              try { await handle.setModel(modelID) } catch {}
+            }
+
+            handle.prompt(cmdParts).catch(() => {})
+          } catch (err) {
+            eventBus.publish('session.status', {
+              sessionID: id,
+              status: { type: 'idle' },
+            })
+          }
+        })()
+
+        return c.json({ ok: true }, 200)
+      }
+
+      if (body.agent && body.agent !== handle.agent) {
+        try { await handle.setAgent(body.agent) } catch {}
+      }
+      if (body.model) {
+        const modelID = body.model.includes('/') ? body.model.split('/').slice(1).join('/') : body.model
+        try { await handle.setModel(modelID) } catch {}
+      }
+
+      handle.prompt(cmdParts).catch(() => {})
+
+      return c.json({ ok: true }, 200)
     })
     .post('/session/:sessionID/command_async', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrResumeSession(id)
 
       const body = await c.req.json<{ command: string }>()
       if (!body.command) throw badRequest('command is required')
       if (handle.prompting) throw conflict('session is already processing a prompt')
 
+      eventBus.publish('session.status', {
+        sessionID: id,
+        status: { type: 'busy' },
+      })
+
       handle.prompt(body.command).catch(() => {})
 
-      return new Response(null, { status: 204 })
+      return c.json({ ok: true }, 200)
     })
     .post('/session/:sessionID/revert', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrResumeSession(id)
       return c.json(handle.getInfo())
     })
     .post('/session/:sessionID/summarize', async c => {
       const id = c.req.param('sessionID')
-      const handle = sessionManager.getSession(id)
-      if (!handle) throw notFound('session not found')
+      const handle = await getOrResumeSession(id)
       return c.json({ ok: true })
     })
 }

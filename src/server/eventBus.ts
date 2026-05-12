@@ -53,7 +53,6 @@ export class EventBus {
   }
 
   publish(event: string, data: unknown): void {
-    const tPublish = event === 'session.status' ? Date.now() : 0
     const entry: BusEvent = { event, data }
     this.buffer.push(entry)
     if (this.buffer.length > this.bufferSize) {
@@ -90,13 +89,6 @@ export class EventBus {
       for (const id of deadIds) {
         this.clients.delete(id)
       }
-    }
-    if (event === 'session.status' && tPublish > 0) {
-      const dataObj = data as Record<string, unknown>
-      const sessionId = dataObj?.sessionID ?? dataObj?.session_id
-      process.stderr.write(
-        `[serve:timing:${sessionId}] eventBus.publish('session.status') → ${clientCount} SSE clients, +${Date.now() - tPublish}ms in publish loop\n`,
-      )
     }
   }
 
