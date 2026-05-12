@@ -1,72 +1,87 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
-import { getClaudeConfigHomeDir } from 'src/utils/envUtils.js'
+/**
+ * CoStrict Skill Extension
+ *
+ * Initializes builtin review skills by extracting them from embedded
+ * SKILL_FILES to a cache directory on disk.
+ *
+ * Version tracking uses commit SHA + locale in a .version file.
+ * Skills are re-extracted when version or locale changes.
+ */
+
+import path from 'path'
+import { writeFile, readFile, rm, mkdir, stat } from 'fs/promises'
 import { getResolvedLanguage } from 'src/utils/language.js'
-import {
-  extractBundledSkill,
-  getBuiltinSkillVersion,
-  listBuiltinSkillNames,
-} from './skill/builtin.js'
+import * as Builtin from './skill/builtin.js'
 
 const LOCALE_MAP: Record<string, string> = { zh: 'zh-CN', en: 'en' }
 
-function getLocale(): string {
-  const lang = getResolvedLanguage()
-  return LOCALE_MAP[lang] ?? 'zh-CN'
-}
-
-function getReviewSkillsDir(): string {
-  return join(getClaudeConfigHomeDir(), 'skills')
+function getSkillCacheDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+  return path.join(home, '.claude', 'skills')
 }
 
 function getVersionFilePath(skillDir: string): string {
-  return join(skillDir, '.version')
+  return path.join(skillDir, '.version')
 }
 
 async function getInstalledVersion(skillDir: string): Promise<string | null> {
   try {
-    return await readFile(getVersionFilePath(skillDir), 'utf-8')
+    const content = await readFile(getVersionFilePath(skillDir), 'utf-8')
+    return content.trim()
   } catch {
     return null
   }
 }
 
-async function writeVersionFile(
-  skillDir: string,
-  skillName: string,
-  locale: string,
-): Promise<void> {
-  const builtinVersion = getBuiltinSkillVersion(skillName)
+async function needsUpdate(skillDir: string, skillName: string, locale: string): Promise<boolean> {
+  const builtinVersion = Builtin.getBuiltinSkillVersion(skillName)
+  if (!builtinVersion) return true
+
+  const installedVersion = await getInstalledVersion(skillDir)
+  const expectedVersion = `${builtinVersion}:${locale}`
+  return installedVersion !== expectedVersion
+}
+
+async function writeVersionFile(skillDir: string, skillName: string, locale: string): Promise<void> {
+  const builtinVersion = Builtin.getBuiltinSkillVersion(skillName)
   if (!builtinVersion) return
+
+  await mkdir(skillDir, { recursive: true })
   await writeFile(getVersionFilePath(skillDir), `${builtinVersion}:${locale}`, 'utf-8')
 }
 
-async function needsUpdate(
-  skillDir: string,
-  skillName: string,
-  locale: string,
-): Promise<boolean> {
-  const builtinVersion = getBuiltinSkillVersion(skillName)
-  if (!builtinVersion) return true
-  const installed = await getInstalledVersion(skillDir)
-  return installed !== `${builtinVersion}:${locale}`
-}
-
 export async function initializeBuiltinSkills(): Promise<void> {
-  const locale = getLocale()
-  const skillsDir = getReviewSkillsDir()
-  const skillNames = listBuiltinSkillNames()
+  const lang = getResolvedLanguage()
+  const locale = LOCALE_MAP[lang] ?? 'zh-CN'
 
-  for (const skillName of skillNames) {
-    const skillDir = join(skillsDir, skillName)
-    if (!(await needsUpdate(skillDir, skillName, locale))) continue
+  const cacheDir = getSkillCacheDir()
+  const skillNames = Builtin.listBuiltinSkills()
 
-    await mkdir(skillDir, { recursive: true })
-    await extractBundledSkill(skillName, skillDir, locale)
-    await writeVersionFile(skillDir, skillName, locale)
+  for (const name of skillNames) {
+    const skillDir = path.join(cacheDir, name)
+
+    const dirExists = await stat(skillDir).then(s => s.isDirectory()).catch(() => false)
+
+    if (dirExists) {
+      const updateNeeded = await needsUpdate(skillDir, name, locale)
+      if (!updateNeeded) continue
+
+      try {
+        await rm(skillDir, { recursive: true, force: true })
+      } catch {
+        // Continue with copy over existing files
+      }
+    }
+
+    await Builtin.extractBundledSkill(name, skillDir, locale)
+    await writeVersionFile(skillDir, name, locale)
+
+    const skillFiles = Builtin.listSkillFiles(name, locale)
+    const builtinVersion = Builtin.getBuiltinSkillVersion(name)
+    console.log(`  [review] initialized skill "${name}" (${locale}, ${skillFiles.length} files, v${builtinVersion?.slice(0, 7)})`)
   }
 }
 
 export function getBuiltinSkillsDir(): string {
-  return getReviewSkillsDir()
+  return getSkillCacheDir()
 }
