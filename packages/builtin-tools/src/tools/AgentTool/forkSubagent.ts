@@ -19,11 +19,11 @@ import type { BuiltInAgentDefinition } from './loadAgentsDir.js'
  * Fork subagent feature gate.
  *
  * When enabled:
- * - `subagent_type` becomes optional on the Agent tool schema
- * - Omitting `subagent_type` triggers an implicit fork: the child inherits
- *   the parent's full conversation context and system prompt
- * - All agent spawns run in the background (async) for a unified
- *   `<task-notification>` interaction model
+ * - `fork: true` becomes available on the Agent tool schema
+ * - Explicit `fork: true` triggers a fork: the child inherits the parent's
+ *   full conversation context and system prompt
+ * - Forked agents use the same foreground/background behavior as other agents:
+ *   `run_in_background: true` runs async, otherwise they run synchronously
  * - `/fork <directive>` slash command is available
  *
  * Mutually exclusive with coordinator mode — coordinator already owns the
@@ -60,7 +60,7 @@ export const FORK_SUBAGENT_TYPE = 'fork'
 export const FORK_AGENT = {
   agentType: FORK_SUBAGENT_TYPE,
   whenToUse:
-    'Implicit fork — inherits full conversation context. Not selectable via subagent_type; triggered by omitting subagent_type when the fork experiment is active.',
+    'Fork — inherits full conversation context. Not selectable via subagent_type; triggered by fork: true when the fork experiment is active.',
   tools: ['*'],
   maxTurns: 200,
   model: 'inherit',

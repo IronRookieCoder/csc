@@ -40,7 +40,7 @@ export async function call(
 
   try {
     // Reuse AgentTool logic for fork path.
-    // Omitting subagent_type triggers implicit fork.
+    // `fork: true` triggers the explicit fork path.
     const input = {
       prompt: directive,
       fork: true, // 触发 AgentTool 的 fork 路径：继承父会话上下文 + system prompt + 模型
@@ -52,7 +52,7 @@ export async function call(
     };
 
     // Call AgentTool with proper parameters:
-    // - input: the agent parameters (no subagent_type => fork path)
+    // - input: the agent parameters (fork: true => fork path)
     // - toolUseContext: the current context (ToolUseContext)
     // - canUseTool: permission-check function from context
     // - assistantMessage: the last assistant message to fork from
