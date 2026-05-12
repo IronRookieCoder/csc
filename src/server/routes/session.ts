@@ -354,12 +354,8 @@ export function createSessionRoutes(
     })
     .delete('/session/:sessionID', async c => {
       const id = c.req.param('sessionID')
-<<<<<<< HEAD
-      await sessionManager.deleteSession(id)
-=======
       const deleted = sessionManager.deleteSession(id)
       if (!deleted) throw notFound('session not found')
->>>>>>> dab72c6b (feat: 对齐 OpenCode 即时推送架构，session status 事件绕过队列直接推送)
       return c.json({ deleted: true })
     })
     .post('/session/:sessionID/prompt', async c => {
@@ -518,17 +514,14 @@ export function createSessionRoutes(
               `[serve:timing:${id}] setModel done at +${tModelDone - tEntry}ms (took ${tModelDone - tModelStart}ms)\n`,
             )
           }
-<<<<<<< HEAD
           const effectiveAgent = body.agent ?? (agentParts[0] as Record<string, unknown> | undefined)?.name as string | undefined
           if (effectiveAgent && effectiveAgent !== handle.agent) {
             try { await handle.setAgent(effectiveAgent) } catch {}
           }
-=======
           const tPromptCall = Date.now()
           process.stderr.write(
             `[serve:timing:${id}] calling prompt() at +${tPromptCall - tEntry}ms\n`,
           )
->>>>>>> dab72c6b (feat: 对齐 OpenCode 即时推送架构，session status 事件绕过队列直接推送)
           handle.prompt(content, { parts: body.parts, messageID: body.messageID }).catch(() => {})
 
         } catch {}

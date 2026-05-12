@@ -186,7 +186,7 @@ describe('SessionHandle', () => {
     })
 
     // Simulate child process sending can_use_tool for AskUserQuestion
-    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).routeMessage({
+    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).handleMessage({
       type: 'control_request',
       request_id: 'req-1',
       request: {
@@ -247,7 +247,7 @@ describe('SessionHandle', () => {
       scriptArgs: [],
     })
 
-    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).routeMessage({
+    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).handleMessage({
       type: 'control_request',
       request_id: 'req-2',
       request: {
@@ -282,7 +282,7 @@ describe('SessionHandle', () => {
     })
 
     // First inject the permission
-    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).routeMessage({
+    ;(handle as unknown as Record<string, (msg: Record<string, unknown>) => void>).handleMessage({
       type: 'control_request',
       request_id: 'req-3',
       request: {

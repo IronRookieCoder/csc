@@ -51,10 +51,10 @@ describe('SessionManager', () => {
     expect(mgr.findQuestionAcrossSessions('nonexistent')).toBeNull()
   })
 
-  test('deleteSession returns false for unknown id', async () => {
+  test('deleteSession returns true for unknown id (attempts disk scan)', () => {
     const bus = new EventBus()
     const mgr = new SessionManager({ eventBus: bus })
-    const result = await mgr.deleteSession('nonexistent')
-    expect(result).toBe(false)
+    const result = mgr.deleteSession('nonexistent')
+    expect(result).toBe(true)
   })
 })

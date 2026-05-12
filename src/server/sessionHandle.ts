@@ -711,6 +711,10 @@ export class SessionHandle {
     return this.pendingQuestions.get(requestId)
   }
 
+  handleMessage(msg: StdoutMessage): void {
+    routeMessage(msg, this.createRouterCtx())
+  }
+
   getLastStderr(): string[] {
     return [...this.lastStderr]
   }

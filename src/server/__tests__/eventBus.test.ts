@@ -38,7 +38,7 @@ describe('EventBus', () => {
     expect(JSON.parse(dataEvents[0].data)).toEqual({ hello: 'world' })
   })
 
-  test('publish buffers events for late-joining clients', async () => {
+  test('addClient sends connected event to new client', async () => {
     bus.publish('test1', { a: 1 })
     bus.publish('test2', { b: 2 })
 
@@ -50,7 +50,8 @@ describe('EventBus', () => {
     }
     bus.addClient(writer)
     await new Promise(r => setTimeout(r, 10))
-    expect(received.length).toBe(3) // connected + 2 buffered
+    expect(received.length).toBe(1)
+    expect(received[0].event).toBe('connected')
   })
 
   test('session_id filter skips non-matching events', async () => {
