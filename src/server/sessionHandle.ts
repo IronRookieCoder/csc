@@ -485,13 +485,18 @@ export class SessionHandle {
   }
 
   async prompt(content: string, opts?: { parts?: Array<Record<string, unknown>>; messageID?: string }): Promise<{ done: boolean; error?: string }> {
+    const tEnter = Date.now()
     if (this._status === 'stopped') {
       throw new Error(
         `Session ${this.sessionId} is stopped`,
       )
     }
     if (this._status !== 'running') {
+      const tWaitStart = Date.now()
       await this.waitReady()
+      process.stderr.write(
+        `[serve:timing:${this.sessionId}] prompt() waitReady took ${Date.now() - tWaitStart}ms\n`,
+      )
     }
     if (this._prompting) {
       throw new Error(
@@ -499,8 +504,18 @@ export class SessionHandle {
       )
     }
     this._prompting = true
-    this._busyStatus = { type: 'busy' }
-    this.emitBusyStatus()
+
+    // Busy status was already emitted from the route handler (immediate).
+    // Only emit here if this prompt() was called directly (not via prompt_async).
+    const alreadyBusy = this._busyStatus?.type === 'busy'
+    process.stderr.write(
+      `[serve:timing:${this.sessionId}] prompt() entry, alreadyBusy=${alreadyBusy}, +0ms from prompt() call\n`,
+    )
+
+    if (!alreadyBusy) {
+      this._busyStatus = { type: 'busy' }
+      this.emitBusyStatus()
+    }
     this.lastActiveAt = Date.now()
 
     const uuid = opts?.messageID ?? crypto.randomUUID()

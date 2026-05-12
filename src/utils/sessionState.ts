@@ -34,9 +34,7 @@ export type AutomationStateMetadata = {
   sleep_until: number | null
 }
 
-import { isEnvTruthy } from './envUtils.js'
 import type { PermissionMode } from './permissions/PermissionMode.js'
-import { enqueueSdkEvent } from './sdkEventQueue.js'
 
 // CCR external_metadata keys — push in onChangeAppState, restore in
 // externalMetadataToAppState.
@@ -68,31 +66,55 @@ type SessionMetadataListenerOptions = {
   replayCurrent?: boolean
 }
 
-let stateListener: SessionStateChangedListener | null = null
-let metadataListener: SessionMetadataChangedListener | null = null
-let permissionModeListener: PermissionModeChangedListener | null = null
+/**
+ * Consumer for session_state_changed SDK events. When registered, every
+ * status transition pushes an event directly to this consumer (bypassing
+ * the SDK event queue), ensuring external clients see status changes
+ * immediately — not delayed until the next drainSdkEvents() call.
+ *
+ * Aligned with OpenCode's GlobalBus pattern: status events propagate
+ * in real-time without buffering.
+ */
+export type SdkEventConsumer = (event: {
+  type: 'system'
+  subtype: 'session_state_changed'
+  state: SessionState
+}) => void
+
+const stateListeners = new Set<SessionStateChangedListener>()
+const metadataListeners = new Set<SessionMetadataChangedListener>()
+const permissionModeListeners = new Set<PermissionModeChangedListener>()
+const sdkEventConsumers = new Set<SdkEventConsumer>()
 
 export function setSessionStateChangedListener(
   cb: SessionStateChangedListener | null,
-): void {
-  stateListener = cb
+): () => void {
+  if (cb) {
+    stateListeners.add(cb)
+    return () => {
+      stateListeners.delete(cb)
+    }
+  }
+  return () => {}
 }
 
 export function setSessionMetadataChangedListener(
   cb: SessionMetadataChangedListener | null,
   options?: SessionMetadataListenerOptions,
-): void {
-  metadataListener = cb
-  if (!cb || !options?.replayCurrent) {
-    return
+): () => void {
+  if (cb) {
+    metadataListeners.add(cb)
+    if (options?.replayCurrent) {
+      const snapshot = getSessionMetadataSnapshot()
+      if (Object.keys(snapshot).length > 0) {
+        cb(snapshot)
+      }
+    }
+    return () => {
+      metadataListeners.delete(cb)
+    }
   }
-
-  const snapshot = getSessionMetadataSnapshot()
-  if (Object.keys(snapshot).length === 0) {
-    return
-  }
-
-  cb(snapshot)
+  return () => {}
 }
 
 /**
@@ -104,8 +126,29 @@ export function setSessionMetadataChangedListener(
  */
 export function setPermissionModeChangedListener(
   cb: PermissionModeChangedListener | null,
-): void {
-  permissionModeListener = cb
+): () => void {
+  if (cb) {
+    permissionModeListeners.add(cb)
+    return () => {
+      permissionModeListeners.delete(cb)
+    }
+  }
+  return () => {}
+}
+
+/**
+ * Register a consumer that receives session_state_changed events directly,
+ * bypassing the SDK event queue. Use this in headless/stream-json mode to
+ * push status transitions immediately to the output stream instead of
+ * waiting for the next drainSdkEvents() call.
+ *
+ * Returns an unsubscribe function.
+ */
+export function registerSdkEventConsumer(cb: SdkEventConsumer): () => void {
+  sdkEventConsumers.add(cb)
+  return () => {
+    sdkEventConsumers.delete(cb)
+  }
 }
 
 let hasPendingAction = false
@@ -175,7 +218,22 @@ export function notifySessionStateChanged(
   details?: RequiresActionDetails,
 ): void {
   currentState = state
-  stateListener?.(state, details)
+
+  // Notify all registered state listeners (CCR bridge, etc.)
+  for (const listener of stateListeners) {
+    listener(state, details)
+  }
+
+  // Push session_state_changed directly to SDK consumers (bypasses queue).
+  // Aligned with OpenCode: status events propagate immediately via
+  // bus.publish → GlobalBus → SSE, not buffered.
+  for (const consumer of sdkEventConsumers) {
+    consumer({
+      type: 'system',
+      subtype: 'session_state_changed',
+      state,
+    })
+  }
 
   // Mirror details into external_metadata so GetSession carries the
   // pending-action context without proto changes. Cleared via RFC 7396
@@ -208,30 +266,15 @@ export function notifySessionStateChanged(
         : null,
     )
   }
-
-  // Mirror to the SDK event stream so non-CCR consumers (scmuxd, VS Code)
-  // see the same authoritative idle/running signal the CCR bridge does.
-  // 'idle' fires after heldBackResult flushes — lets scmuxd flip IDLE and
-  // show the bg-task dot instead of a stuck generating spinner.
-  //
-  // Opt-in until CCR web + mobile clients learn to ignore this subtype in
-  // their isWorking() last-message heuristics — the trailing idle event
-  // currently pins them at "Running...".
-  // https://anthropic.slack.com/archives/C093BJBD1CP/p1774152406752229
-  if (isEnvTruthy(process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS)) {
-    enqueueSdkEvent({
-      type: 'system',
-      subtype: 'session_state_changed',
-      state,
-    })
-  }
 }
 
 export function notifySessionMetadataChanged(
   metadata: SessionExternalMetadata,
 ): void {
   applyMetadataUpdate(metadata)
-  metadataListener?.(metadata)
+  for (const listener of metadataListeners) {
+    listener(metadata)
+  }
 }
 
 export function notifyAutomationStateChanged(
@@ -246,7 +289,9 @@ export function notifyAutomationStateChanged(
 
   currentAutomationState = nextState
   applyMetadataUpdate({ automation_state: nextState })
-  metadataListener?.({ automation_state: nextState })
+  for (const listener of metadataListeners) {
+    listener({ automation_state: nextState })
+  }
 }
 
 /**
@@ -256,13 +301,16 @@ export function notifyAutomationStateChanged(
  * silently bypass them.
  */
 export function notifyPermissionModeChanged(mode: PermissionMode): void {
-  permissionModeListener?.(mode)
+  for (const listener of permissionModeListeners) {
+    listener(mode)
+  }
 }
 
 export function resetSessionStateForTests(): void {
-  stateListener = null
-  metadataListener = null
-  permissionModeListener = null
+  stateListeners.clear()
+  metadataListeners.clear()
+  permissionModeListeners.clear()
+  sdkEventConsumers.clear()
   hasPendingAction = false
   currentState = 'idle'
   currentAutomationState = null

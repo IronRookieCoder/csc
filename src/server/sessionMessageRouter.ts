@@ -149,6 +149,9 @@ function handleResultMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
   if (usage?.output_tokens) ctx.addOutputTokens(usage.output_tokens)
   ctx.setBusyStatus({ type: 'idle' })
   ctx.emitBusyStatus()
+  process.stderr.write(
+    `[serve:timing:${ctx.sessionId}] result → idle emitted\n`,
+  )
   ctx.emitEvent('result', msg)
   ctx.resolvePrompt({ done: true })
 }

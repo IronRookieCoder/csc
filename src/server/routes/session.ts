@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { SessionManager } from '../sessionManager.js'
+import type { EventBus } from '../eventBus.js'
 import { getScriptArgsForChild } from '../childSpawn.js'
 import {
   badRequest,
@@ -10,6 +11,7 @@ import {
   conflict,
 } from '../errors.js'
 import { listSessionsImpl } from '../../utils/listSessionsImpl.js'
+import { canonicalizePath } from '../../utils/sessionStoragePortable.js'
 
 /** 从磁盘历史记录查找 session 的原始 cwd，用于 resume 时恢复正确的工作目录 */
 async function getHistoryCwd(sessionId: string): Promise<string | undefined> {
@@ -120,6 +122,7 @@ function ssePrompt(
 
 export function createSessionRoutes(
   sessionManager: SessionManager,
+  eventBus: EventBus,
 ): Hono {
   return new Hono()
     .post('/session', async c => {
@@ -239,8 +242,13 @@ export function createSessionRoutes(
 
       // 补充内存中有但磁盘还没落盘的活跃 session（刚创建还没写过消息的）
       const historyIds = new Set(historySessions.map(s => s.sessionId))
+      const canonicalDir = dir ? await canonicalizePath(dir).catch(() => dir) : undefined
       for (const handle of sessionManager.getAllSessions()) {
         if (!historyIds.has(handle.sessionId)) {
+          if (canonicalDir) {
+            const handleCwd = await canonicalizePath(handle.cwd).catch(() => handle.cwd)
+            if (handleCwd !== canonicalDir) continue
+          }
           const info = handle.getInfo()
           merged.push({ ...info, title: info.title ?? '' })
         }
@@ -346,7 +354,12 @@ export function createSessionRoutes(
     })
     .delete('/session/:sessionID', async c => {
       const id = c.req.param('sessionID')
+<<<<<<< HEAD
       await sessionManager.deleteSession(id)
+=======
+      const deleted = sessionManager.deleteSession(id)
+      if (!deleted) throw notFound('session not found')
+>>>>>>> dab72c6b (feat: 对齐 OpenCode 即时推送架构，session status 事件绕过队列直接推送)
       return c.json({ deleted: true })
     })
     .post('/session/:sessionID/prompt', async c => {
@@ -401,27 +414,12 @@ export function createSessionRoutes(
       return ssePrompt(handle, id, content, c, body.parts, body.messageID)
     })
     .post('/session/:sessionID/prompt_async', async c => {
+      const tEntry = Date.now()
       const id = c.req.param('sessionID')
 
-      let handle = sessionManager.getSession(id)
-
-      // 历史 session 不在内存中，自动恢复
-      if (!handle) {
-        const cwd = await getHistoryCwd(id)
-        try {
-          handle = await sessionManager.createSession({
-            cwd,
-            sessionId: id,
-            resumeSessionId: id,
-            execPath: process.execPath,
-            scriptArgs: getScriptArgsForChild(),
-          })
-          await handle.waitReady(30000)
-        } catch (err) {
-          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
-        }
-      }
-
+      // Parse body FIRST — independent of session lookup, so we can
+      // emit busy status immediately even for historical sessions that
+      // need to create+waitReady (3–30s).
       const body = await c.req.json<{
         content?: string
         parts?: Array<Record<string, unknown>>
@@ -444,22 +442,93 @@ export function createSessionRoutes(
       if (!content) {
         throw badRequest('content is required')
       }
-      if (handle.prompting) {
+
+      // Emit busy IMMEDIATELY — before session recovery or child-process
+      // init. Aligned with OpenCode: status.set fires in the request
+      // handler synchronously, not after waiting for the child process.
+      eventBus.publish('session.status', {
+        sessionID: id,
+        status: { type: 'busy' },
+      })
+      const tBusyEmitted = Date.now()
+      process.stderr.write(
+        `[serve:timing:${id}] busy emitted at +${tBusyEmitted - tEntry}ms (immediate)\n`,
+      )
+
+      let handle = sessionManager.getSession(id)
+
+      // 历史 session 不在内存中，自动恢复
+      if (!handle) {
+        process.stderr.write(
+          `[serve:timing:${id}] historical session, starting recovery...\n`,
+        )
+        const cwd = await getHistoryCwd(id)
+        try {
+          handle = await sessionManager.createSession({
+            cwd,
+            sessionId: id,
+            resumeSessionId: id,
+            execPath: process.execPath,
+            scriptArgs: getScriptArgsForChild(),
+          })
+          const tCreated = Date.now()
+          process.stderr.write(
+            `[serve:timing:${id}] session created at +${tCreated - tEntry}ms, waiting for ready...\n`,
+          )
+          await handle.waitReady(30000)
+          const tReady = Date.now()
+          process.stderr.write(
+            `[serve:timing:${id}] session ready at +${tReady - tEntry}ms\n`,
+          )
+        } catch (err) {
+          // Recovery failed — clear the busy status we emitted earlier
+          eventBus.publish('session.status', {
+            sessionID: id,
+            status: { type: 'idle' },
+          })
+          throw sessionError(err instanceof Error ? err.message : 'Failed to resume session')
+        }
+      } else if (handle.prompting) {
         throw conflict('session is already processing a prompt')
       }
 
+      const tQueued = Date.now()
+      process.stderr.write(
+        `[serve:timing:${id}] session ready, queuing prompt at +${tQueued - tEntry}ms\n`,
+      )
+
       void (async () => {
         try {
+          const tFire = Date.now()
+          process.stderr.write(
+            `[serve:timing:${id}] IIFE starts, status=${handle.status} at +${tFire - tEntry}ms\n`,
+          )
           if (handle.status !== 'running') {
             await handle.waitReady()
+            const tReady = Date.now()
+            process.stderr.write(
+              `[serve:timing:${id}] IIFE waitReady done at +${tReady - tEntry}ms\n`,
+            )
           }
           if (body.model?.modelID) {
+            const tModelStart = Date.now()
             try { await handle.setModel(body.model.modelID) } catch {}
+            const tModelDone = Date.now()
+            process.stderr.write(
+              `[serve:timing:${id}] setModel done at +${tModelDone - tEntry}ms (took ${tModelDone - tModelStart}ms)\n`,
+            )
           }
+<<<<<<< HEAD
           const effectiveAgent = body.agent ?? (agentParts[0] as Record<string, unknown> | undefined)?.name as string | undefined
           if (effectiveAgent && effectiveAgent !== handle.agent) {
             try { await handle.setAgent(effectiveAgent) } catch {}
           }
+=======
+          const tPromptCall = Date.now()
+          process.stderr.write(
+            `[serve:timing:${id}] calling prompt() at +${tPromptCall - tEntry}ms\n`,
+          )
+>>>>>>> dab72c6b (feat: 对齐 OpenCode 即时推送架构，session status 事件绕过队列直接推送)
           handle.prompt(content, { parts: body.parts, messageID: body.messageID }).catch(() => {})
 
         } catch {}

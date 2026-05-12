@@ -54,6 +54,7 @@ import {
   getSessionState,
   notifySessionStateChanged,
   notifySessionMetadataChanged,
+  registerSdkEventConsumer,
   setPermissionModeChangedListener,
   type RequiresActionDetails,
   type SessionExternalMetadata,
@@ -1028,6 +1029,13 @@ function runHeadlessStreaming(
   let abortController: AbortController | undefined
   // Same queue sendRequest() enqueues to — one FIFO for everything.
   const output = structuredIO.outbound
+
+  // Push session_state_changed events directly to output (bypasses SDK
+  // event queue). Aligned with OpenCode: status transitions reach clients
+  // immediately via direct push, not delayed until drainSdkEvents().
+  const unregisterSdkConsumer = registerSdkEventConsumer(event => {
+    output.enqueue(event as unknown as StdoutMessage)
+  })
 
   // Ctrl+C in -p mode: abort the in-flight query, then shut down gracefully.
   // gracefulShutdown persists session state and flushes analytics, with a

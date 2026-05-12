@@ -77,6 +77,7 @@ import {
 } from './utils/messageQueueManager.js'
 import { notifyCommandLifecycle } from './utils/commandLifecycle.js'
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
+import { notifySessionStateChanged } from './utils/sessionState.js'
 import {
   getRuntimeMainLoopModel,
   renderModelName,
@@ -376,6 +377,11 @@ async function* queryLoop(
       messages,
       toolUseContext,
     )
+
+    // Emit heartbeat at each iteration start so SDK consumers see
+    // the session is still active during long tool execution pauses.
+    // Aligned with OpenCode: each AI loop iteration sets 'busy'.
+    notifySessionStateChanged('running')
 
     yield { type: 'stream_request_start' }
 

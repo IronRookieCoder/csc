@@ -45,7 +45,7 @@ export function startServer(
 
   app.route('/', createHealthRoutes(sessionManager))
   app.route('/', createInfoRoutes(sessionManager))
-  app.route('/', createSessionRoutes(sessionManager))
+  app.route('/', createSessionRoutes(sessionManager, eventBus))
   app.route('/', createEventRoutes(eventBus))
   app.route('/', createPermissionRoutes(sessionManager))
   app.route('/', createQuestionRoutes(sessionManager))
