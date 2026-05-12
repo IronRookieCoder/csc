@@ -112,6 +112,142 @@ function parseEntry(line: string): TranscriptEntry | null {
   return parsed as TranscriptEntry
 }
 
+function entryToSessionMessage(
+  entry: TranscriptEntry,
+  includeSystem: boolean,
+): SessionMessage | null {
+  if (!entry.type || !entry.uuid) return null
+  if (SKIP_TYPES.has(entry.type)) return null
+  if (entry.type === 'attribution-snapshot') return null
+
+  const includeThis =
+    MESSAGE_TYPES.has(entry.type) ||
+    (includeSystem && entry.type === 'system')
+
+  if (!includeThis) return null
+
+  const role = entry.role ?? entry.message?.role ?? entry.type
+  const content = entry.message?.content ?? entry.content ?? ''
+  const timestamp = entry.timestamp
+    ? new Date(entry.timestamp).getTime()
+    : 0
+
+  return {
+    uuid: entry.uuid,
+    type: entry.type,
+    role: role ?? entry.type,
+    content,
+    timestamp,
+    parent_uuid: entry.parentUuid ?? null,
+    usage: entry.usage as
+      | { input_tokens: number; output_tokens: number }
+      | undefined,
+  }
+}
+
+function readMessagesFromLines(
+  lines: string[],
+  includeSystem: boolean,
+): SessionMessage[] {
+  const messages: SessionMessage[] = []
+  for (const line of lines) {
+    if (!line) continue
+    const entry = parseEntry(line)
+    if (!entry) continue
+    const msg = entryToSessionMessage(entry, includeSystem)
+    if (msg) messages.push(msg)
+  }
+  return messages
+}
+
+/**
+ * Locate the subagent transcript file for a given agentId by scanning
+ * `<projectsDir>/<project>/<parentSessionId>/subagents/agent-<agentId>.jsonl`.
+ *
+ * `cwd` is used to narrow the search to a specific project dir; if omitted or
+ * not matched, we fall back to scanning every project directory.
+ */
+async function findSubagentTranscriptPath(
+  agentId: string,
+  cwd?: string,
+): Promise<string | null> {
+  const fileName = `agent-${agentId}.jsonl`
+
+  const searchProject = async (projectDir: string): Promise<string | null> => {
+    let sessionDirs: string[]
+    try {
+      sessionDirs = await readdir(projectDir)
+    } catch {
+      return null
+    }
+    for (const sessionDir of sessionDirs) {
+      const direct = join(projectDir, sessionDir, 'subagents', fileName)
+      try {
+        const s = await stat(direct)
+        if (s.isFile() && s.size > 0) return direct
+      } catch {
+      }
+      const nestedSubagentsDir = join(projectDir, sessionDir, 'subagents')
+      let subdirs: string[]
+      try {
+        subdirs = await readdir(nestedSubagentsDir)
+      } catch {
+        continue
+      }
+      for (const sub of subdirs) {
+        const candidate = join(nestedSubagentsDir, sub, fileName)
+        try {
+          const s = await stat(candidate)
+          if (s.isFile() && s.size > 0) return candidate
+        } catch {
+        }
+      }
+    }
+    return null
+  }
+
+  if (cwd) {
+    const projectDir = getProjectDir(cwd)
+    const hit = await searchProject(projectDir)
+    if (hit) return hit
+
+    const found = await findProjectDir(cwd)
+    if (found && found !== projectDir) {
+      const hit2 = await searchProject(found)
+      if (hit2) return hit2
+    }
+  }
+
+  const projectsDir = getProjectsDir()
+  let dirs: string[]
+  try {
+    dirs = await readdir(projectsDir)
+  } catch {
+    return null
+  }
+  for (const dir of dirs) {
+    const hit = await searchProject(join(projectsDir, dir))
+    if (hit) return hit
+  }
+  return null
+}
+
+async function readSubagentMessages(
+  agentId: string,
+  cwd: string | undefined,
+  includeSystem: boolean,
+): Promise<SessionMessage[]> {
+  const path = await findSubagentTranscriptPath(agentId, cwd)
+  if (!path) return []
+  try {
+    const raw = await readFile(path, 'utf-8')
+    const lines = raw.split('\n')
+    return readMessagesFromLines(lines, includeSystem)
+  } catch {
+    return []
+  }
+}
+
 export async function readSessionMessages(opts: {
   sessionId: string
   cwd?: string
@@ -122,66 +258,43 @@ export async function readSessionMessages(opts: {
   messages: SessionMessage[]
   nextCursor?: string
 }> {
+  const includeSystem = opts.includeSystem ?? false
   const path = await resolveTranscriptPath(opts.sessionId, opts.cwd)
-  if (!path || !existsSync(path)) {
-    return { messages: [] }
-  }
 
-  const raw = await readFile(path, 'utf-8')
-  const lines = raw.split('\n').filter(Boolean)
+  let mainMessages: SessionMessage[] = []
+  if (path && existsSync(path)) {
+    const raw = await readFile(path, 'utf-8')
+    const lines = raw.split('\n').filter(Boolean)
 
-  let lastCompactBoundaryIndex = -1
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const entry = parseEntry(lines[i])
-    if (
-      entry?.type === 'system' &&
-      entry?.subtype === 'compact_boundary' &&
-      !entry?.compactMetadata?.preservedSegment
-    ) {
-      lastCompactBoundaryIndex = i
-      break
+    let lastCompactBoundaryIndex = -1
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const entry = parseEntry(lines[i])
+      if (
+        entry?.type === 'system' &&
+        entry?.subtype === 'compact_boundary' &&
+        !entry?.compactMetadata?.preservedSegment
+      ) {
+        lastCompactBoundaryIndex = i
+        break
+      }
+    }
+
+    const startLine = lastCompactBoundaryIndex >= 0 ? lastCompactBoundaryIndex + 1 : 0
+    mainMessages = readMessagesFromLines(lines.slice(startLine), includeSystem)
+  } else {
+    // Fallback: 视 sessionId 为 agentId，读取 subagent transcript。
+    mainMessages = await readSubagentMessages(opts.sessionId, opts.cwd, includeSystem)
+    if (mainMessages.length === 0) {
+      return { messages: [] }
     }
   }
 
-  const startLine = lastCompactBoundaryIndex >= 0 ? lastCompactBoundaryIndex + 1 : 0
+  const allMessages = mainMessages
+  allMessages.sort((a, b) => a.timestamp - b.timestamp)
 
-  const allMessages: SessionMessage[] = []
   let cursorIndex = -1
-
-  for (let i = startLine; i < lines.length; i++) {
-    const entry = parseEntry(lines[i])
-    if (!entry) continue
-    if (!entry.type || !entry.uuid) continue
-    if (SKIP_TYPES.has(entry.type)) continue
-    if (entry.type === 'attribution-snapshot') continue
-
-    const includeThis =
-      MESSAGE_TYPES.has(entry.type) ||
-      (opts.includeSystem && entry.type === 'system')
-
-    if (!includeThis) continue
-
-    if (entry.uuid === opts.before) {
-      cursorIndex = allMessages.length
-    }
-
-    const role = entry.role ?? entry.message?.role ?? entry.type
-    const content = entry.message?.content ?? entry.content ?? ''
-    const timestamp = entry.timestamp
-      ? new Date(entry.timestamp).getTime()
-      : 0
-
-    allMessages.push({
-      uuid: entry.uuid,
-      type: entry.type,
-      role: role ?? entry.type,
-      content,
-      timestamp,
-      parent_uuid: entry.parentUuid ?? null,
-      usage: entry.usage as
-        | { input_tokens: number; output_tokens: number }
-        | undefined,
-    })
+  if (opts.before) {
+    cursorIndex = allMessages.findIndex(m => m.uuid === opts.before)
   }
 
   let sliced: SessionMessage[]
