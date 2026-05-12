@@ -1,5 +1,5 @@
-import { readFile, writeFile, mkdir } from 'fs/promises'
-import { existsSync, statSync, unlinkSync } from 'fs'
+import { readFile, writeFile, mkdir, rm } from 'fs/promises'
+import { existsSync, statSync } from 'fs'
 import { join, resolve, isAbsolute } from 'path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { logError } from '../utils/log.js'
@@ -7,7 +7,8 @@ import type { EventBus } from './eventBus.js'
 import { SessionHandle } from './sessionHandle.js'
 import type { InitData } from './types.js'
 import type { SessionIndex, SessionIndexEntry, SessionBusyStatus, SessionState } from './types.js'
-import { canonicalizePath, findProjectDir, resolveSessionFilePath } from '../utils/sessionStoragePortable.js'
+import { canonicalizePath, getProjectDir } from '../utils/sessionStoragePortable.js'
+import { listSessionsImpl } from '../utils/listSessionsImpl.js'
 
 const INDEX_FILE = 'server-sessions.json'
 
@@ -263,7 +264,7 @@ export class SessionManager {
     this._resolveInitDataReady?.()
   }
 
-  async deleteSession(id: string): Promise<boolean> {
+  deleteSession(id: string): boolean {
     const handle = this.sessions.get(id)
     if (handle) {
       const silent = handle.silent
@@ -277,17 +278,50 @@ export class SessionManager {
       return true
     }
 
-    // 历史 session 不在内存中，删除磁盘 transcript 文件
+    if (this.loadedIndex.has(id)) {
+      const entry = this.loadedIndex.get(id)!
+      this.loadedIndex.delete(id)
+      this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+      this.deleteSessionFilesFromDisk(id, entry.cwd).catch(logError)
+      return true
+    }
+
+    this.deleteSessionFromDiskScan(id)
+    return true
+  }
+
+  private deleteSessionFromDiskScan(id: string): void {
+    listSessionsImpl({ limit: 10000 })
+      .then(async all => {
+        const found = all.find(s => s.sessionId === id)
+        if (found?.cwd) {
+          this.eventBus.publishSessionEvent(id, 'deleted', { status: 'stopped' })
+          await this.deleteSessionFilesFromDisk(id, found.cwd)
+        }
+      })
+      .catch(logError)
+  }
+
+  private async deleteSessionFilesFromDisk(sessionId: string, cwd: string): Promise<void> {
+    const projectDir = getProjectDir(cwd)
+    const jsonlPath = join(projectDir, sessionId + '.jsonl')
+    const sessionDir = join(projectDir, sessionId)
+
     try {
-      const resolved = await resolveSessionFilePath(id)
-      if (resolved) {
-        unlinkSync(resolved.filePath)
-        this.loadedIndex.delete(id)
-        this.scheduleIndexSave()
-        return true
+      if (existsSync(jsonlPath)) {
+        await rm(jsonlPath, { force: true })
       }
-    } catch {}
-    return false
+    } catch (err) {
+      logError(err as Error)
+    }
+
+    try {
+      if (existsSync(sessionDir)) {
+        await rm(sessionDir, { recursive: true, force: true })
+      }
+    } catch (err) {
+      logError(err as Error)
+    }
   }
 
   async destroyAll(): Promise<void> {
