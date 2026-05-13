@@ -227,7 +227,7 @@ async function runCsCloud(args: string[]): Promise<void> {
 	const child = spawn(bin, args, {
 		stdio: "inherit",
 		windowsHide: false,
-		env: { ...process.env },
+		env: { ...process.env, CSC_CLOUD_INVOKER: "csc" },
 	})
 	const code = await new Promise<number | null>((resolve) => {
 		child.on("error", (err) => {
