@@ -853,6 +853,11 @@ export async function* runAgent({
     if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
       cleanupAgentTracking(agentId)
     }
+    if (agentToolUseContext.readFileState !== toolUseContext.readFileState) {
+      toolUseContext.readFileState.mergeFrom(
+        agentToolUseContext.readFileState,
+      )
+    }
     // Release cloned file state cache memory
     agentToolUseContext.readFileState.clear()
     // Release the cloned fork context messages

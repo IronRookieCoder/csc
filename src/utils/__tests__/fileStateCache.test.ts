@@ -146,3 +146,80 @@ describe('coerceToolContentToString', () => {
     expect(coerceToolContentToString(nested)).toBe('{"a":{"b":[1,2,3]}}')
   })
 })
+
+describe('FileStateCache.mergeFrom', () => {
+  test('merges new entries from other cache into target', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    target.set('/a.txt', makeEntry('old-a', { timestamp: 100 }))
+    other.set('/b.txt', makeEntry('new-b', { timestamp: 200 }))
+
+    target.mergeFrom(other)
+
+    expect(target.get('/a.txt')?.content).toBe('old-a')
+    expect(target.get('/b.txt')?.content).toBe('new-b')
+    expect(target.size).toBe(2)
+  })
+
+  test('overrides entries with newer timestamp from other', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    target.set('/a.txt', makeEntry('old-content', { timestamp: 100 }))
+    other.set('/a.txt', makeEntry('new-content', { timestamp: 200 }))
+
+    target.mergeFrom(other)
+
+    expect(target.get('/a.txt')?.content).toBe('new-content')
+  })
+
+  test('does not override entries with older timestamp', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    target.set('/a.txt', makeEntry('newer-content', { timestamp: 200 }))
+    other.set('/a.txt', makeEntry('older-content', { timestamp: 100 }))
+
+    target.mergeFrom(other)
+
+    expect(target.get('/a.txt')?.content).toBe('newer-content')
+  })
+
+  test('handles empty other cache (no-op)', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    target.set('/a.txt', makeEntry('content'))
+    target.mergeFrom(other)
+
+    expect(target.size).toBe(1)
+    expect(target.get('/a.txt')?.content).toBe('content')
+  })
+
+  test('merges into empty target cache', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    other.set('/a.txt', makeEntry('content-a'))
+    other.set('/b.txt', makeEntry('content-b'))
+    target.mergeFrom(other)
+
+    expect(target.size).toBe(2)
+    expect(target.get('/a.txt')?.content).toBe('content-a')
+    expect(target.get('/b.txt')?.content).toBe('content-b')
+  })
+
+  test('preserves existing entries when merging new ones', () => {
+    const target = createFileStateCacheWithSizeLimit(100)
+    const other = createFileStateCacheWithSizeLimit(100)
+
+    target.set('/keep.txt', makeEntry('keep-me'))
+    other.set('/new.txt', makeEntry('new-file'))
+
+    target.mergeFrom(other)
+
+    expect(target.has('/keep.txt')).toBe(true)
+    expect(target.has('/new.txt')).toBe(true)
+  })
+})
