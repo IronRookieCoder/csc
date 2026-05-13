@@ -101,6 +101,15 @@ export class FileStateCache {
   load(entries: ReturnType<LRUCache<string, FileState>['dump']>): void {
     this.cache.load(entries)
   }
+
+  mergeFrom(other: FileStateCache): void {
+    for (const [filePath, fileState] of other.entries()) {
+      const existing = this.get(filePath)
+      if (!existing || fileState.timestamp > existing.timestamp) {
+        this.set(filePath, fileState)
+      }
+    }
+  }
 }
 
 /**
