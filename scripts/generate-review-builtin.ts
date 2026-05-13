@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Downloads builtin review skills & agents from costrict-review repo and generates
- * src/costrict/review/skill/builtin.ts and src/costrict/review/agent/builtin.ts
+ * Downloads builtin review skills from costrict-review repo and generates
+ * src/costrict/review/skill/builtin.ts
  *
  * Uses git SSH transport (git ls-remote + git clone).
- * Reads index.json manifest to discover resources and their per-locale paths.
+ * Reads index.json manifest to discover skills and their per-locale paths.
  * Compares remote commit SHA with cached version and skips download if unchanged.
  *
  * Usage: bun run scripts/generate-review-builtin.ts
@@ -22,38 +22,17 @@ const __dirname = path.dirname(__filename)
 
 const bundledReviewDir = path.resolve(__dirname, '../packages/builtin-tools/bundled-review')
 const builtinSkillsFile = path.resolve(__dirname, '../src/costrict/review/skill/builtin.ts')
-const builtinAgentsFile = path.resolve(__dirname, '../src/costrict/review/agent/builtin.ts')
 
 type IndexJson = {
-  agents: Array<{
-    name: string
-    path: Record<string, string>
-    opencode?: Record<string, unknown>
-    claudecode?: Record<string, unknown>
-  }>
   skills: Array<{ name: string; path: Record<string, string> }>
 }
 
 const REPO = 'zgsm-ai/costrict-review'
 const BRANCH = 'main'
-const CLONE_URL = getCloneUrl()
-
-function getCloneUrl(): string {
-  // Try gh CLI token first, then env vars, fall back to public HTTPS
-  const ghToken = (() => {
-    try {
-      return spawnSync('gh', ['auth', 'token'], { encoding: 'utf-8' }).stdout?.trim() || ''
-    } catch { return '' }
-  })()
-  const token = ghToken || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ''
-  if (token) {
-    return `https://x-access-token:${token}@github.com/${REPO}.git`
-  }
-  return `https://github.com/${REPO}.git`
-}
+const CLONE_URL = `git@github.com:${REPO}.git`
 
 function git(...args: string[]): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSync('git', args, { encoding: 'utf-8' })
+  const result = spawnSync('git', args, { encoding: 'utf-8', env: process.env })
   return {
     ok: result.status === 0,
     stdout: result.stdout?.trim() ?? '',
@@ -108,19 +87,26 @@ function collectLocales(index: IndexJson): string[] {
   for (const skill of index.skills) {
     for (const locale of Object.keys(skill.path)) localeSet.add(locale)
   }
-  for (const agent of index.agents) {
-    for (const locale of Object.keys(agent.path)) localeSet.add(locale)
-  }
   return [...localeSet].sort()
 }
 
-function mergeClaudecodeFrontmatter(
-  mdContent: string,
-  claudecodeFields: Record<string, unknown>,
-): string {
-  const md = matter(mdContent)
-  const merged = { ...md.data, ...claudecodeFields }
-  return matter.stringify(md.content, merged)
+/**
+ * Extract locale and skill directory from index.json path.
+ * New format: "skills/<locale>/<skillName>/SKILL.md"
+ * Old format: "<locale>/skills/<skillName>/SKILL.md" (for backwards compat)
+ */
+function parseSkillPath(skillMdPath: string): { locale: string; skillDir: string } | null {
+  // New format: skills/<locale>/<skillName>/SKILL.md
+  const newMatch = skillMdPath.match(/^skills\/([^/]+)\/(.+)$/)
+  if (newMatch) {
+    return { locale: newMatch[1], skillDir: newMatch[2].replace(/\/SKILL\.md$/, '') }
+  }
+  // Old format: <locale>/skills/<skillName>/SKILL.md
+  const oldMatch = skillMdPath.match(/^([^/]+)\/skills\/(.+)$/)
+  if (oldMatch) {
+    return { locale: oldMatch[1], skillDir: oldMatch[2].replace(/\/SKILL\.md$/, '') }
+  }
+  return null
 }
 
 async function cloneAndCopy(
@@ -141,61 +127,26 @@ async function cloneAndCopy(
   for (const locale of locales) {
     const outputLocaleDir = path.join(bundledReviewDir, locale)
 
-    // Copy skill dirs for this locale
     const skillPaths = index.skills
       .map(s => s.path[locale])
       .filter(Boolean)
 
     for (const skillMdPath of skillPaths) {
+      const parsed = parseSkillPath(skillMdPath)
+      if (!parsed) {
+        console.warn(`  ⚠ Skipping unparseable path: ${skillMdPath}`)
+        continue
+      }
+
+      const { skillDir } = parsed
       const srcDir = path.join(cloneDir, path.dirname(skillMdPath))
-      const relativeDir = skillMdPath.startsWith(`${locale}/`)
-        ? skillMdPath.slice(locale.length + 1).replace(/\/[^/]*$/, '')
-        : path.dirname(skillMdPath)
-      const outputDir = path.join(outputLocaleDir, relativeDir)
+      const outputDir = path.join(outputLocaleDir, skillDir)
 
       await fs.rm(outputDir, { recursive: true, force: true })
       await fs.cp(srcDir, outputDir, { recursive: true })
 
-      const skillMd = path.join(outputDir, 'SKILL.md')
-      try {
-        await fs.access(skillMd)
-      } catch {
-        throw new Error(`Skill (${locale}) missing SKILL.md at ${skillMdPath}`)
-      }
-
-      const skillName = path.basename(srcDir)
       const fileCount = (await walk(outputDir)).length
-      console.log(`   ✓ ${locale}/skills/${skillName}: ${fileCount} files`)
-    }
-
-    // Copy agent files for this locale, merging claudecode frontmatter
-    const agentEntries = index.agents
-      .map(a => ({ name: a.name, filePath: a.path[locale], claudecode: a.claudecode }))
-      .filter(e => e.filePath)
-
-    for (const { name, filePath, claudecode } of agentEntries) {
-      const srcFile = path.join(cloneDir, filePath)
-      const outputDir = path.join(outputLocaleDir, 'agents')
-      await fs.mkdir(outputDir, { recursive: true })
-
-      const filename = path.basename(filePath)
-      const destFile = path.join(outputDir, filename)
-
-      if (claudecode) {
-        const rawContent = await fs.readFile(srcFile, 'utf-8')
-        const merged = mergeClaudecodeFrontmatter(rawContent, claudecode)
-        await fs.writeFile(destFile, merged, 'utf-8')
-      } else {
-        await fs.cp(srcFile, destFile)
-      }
-
-      try {
-        await fs.access(destFile)
-      } catch {
-        throw new Error(`Agent "${name}" (${locale}) missing at ${filePath}`)
-      }
-
-      console.log(`   ✓ ${locale}/agents/${filename}`)
+      console.log(`   ✓ ${locale}/${skillDir}: ${fileCount} files`)
     }
   }
 
@@ -213,67 +164,99 @@ async function generateBuiltinSkills(
     }
   }
 
-  const allSkillNames: string[] = []
-
   // Discover skill names from first locale
+  const allSkillNames: string[] = []
   for (const locale of locales) {
-    const skillsDir = path.join(bundledReviewDir, locale, 'skills')
-    const entries = await fs.readdir(skillsDir).catch(() => [] as string[])
+    const entries = await fs.readdir(path.join(bundledReviewDir, locale)).catch(() => [] as string[])
     for (const name of entries) {
-      if (!allSkillNames.includes(name)) allSkillNames.push(name)
+      const p = path.join(bundledReviewDir, locale, name)
+      if ((await fs.stat(p).catch(() => null))?.isDirectory()) {
+        if (!allSkillNames.includes(name)) allSkillNames.push(name)
+      }
     }
     break
   }
 
-  const imports: string[] = []
-  const localeSkillEntries: string[] = []
+  const skillFileEntries: string[] = []
+  const metadataEntries: string[] = []
   let fileIdx = 0
 
   for (const locale of [...locales].sort()) {
-    const skillEntries: string[] = []
+    const fileEntries: string[] = []
+    const metaEntries: string[] = []
+
     for (const skillName of allSkillNames) {
-      const skillDir = path.join(bundledReviewDir, locale, 'skills', skillName)
+      const skillDir = path.join(bundledReviewDir, locale, skillName)
       const files = await walk(skillDir)
-      const fileEntries: string[] = []
+
+      // Parse SKILL.md for metadata
+      let skillMeta = { name: skillName, description: '' }
+      const skillMdPath = path.join(skillDir, 'SKILL.md')
+      try {
+        const content = await fs.readFile(skillMdPath, 'utf-8')
+        const parsed = matter(content)
+        skillMeta = {
+          name: String(parsed.data.name ?? skillName),
+          description: String(parsed.data.description ?? ''),
+        }
+      } catch {
+        // SKILL.md not found, use defaults
+      }
+
+      const fileRecords: string[] = []
       for (const file of files) {
         const varName = `SKILL_FILE_${fileIdx++}`
         const filePath = path.join(skillDir, file)
         const content = await fs.readFile(filePath, 'utf-8')
         const normalizedPath = file.replaceAll('\\', '/')
-        imports.push(`const ${varName} = ${JSON.stringify(content)}`)
-        fileEntries.push(`  "${normalizedPath}": ${varName}`)
+        fileRecords.push(`    "${normalizedPath}": ${JSON.stringify(content)}`)
       }
-      skillEntries.push(`  "${skillName}": {\n${fileEntries.join(',\n')}\n  }`)
+
+      fileEntries.push(`  "${skillName}": {\n${fileRecords.join(',\n')}\n  }`)
+      metaEntries.push(`  "${skillName}": ${JSON.stringify(skillMeta)}`)
     }
-    localeSkillEntries.push(`  "${locale}": {\n${skillEntries.join(',\n')}\n  }`)
+
+    skillFileEntries.push(`  "${locale}": {\n${fileEntries.join(',\n')}\n  }`)
+    metadataEntries.push(`  "${locale}": {\n${metaEntries.join(',\n')}\n  }`)
   }
 
   const content = `// This file is auto-generated by scripts/generate-review-builtin.ts
 // Do not edit manually
+// Skills are downloaded from zgsm-ai/costrict-review repository
 
-import { writeFile, mkdir } from "fs/promises"
-import { join, dirname } from "path"
-
-${imports.join('\n')}
-
-const SKILL_FILES: Record<string, Record<string, Record<string, string>>> = {
-${localeSkillEntries.join(',\n')}
+// locale → skillName → filePath → content
+export const SKILL_FILES: Record<string, Record<string, Record<string, string>>> = {
+${skillFileEntries.join(',\n')}
 }
 
-const SKILL_VERSIONS: Record<string, string> = {
+// locale → skillName → { name, description }
+export const SKILL_METADATA: Record<string, Record<string, { name: string; description: string }>> = {
+${metadataEntries.join(',\n')}
+}
+
+// skillName → commit SHA
+export const SKILL_VERSIONS: Record<string, string> = {
 ${allSkillNames.map(n => `  "${n}": "${commitSha}"`).join(',\n')}
 }
 
-export function listBuiltinSkills(): string[] {
+// List all skill names
+export function listBuiltinSkillNames(): string[] {
   return ${JSON.stringify(allSkillNames)}
 }
 
+// Get version for a skill
 export function getBuiltinSkillVersion(skillName: string): string | undefined {
   return SKILL_VERSIONS[skillName]
 }
 
-export function listSkillFiles(skillName: string, locale: string): string[] {
-  return Object.keys(SKILL_FILES[locale]?.[skillName] || {})
+// Get files for a skill in a specific locale
+export function getSkillFiles(skillName: string, locale: string): Record<string, string> {
+  return SKILL_FILES[locale]?.[skillName] ?? {}
+}
+
+// Get metadata for a skill in a specific locale
+export function getSkillMetadata(skillName: string, locale: string): { name: string; description: string } | undefined {
+  return SKILL_METADATA[locale]?.[skillName]
 }
 
 export async function extractBundledSkill(skillName: string, targetDir: string, locale: string): Promise<void> {
@@ -287,10 +270,14 @@ export async function extractBundledSkill(skillName: string, targetDir: string, 
     throw new Error(\`Skill not found: \${skillName}\`)
   }
 
-  await mkdir(targetDir, { recursive: true })
-  for (const [relativePath, content] of Object.entries(skillFiles)) {
-    await mkdir(join(targetDir, dirname(relativePath)), { recursive: true })
-    await writeFile(join(targetDir, relativePath), content, "utf-8")
+  const { rm, mkdir: mkdirSync, writeFile: writeFileSync } = await import('fs/promises')
+  const { join: pathJoin, dirname: pathDirname } = await import('path')
+  // Remove stale files from previous version/locale before extracting
+  await rm(targetDir, { recursive: true, force: true })
+  await mkdirSync(targetDir, { recursive: true })
+  for (const [relativePath, fileContent] of Object.entries(skillFiles)) {
+    await mkdirSync(pathJoin(targetDir, pathDirname(relativePath)), { recursive: true })
+    await writeFileSync(pathJoin(targetDir, relativePath), fileContent, 'utf-8')
   }
 }
 `
@@ -300,155 +287,8 @@ export async function extractBundledSkill(skillName: string, targetDir: string, 
   console.log(`\n✓ Generated ${builtinSkillsFile}`)
 }
 
-async function generateBuiltinAgents(
-  commitSha: string,
-): Promise<void> {
-  const localeEntries = await fs.readdir(bundledReviewDir).catch(() => [] as string[])
-  const locales: string[] = []
-  for (const l of localeEntries) {
-    if ((await fs.stat(path.join(bundledReviewDir, l)).catch(() => null))?.isDirectory()) {
-      locales.push(l)
-    }
-  }
-
-  // Discover agent names from first locale's agents dir
-  const allAgentNames: string[] = []
-  for (const locale of locales) {
-    const agentsDir = path.join(bundledReviewDir, locale, 'agents')
-    const entries = await fs.readdir(agentsDir).catch(() => [] as string[])
-    for (const name of entries) {
-      if (!allAgentNames.includes(name)) allAgentNames.push(name)
-    }
-    break
-  }
-
-  const imports: string[] = []
-  const agentCodeEntries: string[] = []
-  let fileIdx = 0
-  let primaryAgent = ''
-  let subAgent = ''
-
-  for (const agentName of allAgentNames) {
-    const agentKey = agentName.replace(/\.md$/, '')
-    const localeEntriesList: string[] = []
-    const promptVarNames: string[] = []
-
-    for (const locale of [...locales].sort()) {
-      const agentFile = path.join(bundledReviewDir, locale, 'agents', agentName)
-      try {
-        const content = await fs.readFile(agentFile, 'utf-8')
-        const varName = `REVIEW_AGENT_${fileIdx++}`
-        imports.push(`const ${varName} = ${JSON.stringify(content)}`)
-        localeEntriesList.push(`"${locale}": ${varName}`)
-        promptVarNames.push(varName)
-
-        if (content.includes('mode: primary')) primaryAgent = agentKey
-        if (content.includes('mode: subagent')) subAgent = agentKey
-      } catch {
-        // Agent file not found for this locale, skip
-      }
-    }
-
-    if (localeEntriesList.length > 0) {
-      const promptRecordName = `${agentKey.toUpperCase().replace(/-/g, '_')}_PROMPTS`
-      agentCodeEntries.push(`const ${promptRecordName}: Record<string, string> = {\n${localeEntriesList.join(',\n')}\n}`)
-    }
-  }
-
-  // Now generate the BuiltInAgentDefinition array
-  // Parse merged frontmatter from the zh-CN agent files to extract fields
-  const agentDefs: string[] = []
-
-  for (const agentName of allAgentNames) {
-    const agentKey = agentName.replace(/\.md$/, '')
-    const promptRecordName = `${agentKey.toUpperCase().replace(/-/g, '_')}_PROMPTS`
-
-    // Read zh-CN version to parse frontmatter for fields
-    const zhAgentFile = path.join(bundledReviewDir, 'zh-CN', 'agents', agentName)
-    let frontmatterData: Record<string, unknown> = {}
-    try {
-      const content = await fs.readFile(zhAgentFile, 'utf-8')
-      const parsed = matter(content)
-      frontmatterData = parsed.data as Record<string, unknown>
-    } catch {
-      // fallback
-    }
-
-    // Extract fields from frontmatter
-    const whenToUse = String(frontmatterData['whenToUse'] ?? frontmatterData['description'] ?? '')
-    const toolsStr = String(frontmatterData['tools'] ?? '')
-    const tools = toolsStr ? toolsStr.split(',').map((t: string) => t.trim()).filter(Boolean) : undefined
-    const permissionMode = String(frontmatterData['permissionMode'] ?? 'default')
-    const model = String(frontmatterData['model'] ?? 'inherit')
-    const mode = String(frontmatterData['mode'] ?? '')
-
-    // Determine disallowedTools based on tools availability
-    const toolNameSet = new Set(tools ?? [])
-    const disallowedTools: string[] = []
-    if (!toolNameSet.has('Agent')) disallowedTools.push('Agent')
-    if (!toolNameSet.has('FileEdit')) disallowedTools.push('FileEdit')
-    if (!toolNameSet.has('FileWrite')) disallowedTools.push('FileWrite')
-    if (!toolNameSet.has('NotebookEdit')) disallowedTools.push('NotebookEdit')
-
-    // Determine visibleTo based on mode
-    const visibleTo = mode === 'primary' ? undefined : ['CoStrictReviewer']
-
-    const toolsLiteral = tools ? JSON.stringify(tools) : 'undefined'
-    const disallowedLiteral = disallowedTools.length > 0
-      ? `[${disallowedTools.map((t: string) => `'${t}'`).join(', ')}]`
-      : 'undefined'
-    const visibleToLiteral = visibleTo ? JSON.stringify(visibleTo) : 'undefined'
-
-    agentDefs.push(`  {
-    agentType: '${agentKey}',
-    whenToUse: ${JSON.stringify(whenToUse)},
-    tools: ${toolsLiteral} as string[] | undefined,
-    disallowedTools: ${disallowedLiteral} as string[] | undefined,
-    permissionMode: '${permissionMode}',
-    model: '${model}',
-    source: 'built-in',
-    baseDir: 'built-in',
-    visibleTo: ${visibleToLiteral} as string[] | undefined,
-    getSystemPrompt: (_params) => {
-      const lang = getResolvedLanguage()
-      const locale = LOCALE_MAP[lang] ?? 'zh-CN'
-      return ${promptRecordName}[locale] ?? ${promptRecordName}['zh-CN']
-    },
-  }`)
-  }
-
-  const content = `// This file is auto-generated by scripts/generate-review-builtin.ts
-// Do not edit manually
-// Agents are downloaded from zgsm-ai/costrict-review repository
-
-import type { BuiltInAgentDefinition } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
-import { getResolvedLanguage } from 'src/utils/language.js'
-
-const LOCALE_MAP: Record<string, string> = { zh: 'zh-CN', en: 'en' }
-
-${imports.join('\n')}
-
-${agentCodeEntries.join('\n\n')}
-
-export const REVIEW_AGENTS: BuiltInAgentDefinition[] = [
-${agentDefs.join(',\n')}
-]
-
-export const AGENT_VERSIONS: Record<string, string> = {
-${allAgentNames.map(n => `  "${n.replace(/\.md$/, '')}": "${commitSha}"`).join(',\n')}
-}
-
-export const PRIMARY_REVIEW_AGENT = ${JSON.stringify(primaryAgent)}
-export const SUB_REVIEW_AGENT = ${JSON.stringify(subAgent)}
-`
-
-  await mkdir(path.dirname(builtinAgentsFile), { recursive: true })
-  await fs.writeFile(builtinAgentsFile, content, 'utf-8')
-  console.log(`✓ Generated ${builtinAgentsFile}`)
-}
-
 async function generateBuiltinReview() {
-  console.log('\n🚀 CSC — Downloading Builtin Review Resources\n')
+  console.log('\n🚀 CSC — Downloading Builtin Review Skills\n')
 
   await fs.mkdir(bundledReviewDir, { recursive: true })
 
@@ -496,9 +336,7 @@ async function generateBuiltinReview() {
 
   await generateBuiltinSkills(commitSha)
 
-  await generateBuiltinAgents(commitSha)
-
-  console.log('\n💡 Run `bun run build` to compile the extension\n')
+  console.log('\n💡 Run `bun run build` to compile\n')
 }
 
 generateBuiltinReview().catch(console.error)
