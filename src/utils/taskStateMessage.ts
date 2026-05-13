@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
 import type { Task } from './tasks.js'
+import { compareTaskIds } from './tasks.js'
 
 export type TaskStateItem = Pick<
   Task,
@@ -37,7 +38,7 @@ function toTaskStateItem(task: Task): TaskStateItem {
 }
 
 function compareTaskStateItems(a: TaskStateItem, b: TaskStateItem): number {
-  return a.id.localeCompare(b.id)
+  return compareTaskIds(a.id, b.id)
 }
 
 export function buildTaskStateSnapshot(

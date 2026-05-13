@@ -58,7 +58,7 @@ const RSS_UPDATE_INTERVAL_MS = 5_000;
 
 type RssState = { text: string; level: 'normal' | 'warning' | 'error' };
 
-function useRssDisplay(): RssState | null {
+function useRssDisplay(isLoading: boolean): RssState | null {
   const [state, setState] = useState<RssState | null>(null);
   useEffect(() => {
     function update(): void {
@@ -68,9 +68,10 @@ function useRssDisplay(): RssState | null {
       setState(prev => (prev?.text === text ? prev : { text, level }));
     }
     update();
+    if (!isLoading) return;
     const timer = setInterval(update, RSS_UPDATE_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [isLoading]);
   return state;
 }
 
@@ -279,7 +280,7 @@ function ModeIndicator({
     }
   }, [voiceEnabled, voiceHintUnderCap]);
   const isKillAgentsConfirmShowing = useAppState(s => s.notifications.current?.key === 'kill-agents-confirm');
-  const rssState = useRssDisplay();
+  const rssState = useRssDisplay(isLoading);
 
   // Derive team info from teamContext (no filesystem I/O needed)
   // Match the same logic as TeamStatus to avoid trailing separator

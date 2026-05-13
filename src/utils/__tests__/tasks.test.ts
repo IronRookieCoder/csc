@@ -46,6 +46,7 @@ import {
   setLeaderTeamName,
   clearLeaderTeamName,
   isTodoV2Enabled,
+  compareTaskIds,
   type Task,
 } from '../tasks'
 
@@ -348,6 +349,11 @@ describe('listTasks', () => {
     expect(tasks).toHaveLength(2)
     const subjects = tasks.map(t => t.subject).sort()
     expect(subjects).toEqual(['A', 'B'])
+  })
+
+  test('sorts task IDs numerically', () => {
+    const ids = ['3', '10', '2', '1']
+    expect(ids.sort(compareTaskIds)).toEqual(['1', '2', '3', '10'])
   })
 })
 
