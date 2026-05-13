@@ -9,6 +9,7 @@
 declare namespace MACRO {
   export const VERSION: string
   export const BUILD_TIME: string
+  export const COMMIT: string
   export const FEEDBACK_CHANNEL: string
   export const ISSUES_EXPLAINER: string
   export const NATIVE_PACKAGE_URL: string
@@ -21,7 +22,9 @@ declare namespace MACRO {
 // These are referenced inside `MACRO(() => ...)` or `false && ...` blocks.
 
 // Model resolution (internal)
-declare function resolveAntModel(model: string): import('../utils/model/antModels.js').AntModel | undefined
+declare function resolveAntModel(
+  model: string,
+): import('../utils/model/antModels.js').AntModel | undefined
 declare function getAntModels(): import('../utils/model/antModels.js').AntModel[]
 declare function getAntModelOverrideConfig(): {
   defaultSystemPromptSuffix?: string
@@ -31,7 +34,13 @@ declare function getAntModelOverrideConfig(): {
 // Companion reactions handled by src/buddy/companionReact.ts (direct import)
 
 // Metrics (internal)
-type ApiMetricEntry = { ttftMs: number; firstTokenTime: number; lastTokenTime: number; responseLengthBaseline: number; endResponseLength: number }
+type ApiMetricEntry = {
+  ttftMs: number
+  firstTokenTime: number
+  lastTokenTime: number
+  responseLengthBaseline: number
+  endResponseLength: number
+}
 declare const apiMetricsRef: React.RefObject<ApiMetricEntry[]> | null
 declare function computeTtftText(metrics: ApiMetricEntry[]): string
 
@@ -53,7 +62,10 @@ declare const HOOK_TIMING_DISPLAY_THRESHOLD_MS: number
 declare type T = unknown
 
 // Tungsten (internal)
-declare function TungstenPill(props?: { key?: string; selected?: boolean }): JSX.Element | null
+declare function TungstenPill(props?: {
+  key?: string
+  selected?: boolean
+}): JSX.Element | null
 
 // ============================================================================
 // Build-time constants BUILD_TARGET/BUILD_ENV/INTERFACE_TYPE — removed (zero runtime usage)

@@ -42,3 +42,22 @@ data
 .costrict
 .claude
 .tmp/
+
+# Auto-generated review builtin files
+src/costrict/review/agent/builtin.ts
+src/costrict/review/skill/builtin.ts
+
+# Review builtin cache
+packages/builtin-tools/bundled-review/
+
+# Upstream additions
+teach-me
+credentials.json
+
+# Session-scoped progress / state files written by agents and skills
+.claude-impl-state.md
+.claude-progress.md
+.claude-recovery.md
+.test-progress.md
+.squash-tmp/
+.git.*-backup

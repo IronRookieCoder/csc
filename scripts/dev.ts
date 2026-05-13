@@ -73,6 +73,16 @@ const inspectArgs = process.env.BUN_INSPECT
 // npm, etc.) and on all platforms.
 const bunCmd = process.execPath;
 
+// Generate review builtin files before dev launch
+console.log('[dev] Generating review builtin files...');
+const genResult = Bun.spawnSync(['bun', 'run', 'scripts/generate-review-builtin.ts'], {
+  stdio: ["inherit", "inherit", "inherit"],
+  cwd: projectRoot,
+});
+if (!genResult.success) {
+  console.warn('[dev] Warning: generate-review-builtin.ts failed, using existing files');
+}
+
 const args = [bunCmd, ...inspectArgs, "run", ...defineArgs, ...featureArgs, cliPath, ...process.argv.slice(2)];
 
 if (process.platform === "win32") {

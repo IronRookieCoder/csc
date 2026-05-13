@@ -227,7 +227,9 @@ export async function authLogin({
 
       const orgResult = await validateForceLoginOrg()
       if (!orgResult.valid) {
-        process.stderr.write((orgResult as { valid: false; message: string }).message + '\n')
+        process.stderr.write(
+          (orgResult as { valid: false; message: string }).message + '\n',
+        )
         process.exit(1)
       }
 
@@ -277,7 +279,9 @@ export async function authLogin({
 
     const orgResult = await validateForceLoginOrg()
     if (!orgResult.valid) {
-      process.stderr.write((orgResult as { valid: false; message: string }).message + '\n')
+      process.stderr.write(
+        (orgResult as { valid: false; message: string }).message + '\n',
+      )
       process.exit(1)
     }
 

@@ -195,6 +195,8 @@ type State = {
   sdkBetas: string[] | undefined
   // Main thread agent type (from --agent flag or settings)
   mainThreadAgentType: string | undefined
+  // Currently active skill name (set when a /skill-name is invoked)
+  activeSkillName: string | undefined
   // Remote mode (--remote flag)
   isRemoteMode: boolean
   // Direct connect server URL (for display in header)
@@ -381,6 +383,8 @@ function getInitialState(): State {
     sdkBetas: undefined,
     // Main thread agent type
     mainThreadAgentType: undefined,
+    // Currently active skill name
+    activeSkillName: undefined,
     // Remote mode
     isRemoteMode: false,
     ...(process.env.USER_TYPE === 'ant'
@@ -1463,6 +1467,16 @@ export function getPlanSlugCache(): Map<string, string> {
   return STATE.planSlugCache
 }
 
+export function setPlanSlugCacheEntry(sessionId: string, slug: string): void {
+  if (STATE.planSlugCache.size >= 50) {
+    const firstKey = STATE.planSlugCache.keys().next().value
+    if (firstKey !== undefined) {
+      STATE.planSlugCache.delete(firstKey)
+    }
+  }
+  STATE.planSlugCache.set(sessionId, slug)
+}
+
 export function getSessionCreatedTeams(): Set<string> {
   return STATE.sessionCreatedTeams
 }
@@ -1622,6 +1636,14 @@ export function setMainThreadAgentType(agentType: string | undefined): void {
   STATE.mainThreadAgentType = agentType
 }
 
+export function getActiveSkillName(): string | undefined {
+  return STATE.activeSkillName
+}
+
+export function setActiveSkillName(skillName: string | undefined): void {
+  STATE.activeSkillName = skillName
+}
+
 export function getIsRemoteMode(): boolean {
   return STATE.isRemoteMode
 }
@@ -1640,6 +1662,12 @@ export function setSystemPromptSectionCacheEntry(
   name: string,
   value: string | null,
 ): void {
+  if (STATE.systemPromptSectionCache.size >= 100) {
+    const firstKey = STATE.systemPromptSectionCache.keys().next().value
+    if (firstKey !== undefined) {
+      STATE.systemPromptSectionCache.delete(firstKey)
+    }
+  }
   STATE.systemPromptSectionCache.set(name, value)
 }
 
@@ -1740,4 +1768,6 @@ export function getPromptId(): string | null {
 export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
-export function isReplBridgeActive(): boolean { return false; }
+export function isReplBridgeActive(): boolean {
+  return false
+}

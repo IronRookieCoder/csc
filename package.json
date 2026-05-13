@@ -1,6 +1,6 @@
 {
   "name": "@costrict/csc",
-  "version": "4.0.13",
+  "version": "4.0.16",
   "description": "costrict",
   "type": "module",
   "author": "costrict",
@@ -44,14 +44,30 @@
     "build:vite": "vite build && bun run scripts/post-build.ts",
     "build:vite:only": "vite build",
     "build:bun": "bun run build.ts",
+    "build:binary:linux": "bun run build && bun run compile:linux",
+    "build:binary:linux-baseline": "bun run build && bun run compile:linux-baseline",
+    "build:binary:linux-musl": "bun run build && bun run compile:linux-musl",
+    "build:binary:linux-musl-baseline": "bun run build && bun run compile:linux-musl-baseline",
+    "build:binary:win": "bun run build && bun run compile:win",
+    "build:binary:win-baseline": "bun run build && bun run compile:win-baseline",
+    "build:binary:all": "bun run build && bun run compile:linux && bun run compile:linux-baseline && bun run compile:linux-musl && bun run compile:linux-musl-baseline && bun run compile:win && bun run compile:win-baseline",
+    "compile:linux": "bun build dist/cli.js --compile --target=bun-linux-x64 --outfile dist/csc-linux-x64",
+    "compile:linux-baseline": "bun build dist/cli.js --compile --target=bun-linux-x64-baseline --outfile dist/csc-linux-x64-baseline",
+    "compile:linux-musl": "bun build dist/cli.js --compile --target=bun-linux-x64-musl --outfile dist/csc-linux-x64-musl",
+    "compile:linux-musl-baseline": "bun build dist/cli.js --compile --target=bun-linux-x64-musl-baseline --outfile dist/csc-linux-x64-musl-baseline",
+    "compile:win": "bun build dist/cli.js --compile --target=bun-windows-x64 --outfile dist/csc-windows-x64.exe",
+    "compile:win-baseline": "bun build dist/cli.js --compile --target=bun-windows-x64-baseline --outfile dist/csc-windows-x64-baseline.exe",
     "dev": "bun run scripts/dev.ts",
     "dev:inspect": "bun run scripts/dev-debug.ts",
     "prepublishOnly": "bun run build",
     "lint": "biome lint src/",
     "lint:fix": "biome lint --fix src/",
     "format": "biome format --write src/",
-    "prepare": "git config core.hooksPath .githooks",
+    "check": "biome check .",
+    "check:fix": "biome check --fix .",
+    "prepare": "husky",
     "test": "bun test",
+    "precheck": "bun run typecheck && bun run check:fix && bun test",
     "check:unused": "knip-bun",
     "health": "bun run scripts/health-check.ts",
     "postinstall": "node scripts/run-parallel.mjs scripts/postinstall.cjs scripts/setup-chrome-mcp.mjs scripts/install-cosknow.mjs",
@@ -62,7 +78,9 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.19.0",
     "@claude-code-best/mcp-chrome-bridge": "^2.0.8",
-    "hono": "^4.12.12",
+    "gray-matter": "^4.0.3",
+    "hono": "^4.12.15",
+    "undici": "^7.24.6",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -72,8 +90,8 @@
     "@ant/computer-use-input": "workspace:*",
     "@ant/computer-use-mcp": "workspace:*",
     "@ant/computer-use-swift": "workspace:*",
-    "@anthropic-ai/bedrock-sdk": "^0.26.4",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.87",
+    "@anthropic-ai/bedrock-sdk": "^0.29.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.114",
     "@anthropic-ai/foundry-sdk": "^0.2.3",
     "@anthropic-ai/mcpb": "^2.1.2",
     "@anthropic-ai/sandbox-runtime": "^0.0.44",
@@ -153,6 +171,7 @@
     "fflate": "^0.8.2",
     "figures": "^6.1.0",
     "fuse.js": "^7.1.0",
+    "husky": "^9.1.7",
     "get-east-asian-width": "^1.5.0",
     "google-auth-library": "^10.6.2",
     "he": "^1.2.0",
@@ -162,10 +181,11 @@
     "image-processor-napi": "workspace:*",
     "indent-string": "^5.0.0",
     "jsonc-parser": "^3.3.1",
-    "knip": "^6.1.1",
-    "lodash-es": "^4.17.23",
-    "lru-cache": "^11.2.7",
-    "marked": "^17.0.5",
+    "knip": "^6.4.1",
+    "lint-staged": "^16.4.0",
+    "lodash-es": "^4.18.1",
+    "lru-cache": "^11.3.5",
+    "marked": "^17.0.6",
     "modifiers-napi": "workspace:*",
     "openai": "^6.33.0",
     "p-map": "^7.0.4",
@@ -188,7 +208,6 @@
     "turndown": "^7.2.2",
     "type-fest": "^5.5.0",
     "typescript": "^6.0.2",
-    "undici": "^7.24.6",
     "url-handler-napi": "workspace:*",
     "usehooks-ts": "^3.1.1",
     "vite": "^8.0.8",
@@ -199,5 +218,24 @@
     "xss": "^1.0.15",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "doubaoime-asr": "^0.1.0"
+  },
+  "overrides": {
+    "@inquirer/prompts": "8.4.2",
+    "@xmldom/xmldom": "0.8.13",
+    "follow-redirects": "1.16.0",
+    "hono": "4.12.15",
+    "postcss": "8.5.10",
+    "uuid": "14.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,jsx}": [
+      "biome check --fix --no-errors-on-unmatched"
+    ],
+    "*.{json,jsonc}": [
+      "biome format --write --no-errors-on-unmatched"
+    ]
   }
 }

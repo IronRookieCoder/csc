@@ -25,7 +25,7 @@ import type {
   ProgressMessage,
   UserMessage,
 } from 'src/types/message.js'
-import { addInvokedSkill, getSessionId } from '../../bootstrap/state.js'
+import { addInvokedSkill, getSessionId, setActiveSkillName } from '../../bootstrap/state.js'
 import { COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG } from '../../constants/xml.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import {
@@ -161,6 +161,8 @@ async function executeForkedSlashCommand(
     command.effort !== undefined
       ? { ...baseAgent, effort: command.effort }
       : baseAgent
+
+  setActiveSkillName(agentDefinition.agentType ?? command.name)
 
   logForDebugging(
     `Executing forked slash command /${command.name} with agent ${agentDefinition.agentType}`,
@@ -1230,6 +1232,7 @@ async function getMessagesForPromptSlashCommand(
     skillContent,
     getAgentContext()?.agentId ?? null,
   )
+  setActiveSkillName(command.name)
 
   const metadata = formatCommandLoadingMetadata(command, args)
 

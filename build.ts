@@ -8,6 +8,17 @@ const outdir = 'dist'
 const { rmSync } = await import('fs')
 rmSync(outdir, { recursive: true, force: true })
 
+// Step 1.5: Generate review builtin files
+console.log('Generating review builtin files...')
+const { spawnSync: genSpawnSync } = await import('child_process')
+const genResult = genSpawnSync('bun', ['run', 'scripts/generate-review-builtin.ts'], {
+  stdio: 'inherit',
+  cwd: new URL('.', import.meta.url).pathname,
+})
+if (genResult.status !== 0) {
+  console.warn('Warning: generate-review-builtin.ts failed, using existing files')
+}
+
 // Default features that match the official CLI build.
 // Additional features can be enabled via FEATURE_<NAME>=1 env vars.
 const DEFAULT_BUILD_FEATURES = [
@@ -59,7 +70,14 @@ const result = await Bun.build({
   outdir,
   target: 'bun',
   splitting: true,
-  define: getMacroDefines(),
+  sourcemap: 'linked',
+  define: {
+    ...getMacroDefines(),
+    // React production mode — eliminates _debugStack Error objects
+    // (6,889 objects × ~1.7KB = 12MB in development builds) and removes
+    // prop-type / key warnings not useful in a production CLI tool.
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   features,
 })
 
@@ -89,6 +107,46 @@ for (const file of files) {
     patched++
   }
 }
+
+// Step 3.5: Replace feature('FLAG_NAME') with true/false at build time
+// Bun.build does not natively replace feature flags, so we do it manually here
+// to match the behavior of vite-plugin-feature-flags.ts.
+const FEATURE_CALL_RE = /feature\s*\(\s*['"]([\w]+)['"]\s*\)/g
+let featureReplaced = 0
+for (const file of files) {
+  if (!file.endsWith('.js')) continue
+  const filePath = join(outdir, file)
+  const content = await readFile(filePath, 'utf-8')
+  let matchCount = 0
+  const transformed = content.replace(FEATURE_CALL_RE, (match, flagName) => {
+    matchCount++
+    return features.includes(flagName) ? 'true' : 'false'
+  })
+  if (matchCount > 0) {
+    await writeFile(filePath, transformed)
+    featureReplaced += matchCount
+  }
+}
+
+// Also patch unguarded globalThis.Bun destructuring from third-party deps
+// (e.g. @anthropic-ai/sandbox-runtime) so Node.js doesn't crash at import time.
+let bunPatched = 0
+const BUN_DESTRUCTURE = /var \{([^}]+)\} = globalThis\.Bun;?/g
+const BUN_DESTRUCTURE_SAFE =
+  'var {$1} = typeof globalThis.Bun !== "undefined" ? globalThis.Bun : {};'
+for (const file of files) {
+  if (!file.endsWith('.js')) continue
+  const filePath = join(outdir, file)
+  const content = await readFile(filePath, 'utf-8')
+  if (BUN_DESTRUCTURE.test(content)) {
+    await writeFile(
+      filePath,
+      content.replace(BUN_DESTRUCTURE, BUN_DESTRUCTURE_SAFE),
+    )
+    bunPatched++
+  }
+}
+BUN_DESTRUCTURE.lastIndex = 0
 
 console.log(
   `Bundled ${result.outputs.length} files to ${outdir}/ (patched ${patched} for Node.js compat)`,
@@ -209,3 +267,16 @@ if (generated && generated.path !== targetPath) {
 }
 
 console.log(`Compiled standalone executable: ${join(import.meta.dir, exeName)}`)
+
+// Step 8: Clean up source maps — they add ~64MB to the package, exceeding
+// npmmirror's 80MB size limit. Source maps are only useful for local
+// debugging, not for package consumers.
+const { unlinkSync } = await import('fs')
+let mapCount = 0
+for (const file of files) {
+  if (file.endsWith('.map')) {
+    unlinkSync(join(outdir, file))
+    mapCount++
+  }
+}
+console.log(`Cleaned ${mapCount} source map files from ${outdir}/ (saved ~64MB)`)

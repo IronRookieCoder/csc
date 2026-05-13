@@ -6,9 +6,17 @@
  * corresponding MACRO.* identifier at transpile / bundle time.
  */
 export function getMacroDefines(): Record<string, string> {
+    const { execSync } = require("child_process");
+    let commit = "unknown";
+    try {
+        commit = execSync("git rev-parse --short HEAD", { encoding: "utf-8", cwd: __dirname }).trim();
+    } catch {
+        // ignore git errors
+    }
     return {
-        "MACRO.VERSION": JSON.stringify("4.0.13"),
+        "MACRO.VERSION": JSON.stringify("4.0.16"),
         "MACRO.BUILD_TIME": JSON.stringify(new Date().toISOString()),
+        "MACRO.COMMIT": JSON.stringify(commit),
         "MACRO.FEEDBACK_CHANNEL": JSON.stringify(""),
         "MACRO.ISSUES_EXPLAINER": JSON.stringify(""),
         "MACRO.NATIVE_PACKAGE_URL": JSON.stringify(""),
@@ -52,7 +60,7 @@ export const DEFAULT_BUILD_FEATURES = [
     'HISTORY_SNIP',                // 历史消息裁剪，压缩上下文窗口
     'CONTEXT_COLLAPSE',            // 上下文折叠，自动压缩旧消息
     'MONITOR_TOOL',                // Monitor 工具，流式监控后台进程输出
-    'FORK_SUBAGENT',               // Fork 子代理，在隔离上下文中并行执行任务
+    // 'FORK_SUBAGENT',               // Fork 子代理，在隔离上下文中并行执行任务（默认关闭，开启后强制所有 agent 异步运行，run_in_background 参数失效）
     // 'UDS_INBOX',                   // inbox 数组只增不减（非 GB 级主因）
     'KAIROS',                      // Kairos 定时任务系统核心
     // 'COORDINATOR_MODE',         // 已禁用：AgentSummary 30s fork 循环，GB 级泄露主因
@@ -68,6 +76,7 @@ export const DEFAULT_BUILD_FEATURES = [
     'DIRECT_CONNECT',              // 直连模式（claude server / claude open）
     // Skill search & learning
     'EXPERIMENTAL_SKILL_SEARCH',   // 实验性技能搜索（DiscoverSkills）
+    'EXPERIMENTAL_SEARCH_EXTRA_TOOLS', // 工具搜索预取管道（TF-IDF 索引 + inter-turn 异步预取）
     // 'SKILL_LEARNING',              // projectContext cache 无淘汰机制（非 GB 级主因）
     // P3: poor mode
     'POOR',                        // 穷鬼模式，跳过 extract_memories/prompt_suggestion 减少消耗
@@ -75,4 +84,6 @@ export const DEFAULT_BUILD_FEATURES = [
     // 'TEAMMEM',                  // 已禁用：依赖 COORDINATOR_MODE，邮箱文件无限增长
     // SSH Remote
     'SSH_REMOTE',                  // SSH 远程连接，本地 REPL + 远端工具执行
+    // Autofix PR
+    'AUTOFIX_PR',                  // /autofix-pr 命令
 ]as const;
