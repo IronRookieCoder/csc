@@ -30,6 +30,7 @@ import {
   toCommitComment,
 } from './git.js'
 import { createLogger } from './logger.js'
+import { isLocalDumpMode, writeLocalDump } from './localStorage.js'
 import { readState, writeState } from './state.js'
 import { RAW_DUMP_EVENT_ENV_KEY, type RawDumpEventPayload } from './types.js'
 import type {
@@ -68,25 +69,44 @@ function resolveRawDumpBaseUrl(baseUrl?: string): string {
   return raw.replace(/\/cloud-api$/, '')
 }
 
-function getRawDumpUrl(baseUrl: string, endpoint: string): string {
+function getRawDumpUrl(baseUrl: string, endpoint: string, isAnonymous: boolean = false): string {
   const suffix = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
-  return `${baseUrl}/user-indicator/api/v1${suffix}`
+  const prefix = isAnonymous ? '/user-indicator/public' : '/user-indicator/api/v1'
+  return `${baseUrl}${prefix}${suffix}`
 }
 
 async function postJson(
   baseUrl: string,
   headers: Headers,
   endpoint: string,
-  body: Record<string, unknown>,
+  body: object,
 ): Promise<void> {
-  const url = getRawDumpUrl(baseUrl, endpoint)
-  log('debug', `POST ${endpoint}`, { url })
+  if (isLocalDumpMode()) {
+    const type =
+      endpoint === '/raw-store/task-conversation'
+        ? 'conversation'
+        : endpoint === '/raw-store/task-summary'
+          ? 'summary'
+          : 'commit'
+    await writeLocalDump(type, body as Record<string, unknown>)
+    const b = body as Record<string, unknown>
+    log.info(`local dump: ${type} saved`, {
+      task_id: b.task_id,
+      request_id: b.request_id,
+      commit_id: b.commit_id,
+    })
+    return
+  }
+
+  const isAnonymous = !headers.get('Authorization')
+  const url = getRawDumpUrl(baseUrl, endpoint, isAnonymous)
+  log.debug(`POST ${endpoint}`, { url, isAnonymous })
 
   let lastError: Error | undefined
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
       const delay = 5000 * Math.pow(2, attempt - 1) // 5s, 10s
-      log('debug', `retrying ${endpoint} after ${delay}ms`, { attempt })
+      log.debug(`retrying ${endpoint} after ${delay}ms`, { attempt })
       await new Promise((r) => setTimeout(r, delay))
     }
 
@@ -101,14 +121,14 @@ async function postJson(
       })
 
       if (res.ok) {
-        log('debug', `POST ${endpoint} ok`, { status: res.status })
+        log.debug(`POST ${endpoint} ok`, { status: res.status })
         return
       }
 
       const text = await res.text().catch(() => '')
       // 429 限流时重试，其他错误直接抛
       if (res.status === 429) {
-        log('warn', `${endpoint} got 429, will retry`, { attempt, text: text.slice(0, 200) })
+        log.warn(`${endpoint} got 429, will retry`, { attempt, text: text.slice(0, 200) })
         lastError = new Error(`${endpoint} failed: ${res.status} ${text}`)
         continue
       }
@@ -117,7 +137,7 @@ async function postJson(
       lastError = err instanceof Error ? err : new Error(String(err))
       const isAbort = lastError.name === 'AbortError'
       // 网络错误 / 超时也重试
-      log('warn', `${endpoint} ${isAbort ? 'timeout' : 'network error'}, will retry`, {
+      log.warn(`${endpoint} ${isAbort ? 'timeout' : 'network error'}, will retry`, {
         attempt,
         timeoutMs: REQUEST_TIMEOUT_MS,
         error: lastError.message,
@@ -149,14 +169,14 @@ function detectOs(): string {
 }
 
 export async function auth() {
-  log('debug', 'auth start')
+  log.debug('auth start')
   let creds = await loadCoStrictCredentials()
   if (!creds?.access_token) throw new Error('Not authenticated')
-  log('debug', 'credentials loaded', { hasRefreshToken: !!creds.refresh_token, baseUrl: creds.base_url })
+  log.debug('credentials loaded', { hasRefreshToken: !!creds.refresh_token, baseUrl: creds.base_url })
 
   // Token 刷新
   if (creds.refresh_token && !isCoStrictTokenValid(creds)) {
-    log('debug', 'token expired, refreshing...')
+    log.debug('token expired, refreshing...')
     const next = await refreshCoStrictToken({
       baseUrl: creds.base_url,
       refreshToken: creds.refresh_token,
@@ -171,7 +191,7 @@ export async function auth() {
       expired_at: new Date(extractExpiryFromJWT(next.access_token)).toISOString(),
     })
     creds = { ...creds, access_token: next.access_token, refresh_token: next.refresh_token }
-    log('debug', 'token refreshed')
+    log.debug('token refreshed')
   }
 
   const headers = new Headers()
@@ -209,7 +229,7 @@ export async function auth() {
 
   const user = parseUser(accessPayload, refreshPayload)
   const baseUrl = resolveRawDumpBaseUrl(creds.base_url)
-  log('debug', 'auth success', { baseUrl, user_id: user.user_id, clientId, version })
+  log.debug('auth success', { baseUrl, user_id: user.user_id, clientId, version })
 
   return {
     baseUrl,
@@ -226,7 +246,7 @@ export async function loadSessionMessages(sessionDir: string, sessionId: string,
   try {
     const entries = await fs.readdir(sessionDir)
     const jsonlFiles = entries.filter((f) => f.endsWith('.jsonl'))
-    log('debug', 'found jsonl files', { sessionDir, count: jsonlFiles.length, files: jsonlFiles.slice(0, 5) })
+    log.debug('found jsonl files', { sessionDir, count: jsonlFiles.length, files: jsonlFiles.slice(0, 5) })
 
     for (const file of jsonlFiles) {
       const filePath = path.join(sessionDir, file)
@@ -250,7 +270,7 @@ export async function loadSessionMessages(sessionDir: string, sessionId: string,
         )
         const hasMessage = messageId ? lines.some((m) => m.uuid === messageId || (m.message as Record<string, unknown>)?.id === messageId) : false
         if (hasSession || hasMessage) {
-          log('debug', 'loaded messages from file', { file, count: lines.length, hasSession, hasMessage })
+          log.debug('loaded messages from file', { file, count: lines.length, hasSession, hasMessage })
           return lines
         }
       } catch {
@@ -281,6 +301,26 @@ function findParentUserMessage(
     if (messages[i]?.type === 'user') return messages[i]
   }
   return undefined
+}
+
+function detectSender(
+  assistant: Record<string, unknown>,
+  user: Record<string, unknown> | undefined,
+): string {
+  // 1. assistant 消息自身标记了 agent 模式
+  const mode = String(assistant.mode ?? '')
+  if (mode === 'agent' || mode === 'auto') return 'agent'
+
+  // 2. assistant.agent 字段存在且非空
+  if (assistant.agent) return 'agent'
+
+  // 3. 子 agent 会话（isSidechain 为 true）
+  if (assistant.isSidechain === true) return 'agent'
+
+  // 4. 父 user 消息是 meta/system 生成的（非真实用户输入）
+  if (user?.isMeta === true) return 'agent'
+
+  return 'user'
 }
 
 function extractTextContent(msg: Record<string, unknown>): string {
@@ -357,51 +397,63 @@ export async function uploadConversation(
   },
   authData: Awaited<ReturnType<typeof auth>>,
   state: Awaited<ReturnType<typeof readState>>,
-  options?: { workingTreeDiff?: string },
+  options?: { repoInfo?: RepoInfo },
 ): Promise<boolean> {
-  log('debug', 'uploadConversation start', { messageID: payload.messageID, messageCount: payload.messages.length })
+  log.debug('uploadConversation start', { messageID: payload.messageID, messageCount: payload.messages.length })
 
   let assistant = findMessage(payload.messages, payload.messageID)
   if (!assistant || assistant.type !== 'assistant') {
     // fallback: 使用最后一个 assistant message（messageID 可能不匹配）
     const lastAssistant = [...payload.messages].reverse().find((m) => m.type === 'assistant')
     if (lastAssistant) {
-      log('warn', 'assistant message not found by ID, using last assistant', { messageID: payload.messageID, fallbackUuid: lastAssistant.uuid })
+      log.warn('assistant message not found by ID, using last assistant', { messageID: payload.messageID, fallbackUuid: lastAssistant.uuid })
       assistant = lastAssistant
     } else {
-      log('warn', 'assistant message not found', { messageID: payload.messageID, foundType: assistant?.type })
+      log.warn('assistant message not found', { messageID: payload.messageID, foundType: assistant?.type })
       return false
     }
   }
 
   const requestID = ((assistant.message as Record<string, unknown>)?.id as string) || String(assistant.uuid) || payload.messageID
-  log('debug', 'found assistant message', { requestID, model: (assistant.message as Record<string, unknown>)?.model, uuid: assistant.uuid })
+  log.debug('found assistant message', { requestID, model: (assistant.message as Record<string, unknown>)?.model, uuid: assistant.uuid })
 
   const key = `${payload.sessionID}:${requestID}`
   if (state.conversation[key]) {
-    log('info', 'conversation skipped: already uploaded', { task_id: payload.sessionID, request_id: requestID })
+    log.info('conversation skipped: already uploaded', { task_id: payload.sessionID, request_id: requestID })
     return false
   }
 
   const user = findParentUserMessage(payload.messages, assistant)
-  log('debug', 'found parent user message', { hasUser: !!user, userTimestamp: user?.timestamp })
+  log.debug('found parent user message', { hasUser: !!user, userTimestamp: user?.timestamp })
 
   const userMsgTime = (user?.timestamp as number) || Date.now()
   const assistantMsgTime = (assistant.timestamp as number) || Date.now()
 
-  // diff: 优先从 tool_use 提取，fallback 到 git diff HEAD（可由上层预加载传入）
+  // diff: 仅从当前 assistant message 的 tool_use blocks 提取
+  // 不 fallback 到 git diff HEAD，避免将工作区历史未提交改动误报为当前轮次变更
   const toolDiff = extractToolDiff(assistant)
-  log('debug', 'extracted tool diff', { toolDiffLength: toolDiff.diff.length, toolDiffLines: toolDiff.diff_lines, toolDiffFiles: toolDiff.files.length })
+  log.debug('extracted tool diff', { toolDiffLength: toolDiff.diff.length, toolDiffLines: toolDiff.diff_lines, toolDiffFiles: toolDiff.files.length })
 
-  const rawDiff = toolDiff.diff || options?.workingTreeDiff || (await getWorkingTreeDiff(payload.directory))
-  log('debug', 'final diff', { diffLength: rawDiff.length, hasToolDiff: !!toolDiff.diff, fromCache: !toolDiff.diff && !!options?.workingTreeDiff })
+  const rawDiff = toolDiff.diff
+  log.debug('final diff', { diffLength: rawDiff.length, hasToolDiff: !!toolDiff.diff })
 
   const diffLines = rawDiff ? countDiffLines(rawDiff) : 0
   const files = rawDiff ? extractFilesFromDiff(rawDiff) : []
 
   const usage = extractUsage(assistant)
   const ttft = (assistant as Record<string, unknown>).ttftMs as number | undefined
-  log('debug', 'extracted usage', { usage, ttft })
+  log.debug('extracted usage', { usage, ttft })
+
+  const repoInfo = options?.repoInfo ?? (await getRepoInfo(payload.directory))
+
+  const requestContent = user ? extractTextContent(user) : ''
+  const responseContent = extractTextContent(assistant)
+
+  // 跳过无实质内容的中间轮次（agent 内部调用、空状态等），只保留有输入、有输出或有变更的轮次
+  if (!requestContent && !responseContent && !rawDiff) {
+    log.info('conversation skipped: empty intermediate turn', { task_id: payload.sessionID, request_id: requestID })
+    return false
+  }
 
   const body: ConversationPayload = {
     task_id: payload.sessionID,
@@ -416,22 +468,30 @@ export async function uploadConversation(
     upstream_tokens: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
     downstream_tokens: usage.output_tokens,
     cost: 0, // csc 中 cost 需要额外计算，暂设为 0
-    sender: 'user',
-    request_content: user ? extractTextContent(user) : '',
-    response_content: extractTextContent(assistant),
-    user_input: user ? extractTextContent(user) : '',
+    sender: detectSender(assistant, user),
+    request_content: requestContent,
+    response_content: responseContent,
+    user_input:
+      detectSender(assistant, user) === 'user' && user
+        ? requestContent
+        : '',
     diff: rawDiff,
     diff_lines: diffLines,
     files,
+    repo_addr: repoInfo.repo_addr,
+    repo_branch: repoInfo.repo_branch,
+    work_dir: payload.directory,
     ...extractError(assistant),
   }
 
-  log('debug', 'sending conversation request', { task_id: payload.sessionID, request_id: requestID, bodyKeys: Object.keys(body) })
+  log.debug('sending conversation request', { task_id: payload.sessionID, request_id: requestID, bodyKeys: Object.keys(body) })
   await postJson(authData.baseUrl, authData.headers, '/raw-store/task-conversation', body)
   state.conversation[key] = true
-  log('info', 'conversation uploaded', { task_id: payload.sessionID, request_id: requestID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens })
+  log.info('conversation uploaded', { task_id: payload.sessionID, request_id: requestID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens })
   return true
 }
+
+const SUMMARY_DEDUP_WINDOW_MS = 5 * 60 * 1000 // 同一 session 5 分钟内 summary 只上报一次
 
 export async function uploadSummary(
   payload: {
@@ -440,28 +500,19 @@ export async function uploadSummary(
     messages: Record<string, unknown>[]
   },
   authData: Awaited<ReturnType<typeof auth>>,
-  options?: { repoInfo?: RepoInfo; workingTreeDiff?: string },
+  state: Awaited<ReturnType<typeof readState>>,
 ): Promise<void> {
-  log('debug', 'uploadSummary start', { sessionID: payload.sessionID, messageCount: payload.messages.length })
-  const repoInfo = options?.repoInfo ?? (await getRepoInfo(payload.directory))
-  const rawDiff = options?.workingTreeDiff ?? (await getWorkingTreeDiff(payload.directory))
-  log('debug', 'summary repo info', {
-    repo_addr: repoInfo.repo_addr,
-    repo_branch: repoInfo.repo_branch,
-    diffLength: rawDiff.length,
-    fromCache: { repo: !!options?.repoInfo, diff: !!options?.workingTreeDiff },
-  })
+  log.debug('uploadSummary start', { sessionID: payload.sessionID, messageCount: payload.messages.length })
 
-  const assistants = payload.messages.filter((m) => m.type === 'assistant')
-  const { upstream_tokens, downstream_tokens } = assistants.reduce(
-    (acc, m) => {
-      const usage = extractUsage(m)
-      acc.upstream_tokens += usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
-      acc.downstream_tokens += usage.output_tokens
-      return acc
-    },
-    { upstream_tokens: 0, downstream_tokens: 0 },
-  )
+  const lastReported = state.summary[payload.sessionID]
+  if (lastReported && Date.now() - lastReported < SUMMARY_DEDUP_WINDOW_MS) {
+    log.info('summary skipped: reported recently', {
+      task_id: payload.sessionID,
+      lastReported,
+      windowMs: SUMMARY_DEDUP_WINDOW_MS,
+    })
+    return
+  }
 
   const firstMsg = payload.messages[0]
   const lastMsg = payload.messages[payload.messages.length - 1]
@@ -476,20 +527,12 @@ export async function uploadSummary(
     client_version: authData.version,
     client_os: detectOs(),
     client_os_version: os.release(),
-    caller: 'chat',
-    repo_addr: repoInfo.repo_addr,
-    repo_branch: repoInfo.repo_branch,
-    work_dir: payload.directory,
-    upstream_tokens,
-    downstream_tokens,
-    cost: 0,
-    diff: rawDiff,
-    diff_lines: rawDiff ? countDiffLines(rawDiff) : 0,
-    files: rawDiff ? extractFilesFromDiff(rawDiff) : [],
+    caller: process.env.CSC_RAW_DUMP_CALLER || 'chat',
   }
 
   await postJson(authData.baseUrl, authData.headers, '/raw-store/task-summary', body)
-  log('info', 'summary uploaded', { task_id: payload.sessionID, upstream_tokens: body.upstream_tokens, downstream_tokens: body.downstream_tokens, diff_lines: body.diff_lines })
+  state.summary[payload.sessionID] = Date.now()
+  log.info('summary uploaded', { task_id: payload.sessionID })
 }
 
 export async function uploadCommits(
@@ -500,25 +543,25 @@ export async function uploadCommits(
   state: Awaited<ReturnType<typeof readState>>,
   options?: { repoInfo?: RepoInfo },
 ): Promise<number> {
-  log('debug', 'uploadCommits start', { directory: payload.directory })
+  log.debug('uploadCommits start', { directory: payload.directory })
   const repoInfo = options?.repoInfo ?? (await getRepoInfo(payload.directory))
   if (!repoInfo.repo_addr || !repoInfo.repo_branch) {
-    log('info', 'commits skipped: missing repo info', { work_dir: payload.directory, repo_addr: repoInfo.repo_addr, repo_branch: repoInfo.repo_branch })
+    log.info('commits skipped: missing repo info', { work_dir: payload.directory, repo_addr: repoInfo.repo_addr, repo_branch: repoInfo.repo_branch })
     return 0
   }
 
   const stateKey = `${repoInfo.repo_addr}#${repoInfo.repo_branch}#${payload.directory}`
   const lastCommit = state.commits[stateKey]
-  log('debug', 'commits state', { stateKey, lastCommit: lastCommit || '(none)' })
+  log.debug('commits state', { stateKey, lastCommit: lastCommit || '(none)' })
 
   const logText = await getCommitLog(payload.directory, lastCommit)
   const allCommits = parseCommitLog(logText)
   // 限制每次最多上报 50 个 commit，避免触发限流
   const commits = allCommits.slice(0, 50)
-  log('debug', 'parsed commits', { total: allCommits.length, sending: commits.length })
+  log.debug('parsed commits', { total: allCommits.length, sending: commits.length })
 
   if (!commits.length) {
-    log('info', 'commits skipped: no new commits', { work_dir: payload.directory })
+    log.info('commits skipped: no new commits', { work_dir: payload.directory })
     return 0
   }
 
@@ -550,7 +593,7 @@ export async function uploadCommits(
     await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body)
     // 每成功一个 commit 立即更新 state，避免失败后全部重传
     state.commits[stateKey] = commit.commit_id
-    log('info', 'commit uploaded', { commit_id: commit.commit_id, progress: `${i + 1}/${commits.length}` })
+    log.info('commit uploaded', { commit_id: commit.commit_id, progress: `${i + 1}/${commits.length}` })
   }
 
   return commits.length
@@ -590,66 +633,122 @@ export function getSessionDirectory(directory: string, sessionID: string): strin
 export async function runRawDumpWorker() {
   try {
     const payload = parseWorkerPayload()
-    log('info', '=== WORKER STARTED ===', { session_id: payload.sessionID, message_id: payload.messageID, directory: payload.directory })
+    log.info('=== WORKER STARTED ===', { session_id: payload.sessionID, message_id: payload.messageID, directory: payload.directory })
 
     const sessionDir = getSessionDirectory(payload.directory, payload.sessionID)
-    log('debug', 'resolved session directory', { sessionDir })
+    log.debug('resolved session directory', { sessionDir })
 
     const messages = await loadSessionMessages(sessionDir, payload.sessionID, payload.messageID)
-    log('info', 'session loaded', { session_id: payload.sessionID, message_count: messages.length, directory: sessionDir })
+    log.info('session loaded', { session_id: payload.sessionID, message_count: messages.length, directory: sessionDir })
 
     if (messages.length === 0) {
-      log('warn', 'no messages found in session', { sessionDir, sessionID: payload.sessionID })
+      log.warn('no messages found in session', { sessionDir, sessionID: payload.sessionID })
     }
 
-    const authData = await auth()
+    const authData = await authWithFallback()
     const state = await readState()
-    log('debug', 'state loaded', { conversationCount: Object.keys(state.conversation).length, commitCount: Object.keys(state.commits).length })
+    log.debug('state loaded', { conversationCount: Object.keys(state.conversation).length, commitCount: Object.keys(state.commits).length })
 
-    // 预加载 git 信息，三次上传共享，避免重复 spawn git
+    // 预加载 git 信息，commits 和 repo 字段共享，避免重复 spawn git
     const repoInfo = await getRepoInfo(payload.directory)
-    const workingTreeDiff = await getWorkingTreeDiff(payload.directory)
-    log('debug', 'preloaded git info', { repo_branch: repoInfo.repo_branch, diffLength: workingTreeDiff.length })
+    log.debug('preloaded git info', { repo_branch: repoInfo.repo_branch })
 
-    log('debug', 'starting uploadConversation...')
+    log.debug('starting uploadConversation...')
     const conversationUploaded = await uploadConversation(
       { ...payload, messages },
       authData,
       state,
-      { workingTreeDiff },
+      { repoInfo },
     )
-    log('debug', 'uploadConversation done', { conversationUploaded })
+    log.debug('uploadConversation done', { conversationUploaded })
 
-    log('debug', 'starting uploadSummary...')
+    log.debug('starting uploadSummary...')
     await uploadSummary(
       { sessionID: payload.sessionID, directory: payload.directory, messages },
       authData,
-      { repoInfo, workingTreeDiff },
+      state,
     )
-    log('debug', 'uploadSummary done')
+    log.debug('uploadSummary done')
 
-    log('debug', 'starting uploadCommits...')
+    log.debug('starting uploadCommits...')
     const commitCount = await uploadCommits({ directory: payload.directory }, authData, state, { repoInfo })
-    log('debug', 'uploadCommits done', { commitCount })
+    log.debug('uploadCommits done', { commitCount })
 
     await writeState(state)
-    log('debug', 'state saved')
+    log.debug('state saved')
 
-    log('info', '=== WORKER COMPLETED ===', {
+    log.info('=== WORKER COMPLETED ===', {
       session_id: payload.sessionID,
       message_id: payload.messageID,
       conversation_uploaded: conversationUploaded,
       commits_uploaded: commitCount,
     })
   } catch (error) {
-    log('error', '=== WORKER FAILED ===', {
+    log.error('=== WORKER FAILED ===', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     })
   }
 }
 
+export async function authWithFallback(): Promise<
+  Awaited<ReturnType<typeof auth>>
+> {
+  try {
+    return await auth()
+  } catch (err) {
+    if (isLocalDumpMode()) {
+      log.info('local mode: auth failed, using fallback values', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return {
+        baseUrl: '',
+        headers: new Headers(),
+        user: {
+          user_id: 'local-mode',
+          user_name: 'local-mode',
+        },
+        clientId: 'local-mode',
+        version: 'local-mode',
+      }
+    }
+
+    // 非本地模式下认证失败，降级为匿名接口上报
+    log.info('auth failed, falling back to anonymous interface', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+
+    let version = 'unknown'
+    try {
+      const pkgPath = path.resolve(fileURLToPath(import.meta.url), '../../../../package.json')
+      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8'))
+      version = pkg.version ?? 'unknown'
+    } catch {
+      // ignore
+    }
+
+    const clientId = process.env.CSC_MACHINE_ID || 'anonymous'
+    const headers = new Headers()
+    headers.set('Content-Type', 'application/json')
+    headers.set('zgsm-client-id', clientId)
+    headers.set('zgsm-client-ide', 'cli')
+    headers.set('X-Costrict-Version', `csc-${version}`)
+
+    return {
+      baseUrl: resolveRawDumpBaseUrl(),
+      headers,
+      user: {
+        user_id: 'anonymous',
+        user_name: 'anonymous',
+      },
+      clientId,
+      version,
+    }
+  }
+}
+
 // 如果直接运行此文件（作为 worker 进程入口）
-if (process.argv[1]?.includes('worker')) {
+const scriptPath = process.argv[1] || ''
+if (scriptPath.endsWith('worker.ts') || scriptPath.endsWith('worker.js')) {
   runRawDumpWorker()
 }

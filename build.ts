@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile, cp } from 'fs/promises'
+import { readdir, readFile, writeFile, cp, unlink, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { getMacroDefines, DEFAULT_BUILD_FEATURES } from './scripts/defines.ts'
 
@@ -25,7 +25,7 @@ const envFeatures = Object.keys(process.env)
   .map(k => k.replace('FEATURE_', ''))
 const features = [...new Set([...DEFAULT_BUILD_FEATURES, ...envFeatures])]
 
-// Step 2: Bundle with splitting
+// Step 2: Bundle main entrypoint
 const result = await Bun.build({
   entrypoints: ['src/entrypoints/cli.tsx'],
   outdir,
@@ -42,9 +42,22 @@ const result = await Bun.build({
   features,
 })
 
-if (!result.success) {
+// Step 2.5: Bundle raw dump worker (standalone, no splitting)
+const workerResult = await Bun.build({
+  entrypoints: ['src/services/rawDump/batchWorker.ts'],
+  outdir,
+  target: 'bun',
+  sourcemap: 'linked',
+  define: {
+    ...getMacroDefines(),
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
+  features,
+})
+
+if (!result.success || !workerResult.success) {
   console.error('Build failed:')
-  for (const log of result.logs) {
+  for (const log of [...result.logs, ...workerResult.logs]) {
     console.error(log)
   }
   process.exit(1)
@@ -112,6 +125,19 @@ BUN_DESTRUCTURE.lastIndex = 0
 console.log(
   `Bundled ${result.outputs.length} files to ${outdir}/ (patched ${patched} for import.meta.require, ${bunPatched} for Bun destructure, ${featureReplaced} feature flags)`,
 )
+
+// Step 3.9: Move raw dump worker to expected subdir (must happen after patches, before map cleanup)
+const workerSrc = join(outdir, 'batchWorker.js')
+const workerDstDir = join(outdir, 'services', 'rawDump')
+const workerDst = join(workerDstDir, 'batchWorker.js')
+try {
+  await mkdir(workerDstDir, { recursive: true })
+  await cp(workerSrc, workerDst)
+  await unlink(workerSrc)
+  console.log(`Moved batchWorker.js → ${workerDst}`)
+} catch (err) {
+  console.warn('Warning: could not move batchWorker.js:', (err as Error).message)
+}
 
 // Step 4: Copy native .node addon files (audio-capture) and vendored binaries (ripgrep)
 const audioCaptureDir = join(outdir, 'vendor', 'audio-capture')
