@@ -118,6 +118,31 @@ export class SessionManager {
     }, checkInterval)
   }
 
+  private evictLRU(): string | null {
+    let oldestId: string | null = null
+    let oldestTime = Infinity
+    for (const [id, handle] of this.sessions) {
+      const info = handle.getInfo()
+      if (info.status !== 'running') continue
+      if (handle.busyStatus.type !== 'idle') continue
+      if (info.last_active_at < oldestTime) {
+        oldestTime = info.last_active_at
+        oldestId = id
+      }
+    }
+    if (!oldestId) return null
+    const handle = this.sessions.get(oldestId)!
+    handle.kill()
+    this.eventBus.publishSessionEvent(oldestId, 'deleted', {
+      status: 'stopped',
+      reason: 'evicted',
+    })
+    this.sessions.delete(oldestId)
+    this.eventBus.unregisterSessionCwd(oldestId)
+    this.scheduleIndexSave()
+    return oldestId
+  }
+
   getActiveCount(): number {
     return this.sessions.size
   }
@@ -157,9 +182,12 @@ export class SessionManager {
     sessionId?: string
   }): Promise<SessionHandle> {
     if (this.maxSessions > 0 && this.sessions.size >= this.maxSessions) {
-      throw new Error(
-        `Maximum concurrent sessions reached (${this.maxSessions})`,
-      )
+      const evicted = this.evictLRU()
+      if (!evicted) {
+        throw new Error(
+          `Maximum concurrent sessions reached (${this.maxSessions})`,
+        )
+      }
     }
 
     const sessionId = opts.sessionId ?? crypto.randomUUID()
