@@ -69,7 +69,7 @@ export const TaskCreateTool = buildTool({
     return isTodoV2Enabled()
   },
   isConcurrencySafe() {
-    return true
+    return false
   },
   toAutoClassifierInput(input) {
     return input.subject

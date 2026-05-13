@@ -230,6 +230,18 @@ export function getTaskPath(taskListId: string, taskId: string): string {
   return join(getTasksDir(taskListId), `${sanitizePathComponent(taskId)}.json`)
 }
 
+export function compareTaskIds(a: string, b: string): number {
+  const aIsNumeric = /^\d+$/.test(a)
+  const bIsNumeric = /^\d+$/.test(b)
+  if (aIsNumeric && bIsNumeric) {
+    return Number(a) - Number(b)
+  }
+  if (aIsNumeric !== bIsNumeric) {
+    return aIsNumeric ? -1 : 1
+  }
+  return a.localeCompare(b, undefined, { numeric: true })
+}
+
 export async function ensureTasksDir(taskListId: string): Promise<void> {
   const dir = getTasksDir(taskListId)
   try {
@@ -451,6 +463,7 @@ export async function listTasks(taskListId: string): Promise<Task[]> {
   const taskIds = files
     .filter(f => f.endsWith('.json'))
     .map(f => f.replace('.json', ''))
+    .sort(compareTaskIds)
   const results = await Promise.all(taskIds.map(id => getTask(taskListId, id)))
   return results.filter((t): t is Task => t !== null)
 }
