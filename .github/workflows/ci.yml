@@ -34,7 +34,7 @@ jobs:
       - name: Setup SSH for review agent generation
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.CO_STRICT_REVIEW_SSH_KEY }}
+          ssh-private-key: ${{ secrets.MY_SSH_PRIVATE_KEY }}
 
       - name: Generate review builtin files
         run: bun run scripts/generate-review-builtin.ts
