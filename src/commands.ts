@@ -314,7 +314,7 @@ const COMMANDS = memoize((): Command[] => [
   // desktop,
   context,
   contextNonInteractive,
-  cost,
+  // cost 已重导出 usage/index.ts（name='usage', aliases=['cost','stats']），
   diff,
   doctor,
   effort,

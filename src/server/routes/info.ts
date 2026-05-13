@@ -32,7 +32,7 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
         const commands = await getCommands(process.cwd())
         return c.json(
           commands
-            .filter(cmd => !cmd.isHidden)
+            .filter(cmd => !cmd.isHidden && cmd.type === 'prompt')
             .map(cmd => ({
               name: getCommandName(cmd),
               description: cmd.description,
