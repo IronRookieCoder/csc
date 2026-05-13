@@ -17,7 +17,12 @@ import type { Options } from '../../services/api/claude.js'
 import OpenAI from 'openai'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
 import { getUserAgent } from '../../utils/http.js'
-import { anthropicMessagesToOpenAI, anthropicToolsToOpenAI, anthropicToolChoiceToOpenAI, adaptOpenAIStreamToAnthropic } from '@ant/model-provider'
+import {
+  anthropicMessagesToOpenAI,
+  anthropicToolsToOpenAI,
+  anthropicToolChoiceToOpenAI,
+  adaptOpenAIStreamToAnthropic,
+} from '@ant/model-provider'
 import { normalizeMessagesForAPI } from '../../utils/messages.js'
 import { toolToAPISchema } from '../../utils/api.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -32,9 +37,16 @@ import { createCoStrictFetch } from './fetch.js'
 import { resolveCoStrictModel } from './modelMapping.js'
 import { getCoStrictBaseURL } from './auth.js'
 import { loadCoStrictCredentials } from './credentials.js'
-import { isOpenAIThinkingEnabled } from '../../services/api/openai/requestBody.js'
+import {
+  isOpenAIThinkingEnabled,
+  resolveOpenAIMaxTokens,
+} from '../../services/api/openai/requestBody.js'
 import { fetchCoStrictModels } from './models.js'
-import { getMainThreadAgentType, getActiveSkillName } from '../../bootstrap/state.js'
+import {
+  getMainThreadAgentType,
+  getActiveSkillName,
+} from '../../bootstrap/state.js'
+import { getModelMaxOutputTokens } from '../../utils/context.js'
 
 /**
  * CoStrict 查询路径
@@ -60,8 +72,8 @@ export async function* queryModelCoStrict(
     const chatBaseURL = `${baseUrl}/chat-rag/api/v1`
 
     // 3. 从模型列表获取 maxTokens 相关参数
+    let defaultMaxTokens = getModelMaxOutputTokens(costrictModel).upperLimit
     let maxTokensParamKey: string = 'max_tokens'
-    let maxTokensValue: number | undefined
     if (creds?.access_token) {
       try {
         const modelList = await fetchCoStrictModels(baseUrl, creds.access_token)
@@ -69,13 +81,17 @@ export async function* queryModelCoStrict(
         if (modelInfo) {
           maxTokensParamKey = modelInfo.maxTokensKey || 'max_tokens'
           if (modelInfo.maxTokens != null) {
-            maxTokensValue = modelInfo.maxTokens
+            defaultMaxTokens = modelInfo.maxTokens
           }
         }
       } catch {
         // 获取模型列表失败，使用默认值
       }
     }
+    const maxTokensValue = resolveOpenAIMaxTokens(
+      defaultMaxTokens,
+      options.maxOutputTokensOverride,
+    )
 
     // 4. 规范化消息
     const messagesForAPI = normalizeMessagesForAPI(messages, tools)
@@ -107,7 +123,7 @@ export async function* queryModelCoStrict(
     const openaiMessages = anthropicMessagesToOpenAI(
       messagesForAPI,
       systemPrompt,
-      { enableThinking }
+      { enableThinking },
     )
     const openaiTools = anthropicToolsToOpenAI(standardTools)
     const openaiToolChoice = anthropicToolChoiceToOpenAI(options.toolChoice)
@@ -146,12 +162,16 @@ export async function* queryModelCoStrict(
       }),
       stream: true,
       stream_options: { include_usage: true },
-      ...(options.temperatureOverride !== undefined && {
-        temperature: options.temperatureOverride,
+      [maxTokensParamKey]: maxTokensValue,
+      ...(enableThinking && {
+        thinking: { type: 'enabled' },
+        enable_thinking: true,
+        chat_template_kwargs: { thinking: true },
       }),
-      ...(maxTokensValue != null && {
-        [maxTokensParamKey]: maxTokensValue,
-      }),
+      ...(!enableThinking &&
+        options.temperatureOverride !== undefined && {
+          temperature: options.temperatureOverride,
+        }),
     }
     const stream = await client.chat.completions.create(
       requestBody as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
@@ -162,8 +182,6 @@ export async function* queryModelCoStrict(
     const adaptedStream = adaptOpenAIStreamToAnthropic(stream, costrictModel)
 
     const contentBlocks: Record<number, any> = {}
-    // 跟踪已 yield 的 assistant messages，用于 message_delta 时回写 usage
-    const yieldedMessages: AssistantMessage[] = []
     let partialMessage: any
     let stopReason: string | null = null
     let usage = {
@@ -174,6 +192,48 @@ export async function* queryModelCoStrict(
     }
     let ttftMs = 0
     const start = Date.now()
+    const assembleFinalAssistantOutputs = (): (
+      | AssistantMessage
+      | SystemAPIErrorMessage
+    )[] => {
+      const outputs: (AssistantMessage | SystemAPIErrorMessage)[] = []
+      if (!partialMessage) return outputs
+
+      const allBlocks = Object.keys(contentBlocks)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(k => contentBlocks[Number(k)])
+        .filter(Boolean)
+
+      if (allBlocks.length > 0) {
+        outputs.push({
+          message: {
+            ...partialMessage,
+            content: normalizeContentFromAPI(allBlocks, tools, options.agentId),
+            usage,
+            stop_reason: stopReason,
+            stop_sequence: null,
+          },
+          requestId: undefined,
+          type: 'assistant',
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+        } as AssistantMessage)
+      }
+
+      if (stopReason === 'max_tokens') {
+        outputs.push(
+          createAssistantAPIErrorMessage({
+            content:
+              `Output truncated: response exceeded the ${maxTokensValue} token limit. ` +
+              `Set OPENAI_MAX_TOKENS or CLAUDE_CODE_MAX_OUTPUT_TOKENS to override.`,
+            apiError: 'max_output_tokens',
+            error: 'max_output_tokens',
+          }),
+        )
+      }
+
+      return outputs
+    }
 
     for await (const event of adaptedStream) {
       switch (event.type) {
@@ -216,44 +276,27 @@ export async function* queryModelCoStrict(
           break
         }
         case 'content_block_stop': {
-          const idx = (event as any).index
-          const block = contentBlocks[idx]
-          if (!block || !partialMessage) break
-          const m: AssistantMessage = {
-            message: {
-              ...partialMessage,
-              content: normalizeContentFromAPI([block], tools, options.agentId),
-              usage,
-            },
-            requestId: undefined,
-            type: 'assistant',
-            uuid: randomUUID(),
-            timestamp: new Date().toISOString(),
-          }
-          yieldedMessages.push(m)
-          yield m
+          // Block accumulation is complete; emit one AssistantMessage at
+          // message_stop so reasoning/text/tool blocks stay in a single turn.
           break
         }
         case 'message_delta': {
           const deltaUsage = (event as any).usage
           if (deltaUsage) usage = { ...usage, ...deltaUsage }
-          // 回写 usage 到已 yield 的 assistant messages
-          // 与 Anthropic 原生路径 claude.ts:2298 保持一致
-          for (const msg of yieldedMessages) {
-            msg.message.usage = usage
-          }
-          // 记录 stop_reason，回写到最后的 message
           if ((event as any).delta?.stop_reason != null) {
             stopReason = (event as any).delta.stop_reason
-            const lastMsg = yieldedMessages[yieldedMessages.length - 1]
-            if (lastMsg) {
-              lastMsg.message.stop_reason = stopReason
-            }
           }
           break
         }
-        case 'message_stop':
+        case 'message_stop': {
+          if (partialMessage) {
+            for (const output of assembleFinalAssistantOutputs()) {
+              yield output
+            }
+            partialMessage = null
+          }
           break
+        }
       }
 
       if (
@@ -269,6 +312,12 @@ export async function* queryModelCoStrict(
         event,
         ...(event.type === 'message_start' ? { ttftMs } : undefined),
       } as StreamEvent
+    }
+
+    if (partialMessage) {
+      for (const output of assembleFinalAssistantOutputs()) {
+        yield output
+      }
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
