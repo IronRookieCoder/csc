@@ -37,7 +37,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: AgentModelAlias,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -68,9 +68,16 @@ export function getAgentModel(
 
   // Prioritize tool-specified model if provided
   if (toolSpecifiedModel) {
+    if (toolSpecifiedModel === 'inherit') {
+      return getRuntimeMainLoopModel({
+        permissionMode: permissionMode ?? 'default',
+        mainLoopModel: parentModel,
+        exceeds200kTokens: false,
+      })
+    }
     if (
       aliasMatchesParentTier(toolSpecifiedModel, parentModel) ||
-      // CoStrict has no haiku/sonnet/opus tiers — inherit parent model for all aliases
+      // CoStrict has no haiku/sonnet/opus tiers, so inherit parent model for family aliases.
       (getAPIProvider() === 'costrict' && isModelFamilyAlias(toolSpecifiedModel))
     ) {
       return parentModel

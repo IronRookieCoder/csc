@@ -22,7 +22,7 @@ import { getSearchOrReadFromContent, getSearchReadSummaryText } from 'src/utils/
 import { getDisplayPath } from 'src/utils/file.js';
 import { formatDuration, formatNumber } from 'src/utils/format.js';
 import { buildSubagentLookups, createAssistantMessage, EMPTY_LOOKUPS } from 'src/utils/messages.js';
-import type { ModelAlias } from 'src/utils/model/aliases.js';
+import type { AgentModelAlias } from 'src/utils/model/agent.js';
 import { getMainLoopModel, parseUserSpecifiedModel, renderModelName } from 'src/utils/model/model.js';
 import type { Theme, ThemeName } from 'src/utils/theme.js';
 import type { outputSchema, Progress, RemoteLaunchedOutput } from './AgentTool.js';
@@ -435,12 +435,12 @@ export function renderToolUseTag(
     description: string;
     prompt: string;
     subagent_type: string;
-    model?: ModelAlias;
+    model?: AgentModelAlias;
   }>,
 ): React.ReactNode {
   const tags: React.ReactNode[] = [];
 
-  if (input.model) {
+  if (input.model && input.model !== 'inherit') {
     const mainModel = getMainLoopModel();
     const agentModel = parseUserSpecifiedModel(input.model);
     if (agentModel !== mainModel) {

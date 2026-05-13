@@ -30,39 +30,116 @@ import { VERIFICATION_AGENT_TYPE } from '../AgentTool/constants.js'
 import { TASK_UPDATE_TOOL_NAME } from './constants.js'
 import { DESCRIPTION, PROMPT } from './prompt.js'
 
+type TaskUpdateStatus = TaskStatus | 'deleted'
+
+const TASK_UPDATE_STATUS_ALIASES: Record<string, TaskUpdateStatus> = {
+  open: 'pending',
+  todo: 'pending',
+  started: 'in_progress',
+  active: 'in_progress',
+  in_progress: 'in_progress',
+  inprogress: 'in_progress',
+  complete: 'completed',
+  completed: 'completed',
+  done: 'completed',
+  resolved: 'completed',
+  closed: 'completed',
+  deleted: 'deleted',
+  delete: 'deleted',
+  removed: 'deleted',
+}
+
+function normalizeTaskUpdateStatus(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const key = value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return TASK_UPDATE_STATUS_ALIASES[key] ?? value
+}
+
+function normalizeTaskId(value: unknown): unknown {
+  return typeof value === 'number' ? String(value) : value
+}
+
+function normalizeTaskUpdateInput(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+
+  const input = value as Record<string, unknown>
+  const normalized: Record<string, unknown> = { ...input }
+
+  if (normalized.taskId === undefined) {
+    normalized.taskId = normalizeTaskId(input.task_id ?? input.id)
+  } else {
+    normalized.taskId = normalizeTaskId(normalized.taskId)
+  }
+
+  normalized.status = normalizeTaskUpdateStatus(normalized.status)
+
+  if (normalized.activeForm === undefined) {
+    normalized.activeForm = input.active_form
+  }
+  if (normalized.addBlocks === undefined) {
+    normalized.addBlocks = input.add_blocks ?? input.blocks
+  }
+  if (normalized.addBlockedBy === undefined) {
+    normalized.addBlockedBy =
+      input.add_blocked_by ?? input.blockedBy ?? input.blocked_by
+  }
+
+  delete normalized.task_id
+  delete normalized.id
+  delete normalized.active_form
+  delete normalized.add_blocks
+  delete normalized.blocks
+  delete normalized.add_blocked_by
+  delete normalized.blockedBy
+  delete normalized.blocked_by
+
+  return normalized
+}
+
 const inputSchema = lazySchema(() => {
   // Extended status schema that includes 'deleted' as a special action
-  const TaskUpdateStatusSchema = TaskStatusSchema().or(z.literal('deleted'))
+  const TaskUpdateStatusSchema = z.preprocess(
+    normalizeTaskUpdateStatus,
+    TaskStatusSchema().or(z.literal('deleted')),
+  )
 
-  return z.strictObject({
-    taskId: z.string().describe('The ID of the task to update'),
-    subject: z.string().optional().describe('New subject for the task'),
-    description: z.string().optional().describe('New description for the task'),
-    activeForm: z
-      .string()
-      .optional()
-      .describe(
-        'Present continuous form shown in spinner when in_progress (e.g., "Running tests")',
+  return z.preprocess(
+    normalizeTaskUpdateInput,
+    z.strictObject({
+      taskId: z.string().describe('The ID of the task to update'),
+      subject: z.string().optional().describe('New subject for the task'),
+      description: z
+        .string()
+        .optional()
+        .describe('New description for the task'),
+      activeForm: z
+        .string()
+        .optional()
+        .describe(
+          'Present continuous form shown in spinner when in_progress (e.g., "Running tests")',
+        ),
+      status: TaskUpdateStatusSchema.optional().describe(
+        'New status for the task',
       ),
-    status: TaskUpdateStatusSchema.optional().describe(
-      'New status for the task',
-    ),
-    addBlocks: z
-      .array(z.string())
-      .optional()
-      .describe('Task IDs that this task blocks'),
-    addBlockedBy: z
-      .array(z.string())
-      .optional()
-      .describe('Task IDs that block this task'),
-    owner: z.string().optional().describe('New owner for the task'),
-    metadata: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe(
-        'Metadata keys to merge into the task. Set a key to null to delete it.',
-      ),
-  })
+      addBlocks: z
+        .array(z.string())
+        .optional()
+        .describe('Task IDs that this task blocks'),
+      addBlockedBy: z
+        .array(z.string())
+        .optional()
+        .describe('Task IDs that block this task'),
+      owner: z.string().optional().describe('New owner for the task'),
+      metadata: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          'Metadata keys to merge into the task. Set a key to null to delete it.',
+        ),
+    }),
+  )
 })
 type InputSchema = ReturnType<typeof inputSchema>
 
