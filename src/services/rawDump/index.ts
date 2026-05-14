@@ -20,10 +20,11 @@ const ENQUEUE_DEBOUNCE_MS = 5_000
 function isEnabled(): boolean {
   // 本地调试模式自动启用
   if (isLocalDumpMode()) return true
-  // 默认禁用 raw dump，除非显式设置为 0/false
-  if (process.env.CSC_DISABLE_RAW_DUMP === '0' || process.env.CSC_DISABLE_RAW_DUMP === 'false') return true
-  if (process.env.COSTRICT_DISABLE_RAW_DUMP === '0' || process.env.COSTRICT_DISABLE_RAW_DUMP === 'false') return true
-  return false
+  // 显式禁用
+  if (process.env.CSC_DISABLE_RAW_DUMP === '1' || process.env.CSC_DISABLE_RAW_DUMP === 'true') return false
+  if (process.env.COSTRICT_DISABLE_RAW_DUMP === '1' || process.env.COSTRICT_DISABLE_RAW_DUMP === 'true') return false
+  // 默认启用 raw dump
+  return true
 }
 
 function ensureBatchWorker() {

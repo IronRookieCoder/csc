@@ -283,8 +283,8 @@ import { refreshCoStrictToken } from '../../costrict/provider/token.js'
 
 | 变量 | 说明 | 默认值 |
 |-----|------|--------|
-| `CSC_DISABLE_RAW_DUMP` | 禁用本模块 | `false` |
-| `COSTRICT_DISABLE_RAW_DUMP` | 兼容 opencode 的禁用开关 | `false` |
+| `CSC_DISABLE_RAW_DUMP` | 显式禁用本模块（设为 `1` 或 `true`） | 默认启用 |
+| `COSTRICT_DISABLE_RAW_DUMP` | 兼容 opencode 的禁用开关（设为 `1` 或 `true`） | 默认启用 |
 | `CSC_RAW_DUMP_DEBUG` | 开启调试日志（`1` 或 `true`） | `false`（默认关闭） |
 | `CSC_RAW_DUMP_BASE_URL` | 自定义上报 base URL | 从凭证读取 |
 | `COSTRICT_RAW_DUMP_BASE_URL` | 兼容 opencode 的自定义 URL | 从凭证读取 |
