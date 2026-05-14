@@ -3,7 +3,8 @@
  * 主进程只写队列，独立 batch worker 顺序消费
  */
 
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
+import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -19,16 +20,13 @@ export interface QueueTask {
 
 export function enqueue(task: Omit<QueueTask, 'enqueuedAt'>): void {
   const item: QueueTask = { ...task, enqueuedAt: Date.now() }
-  try {
-    appendFileSync(QUEUE_FILE, JSON.stringify(item) + '\n', 'utf-8')
-  } catch {
-    // ignore
-  }
+  // 使用 fire-and-forget 异步写入，避免阻塞主进程 event loop
+  fs.appendFile(QUEUE_FILE, JSON.stringify(item) + '\n', 'utf-8').catch(() => {})
 }
 
-export function readQueue(): QueueTask[] {
+export async function readQueue(): Promise<QueueTask[]> {
   try {
-    const text = readFileSync(QUEUE_FILE, 'utf-8')
+    const text = await fs.readFile(QUEUE_FILE, 'utf-8')
     return text
       .split('\n')
       .filter(Boolean)
@@ -45,19 +43,18 @@ export function readQueue(): QueueTask[] {
   }
 }
 
-export function clearQueue(): void {
+export async function clearQueue(): Promise<void> {
   try {
-    writeFileSync(QUEUE_FILE, '', 'utf-8')
+    await fs.writeFile(QUEUE_FILE, '', 'utf-8')
   } catch {
     // ignore
   }
 }
 
-export function acquireLock(): boolean {
+export async function acquireLock(): Promise<boolean> {
   try {
-    // 简单文件锁：如果 lock 文件存在且 60 秒内，认为已有 worker
     try {
-      const stat = readFileSync(LOCK_FILE, 'utf-8')
+      const stat = await fs.readFile(LOCK_FILE, 'utf-8')
       const pid = parseInt(stat, 10)
       if (!isNaN(pid) && pid !== process.pid) {
         // 检查进程是否还在运行
@@ -71,16 +68,16 @@ export function acquireLock(): boolean {
     } catch {
       // lock 文件不存在
     }
-    writeFileSync(LOCK_FILE, String(process.pid), 'utf-8')
+    await fs.writeFile(LOCK_FILE, String(process.pid), 'utf-8')
     return true
   } catch {
     return false
   }
 }
 
-export function releaseLock(): void {
+export async function releaseLock(): Promise<void> {
   try {
-    writeFileSync(LOCK_FILE, '', 'utf-8')
+    await fs.writeFile(LOCK_FILE, '', 'utf-8')
   } catch {
     // ignore
   }

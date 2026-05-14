@@ -14,6 +14,7 @@ async function gitExec(args: string[], cwd: string): Promise<string> {
       cwd,
       encoding: 'utf-8',
       maxBuffer: 50 * 1024 * 1024, // 50MB
+      windowsHide: true,
     })
     return stdout.trim()
   } catch {
@@ -90,14 +91,17 @@ export function parseCommitLog(output: string): Array<{
 }
 
 export async function getCommitLog(cwd: string, lastCommit?: string): Promise<string> {
+  const authorEmail = await gitExec(['config', 'user.email'], cwd)
+  const authorFilter = authorEmail ? ['--author', authorEmail] : []
+
   if (lastCommit) {
     return gitExec(
-      ['log', `${lastCommit}..HEAD`, '--max-count=50', '--format=%H|%aI|%an|%ae|%s'],
+      ['log', `${lastCommit}..HEAD`, '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
       cwd,
     )
   }
   return gitExec(
-    ['log', '--since=7 days ago', '--max-count=50', '--format=%H|%aI|%an|%ae|%s'],
+    ['log', '--since=1 day ago', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
     cwd,
   )
 }

@@ -428,4 +428,38 @@ bun run build  # 构建后运行 dist/cli.js
 
 切换主题或颜色配置。
 
+#### Q: 排查 raw dump 上报数据
+
+开启**本地留存模式**，让 raw dump 数据只写入本地文件而不上报服务端，用于调试和排障：
+
+```bash
+# 在启动 csc 前设置环境变量
+export CSC_RAW_DUMP_LOCAL_MODE=1
+export CSC_RAW_DUMP_LOCAL_DIR=/tmp/raw-dump-debug
+
+csc
+```
+
+留存文件按 `sessionID` 分目录存储：
+
+```
+/tmp/raw-dump-debug/
+└── {sessionID}/
+    ├── 2026-05-12T10-30-00-conversation-msg-uuid.json
+    ├── 2026-05-12T10-30-01-summary-msg-uuid.json
+    └── 2026-05-12T10-30-02-commit-abc123.json
+```
+
+每个 JSON 文件包含完整的上报 payload，并在 `_dumpMeta` 字段标注类型和时间戳。本地模式特点：
+
+- **无需登录** — auth 失败自动降级，不会阻断流程
+- **不触发 HTTP** — 零网络依赖，零 429 风险
+- **与正常流程一致** — 队列 + worker 机制完全保留，只是输出到本地文件
+
+关闭本地模式（恢复正常上报）：
+
+```bash
+unset CSC_RAW_DUMP_LOCAL_MODE
+```
+
 ---

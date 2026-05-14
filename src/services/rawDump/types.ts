@@ -13,6 +13,7 @@ export interface RawDumpEventPayload {
 
 export interface RawDumpState {
   conversation: Record<string, true>
+  summary: Record<string, number>
   commits: Record<string, string>
 }
 
@@ -47,6 +48,9 @@ export interface ConversationPayload {
   diff: string
   diff_lines: number
   files: string[]
+  repo_addr: string
+  repo_branch: string
+  work_dir: string
   error_code?: number
   error_reason?: string
 }
@@ -63,15 +67,6 @@ export interface SummaryPayload {
   client_os: string
   client_os_version: string
   caller: string
-  repo_addr: string
-  repo_branch: string
-  work_dir: string
-  upstream_tokens: number
-  downstream_tokens: number
-  cost: number
-  diff: string
-  diff_lines: number
-  files: string[]
 }
 
 export interface CommitPayload {
