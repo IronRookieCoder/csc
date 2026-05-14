@@ -55,6 +55,7 @@ import {
   getSessionState,
   notifySessionStateChanged,
   notifySessionMetadataChanged,
+  registerSdkEventConsumer,
   setPermissionModeChangedListener,
   type RequiresActionDetails,
   type SessionExternalMetadata,
@@ -1041,6 +1042,13 @@ function runHeadlessStreaming(
   let abortController: AbortController | undefined
   // Same queue sendRequest() enqueues to — one FIFO for everything.
   const output = structuredIO.outbound
+
+  // Push session_state_changed events directly to output (bypasses SDK
+  // event queue). Aligned with OpenCode: status transitions reach clients
+  // immediately via direct push, not delayed until drainSdkEvents().
+  const unregisterSdkConsumer = registerSdkEventConsumer(event => {
+    output.enqueue(event as unknown as StdoutMessage)
+  })
 
   // Ctrl+C in -p mode: abort the in-flight query, then shut down gracefully.
   // gracefulShutdown persists session state and flushes analytics, with a
@@ -2783,7 +2791,7 @@ function runHeadlessStreaming(
           uuid: randomUUID(),
         })
         void run()
-      } else {
+      } else if (!process.env.CSC_SERVE_MODE) {
         // Wait for any in-flight push suggestion before closing the output stream.
         if (suggestionState.inflightPromise) {
           await Promise.race([suggestionState.inflightPromise, sleep(5000)])
@@ -3155,6 +3163,32 @@ function runHeadlessStreaming(
           notifySessionMetadataChanged({ model })
           injectModelSwitchBreadcrumbs(requestedModel, model)
 
+          sendControlResponseSuccess(msg)
+        } else if (msg.request.subtype === 'set_agent') {
+          const agent = typeof msg.request.agent === 'string' ? msg.request.agent : undefined
+          // 'build' is the frontend display name for the default (no-agent) mode.
+          // Treat it as clearing the agent, same as undefined.
+          const resolvedAgent = agent === 'build' ? undefined : agent
+          setMainThreadAgentType(resolvedAgent)
+          saveAgentSetting(resolvedAgent ?? '')
+          if (resolvedAgent) {
+            // Apply the agent's system prompt so QueryEngine picks it up on the next turn.
+            // QueryEngine.ask() uses options.systemPrompt (customSystemPrompt) directly,
+            // bypassing buildEffectiveSystemPrompt/mainThreadAgentDefinition. For built-in
+            // agents the getSystemPrompt params are ignored; pass a minimal stub.
+            const agentDef = currentAgents.find(a => a.agentType === resolvedAgent)
+            if (agentDef) {
+              const agentSystemPrompt = isBuiltInAgent(agentDef)
+                ? agentDef.getSystemPrompt({ toolUseContext: { options: {} as never } })
+                : agentDef.getSystemPrompt()
+              if (agentSystemPrompt) {
+                options.systemPrompt = agentSystemPrompt
+              }
+            }
+          } else {
+            // Switching back to default mode: clear any previously applied agent system prompt.
+            options.systemPrompt = undefined
+          }
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'set_max_thinking_tokens') {
           if (msg.request.max_thinking_tokens === null) {
@@ -4354,7 +4388,7 @@ function runHeadlessStreaming(
     }
     inputClosed = true
     cronScheduler?.stop()
-    if (!running) {
+    if (!running && !process.env.CSC_SERVE_MODE) {
       // If a push-suggestion is in-flight, wait for it to emit before closing
       // the output stream (5 s safety timeout to prevent hanging).
       if (suggestionState.inflightPromise) {

@@ -30,10 +30,21 @@ export function createLogger(prefix: string) {
     }
   }
 
-  return {
-    debug: (msg: string, meta?: Record<string, unknown>) => write('debug', msg, meta),
-    info: (msg: string, meta?: Record<string, unknown>) => write('info', msg, meta),
-    warn: (msg: string, meta?: Record<string, unknown>) => write('warn', msg, meta),
-    error: (msg: string, meta?: Record<string, unknown>) => write('error', msg, meta),
-  }
+  type LogFn = (level: string, msg: string, meta?: Record<string, unknown>) => void
+  const log: LogFn & {
+    debug: (msg: string, meta?: Record<string, unknown>) => void
+    info: (msg: string, meta?: Record<string, unknown>) => void
+    warn: (msg: string, meta?: Record<string, unknown>) => void
+    error: (msg: string, meta?: Record<string, unknown>) => void
+  } = Object.assign(
+    (level: string, msg: string, meta?: Record<string, unknown>) => write(level, msg, meta),
+    {
+      debug: (msg: string, meta?: Record<string, unknown>) => write('debug', msg, meta),
+      info: (msg: string, meta?: Record<string, unknown>) => write('info', msg, meta),
+      warn: (msg: string, meta?: Record<string, unknown>) => write('warn', msg, meta),
+      error: (msg: string, meta?: Record<string, unknown>) => write('error', msg, meta),
+    },
+  )
+
+  return log
 }

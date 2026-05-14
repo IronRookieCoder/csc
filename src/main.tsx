@@ -3981,9 +3981,11 @@ async function run(): Promise<CommanderCommand> {
 					// Mark shouldAvoidPermissionPrompts so permissions.ts step 1e-headless
 					// picks up askUserQuestionTimeoutSeconds from settings and applies the
 					// configured auto-select timeout instead of hanging indefinitely.
+					// When --permission-prompt-tool is specified (e.g. serve mode with stdio),
+					// the stdio protocol handles permission prompts — don't suppress them.
 					toolPermissionContext: {
 						...toolPermissionContext,
-						shouldAvoidPermissionPrompts: true,
+						shouldAvoidPermissionPrompts: !options.permissionPromptTool,
 					},
 					effortValue:
 						parseEffortValue(options.effort) ??

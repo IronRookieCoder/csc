@@ -916,7 +916,7 @@ export function getAssistantMessageFromError(
   // Connection errors (non-timeout) — use formatAPIError for detailed messages
   if (error instanceof APIConnectionError) {
     return createAssistantAPIErrorMessage({
-      content: `${API_ERROR_MESSAGE_PREFIX}: ${formatAPIError(error)}`,
+      content: `${API_ERROR_MESSAGE_PREFIX}: ${formatAPIError(error as unknown as Parameters<typeof formatAPIError>[0])}`,
       error: 'unknown',
     })
   }

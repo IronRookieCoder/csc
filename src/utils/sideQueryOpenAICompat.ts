@@ -5,6 +5,7 @@
  */
 
 import type OpenAI from 'openai'
+import type { ChatCompletionMessageFunctionToolCall } from 'openai/resources/chat/completions/completions.js'
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages.js'
 import type { SideQueryOptions } from './sideQuery.js'
 import { logEvent } from '../services/analytics/index.js'
@@ -98,18 +99,19 @@ export async function sideQueryOpenAICompat(
   const content: BetaMessage['content'] = []
 
   if (choice?.message?.content) {
-    content.push({ type: 'text', text: choice.message.content })
+    content.push({ type: 'text', text: choice.message.content, citations: null })
   }
 
   if (choice?.message?.tool_calls) {
     for (const tc of choice.message.tool_calls) {
+      const funcTc = tc as ChatCompletionMessageFunctionToolCall
       let input: Record<string, unknown> = {}
       try {
-        input = JSON.parse(tc.function.arguments) as Record<string, unknown>
+        input = JSON.parse(funcTc.function.arguments) as Record<string, unknown>
       } catch {
         // leave input empty on parse failure
       }
-      content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input })
+      content.push({ type: 'tool_use', id: tc.id, name: funcTc.function.name, input })
     }
   }
 
