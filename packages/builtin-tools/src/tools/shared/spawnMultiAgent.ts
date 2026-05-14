@@ -8,10 +8,8 @@ import React from 'react'
 import { getSessionId } from 'src/bootstrap/state.js'
 import type { ToolUseContext } from 'src/Tool.js'
 import { formatAgentId } from 'src/utils/agentId.js'
-import { getGlobalConfig } from 'src/utils/config.js'
 import { getCwd } from 'src/utils/cwd.js'
 import { logForDebugging } from 'src/utils/debug.js'
-import { parseUserSpecifiedModel } from 'src/utils/model/model.js'
 import { getTeammateExecutor } from 'src/utils/swarm/backends/registry.js'
 import type {
   BackendType,
@@ -30,40 +28,9 @@ import {
   type TeamFile,
 } from 'src/utils/swarm/teamHelpers.js'
 import { assignTeammateColor } from 'src/utils/swarm/teammateLayoutManager.js'
-import { getHardcodedTeammateModelFallback } from 'src/utils/swarm/teammateModel.js'
+import { resolveTeammateModel } from 'src/utils/swarm/teammateModel.js'
 import type { CustomAgentDefinition } from '../AgentTool/loadAgentsDir.js'
 import { isCustomAgent } from '../AgentTool/loadAgentsDir.js'
-
-function getDefaultTeammateModel(leaderModel: string | null): string {
-  const configured = getGlobalConfig().teammateDefaultModel
-  if (configured === null) {
-    // User picked "Default" in the /config picker — follow the leader.
-    return leaderModel ?? getHardcodedTeammateModelFallback()
-  }
-  if (configured !== undefined) {
-    return parseUserSpecifiedModel(configured)
-  }
-  return getHardcodedTeammateModelFallback()
-}
-
-/**
- * Resolve a teammate model value. Handles the 'inherit' alias (from agent
- * frontmatter) by substituting the leader's model. gh-31069: 'inherit' was
- * passed literally to --model, producing "It may not exist or you may not
- * have access". If leader model is null (not yet set), falls through to the
- * default.
- *
- * Exported for testing.
- */
-export function resolveTeammateModel(
-  inputModel: string | undefined,
-  leaderModel: string | null,
-): string {
-  if (inputModel === 'inherit') {
-    return leaderModel ?? getDefaultTeammateModel(leaderModel)
-  }
-  return inputModel ?? getDefaultTeammateModel(leaderModel)
-}
 
 // ============================================================================
 // Types

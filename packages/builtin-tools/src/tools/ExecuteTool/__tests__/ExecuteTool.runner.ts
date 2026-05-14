@@ -71,6 +71,14 @@ function makeMockTool(name: string, callResult: unknown = 'ok') {
   return {
     name,
     call: async () => ({ data: callResult }),
+    validateInput: undefined as
+      | ((
+          input: Record<string, unknown>,
+        ) => Promise<
+          | { result: true }
+          | { result: false; message: string; errorCode: number }
+        >)
+      | undefined,
     checkPermissions: async () => ({ behavior: 'allow' as const }),
     prompt: async () => `Description for ${name}`,
     description: async () => `Description for ${name}`,
@@ -152,6 +160,48 @@ describe('ExecuteTool', () => {
       tool_name: 'SecretTool',
     })
     expect(result.newMessages).toBeDefined()
+  })
+
+  test('validates target tool input before calling it', async () => {
+    let called = false
+    const mockTarget = makeMockTool('TeamCreate', { created: true })
+    mockTarget.validateInput = async input =>
+      'team_name' in input
+        ? { result: true }
+        : {
+            result: false,
+            message: 'team_name is required for TeamCreate',
+            errorCode: 9,
+          }
+    mockTarget.call = async () => {
+      called = true
+      return { data: { created: true } }
+    }
+    const ctx = makeContext([mockTarget])
+
+    const result = await ExecuteTool.call(
+      {
+        tool_name: 'TeamCreate',
+        params: {
+          name: 'worker-a',
+          description: 'wrong shape',
+          task: 'do work',
+        },
+      },
+      ctx,
+      async () => ({ behavior: 'allow' }),
+      { type: 'assistant', content: [], uuid: 'msg1' } as never,
+      undefined,
+    )
+
+    expect(called).toBe(false)
+    expect(result.data).toEqual({
+      result: null,
+      tool_name: 'TeamCreate',
+    })
+    expect(result.newMessages?.[0]?.content).toContain(
+      'team_name is required for TeamCreate',
+    )
   })
 
   test('has correct name', () => {
