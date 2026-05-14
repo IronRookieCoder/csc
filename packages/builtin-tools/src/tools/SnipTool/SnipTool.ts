@@ -82,10 +82,11 @@ Guidelines:
     // Snip implementation is handled by the query engine's projection system.
     // The tool call itself records the intent; the query engine intercepts
     // snip tool results and adjusts its message projection accordingly.
+    const count = input.message_ids?.length ?? 0
     return {
       data: {
-        snipped_count: input.message_ids.length,
-        summary: input.reason ?? `Snipped ${input.message_ids.length} messages`,
+        snipped_count: count,
+        summary: input.reason ?? `Snipped ${count} messages`,
       },
     }
   },
