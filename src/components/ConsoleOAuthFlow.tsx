@@ -19,6 +19,7 @@ import { Spinner } from './Spinner.js'
 import TextInput from './TextInput.js'
 import { useSetAppState } from '../state/AppState.js'
 import { fi } from 'zod/v4/locales'
+import { isThirdPartyApiEnabled } from '../services/apiControlConfig/index.js'
 
 type Props = {
   onDone(): void
@@ -100,6 +101,13 @@ export function ConsoleOAuthFlow({
       return { state: 'ready_to_start' }
     }
     if (forceLoginMethod === 'claudeai' || forceLoginMethod === 'console') {
+      // When third-party APIs are disabled by remote config, ignore
+      // forceLoginMethod and show the idle screen (CoStrict only).
+      // This prevents bypassing the isThirdPartyApiEnabled() gate
+      // through settings.forceLoginMethod.
+      if (!isThirdPartyApiEnabled()) {
+        return { state: 'idle' }
+      }
       return { state: 'ready_to_start' }
     }
     return { state: 'idle' }
@@ -416,6 +424,7 @@ export function ConsoleOAuthFlow({
           setOAuthStatus={setOAuthStatus}
           setLoginWithClaudeAi={setLoginWithClaudeAi}
           onDone={onDone}
+          setAppState={setAppState}
         />
       </Box>
     </Box>
@@ -437,6 +446,7 @@ type OAuthStatusMessageProps = {
   handleSubmitCode: (value: string, url: string) => void
   setOAuthStatus: (status: OAuthStatus) => void
   setLoginWithClaudeAi: (value: boolean) => void
+  setAppState: ReturnType<typeof useSetAppState>
 }
 
 function OAuthStatusMessage({
@@ -454,66 +464,74 @@ function OAuthStatusMessage({
   setOAuthStatus,
   setLoginWithClaudeAi,
   onDone,
+  setAppState,
 }: OAuthStatusMessageProps): React.ReactNode {
-  const setAppState = useSetAppState()
   switch (oauthStatus.state) {
-    case 'idle':
+    case 'idle': {
+      const thirdPartyEnabled = isThirdPartyApiEnabled()
+      const loginOptions: Array<{ label: React.ReactNode; value: string }> = [
+        {
+          label: (
+            <Text>
+              CoStrict ·{' '}
+              <Text dimColor>Sign in with CoStrict account</Text>
+              {'\n'}
+            </Text>
+          ),
+          value: 'costrict',
+        },
+      ]
+
+      if (thirdPartyEnabled) {
+        loginOptions.push(
+          {
+            label: (
+              <Text>
+                Anthropic Compatible ·{' '}
+                <Text dimColor>Configure your own API endpoint</Text>
+                {'\n'}
+              </Text>
+            ),
+            value: 'custom_platform',
+          },
+          {
+            label: (
+              <Text>
+                OpenAI Compatible ·{' '}
+                <Text dimColor>
+                  Ollama, DeepSeek, vLLM, One API, etc.
+                </Text>
+                {'\n'}
+              </Text>
+            ),
+            value: 'openai_chat_api',
+          },
+          {
+            label: (
+              <Text>
+                Gemini API ·{' '}
+                <Text dimColor>Google Gemini native REST/SSE</Text>
+                {'\n'}
+              </Text>
+            ),
+            value: 'gemini_api',
+          },
+        )
+      }
+
       return (
         <Box flexDirection="column" gap={1} marginTop={1}>
           <Text bold>
             {startingMessage
               ? startingMessage
-              : `Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.`}
+              : `Costrict can be used with your Costrict subscription or billed based on API usage through your Console account.`}
           </Text>
 
           <Text>Select login method:</Text>
 
           <Box>
             <Select
-              options={[
-                {
-                  label: (
-                    <Text>
-                      CoStrict ·{' '}
-                      <Text dimColor>Sign in with CoStrict account</Text>
-                      {'\n'}
-                    </Text>
-                  ),
-                  value: 'costrict',
-                },
-                {
-                  label: (
-                    <Text>
-                      Anthropic Compatible ·{' '}
-                      <Text dimColor>Configure your own API endpoint</Text>
-                      {'\n'}
-                    </Text>
-                  ),
-                  value: 'custom_platform',
-                },
-                {
-                  label: (
-                    <Text>
-                      OpenAI Compatible ·{' '}
-                      <Text dimColor>
-                        Ollama, DeepSeek, vLLM, One API, etc.
-                      </Text>
-                      {'\n'}
-                    </Text>
-                  ),
-                  value: 'openai_chat_api',
-                },
-                {
-                  label: (
-                    <Text>
-                      Gemini API ·{' '}
-                      <Text dimColor>Google Gemini native REST/SSE</Text>
-                      {'\n'}
-                    </Text>
-                  ),
-                  value: 'gemini_api',
-                },
-              ]}
+              options={loginOptions}
               onChange={value => {
                 if (value === 'costrict') {
                   void (async () => {
@@ -565,12 +583,11 @@ function OAuthStatusMessage({
                           return
                         }
                       } catch {
-                        // 预取失败，直接进入 success
-                      }
-
-                      setOAuthStatus({ state: 'success' })
-                      void onDone()
-                    } catch (err: any) {
+                          // 预取失败，直接进入 success
+                        }
+  
+                        setOAuthStatus({ state: 'success' })
+                      } catch (err: any) {
                       setOAuthStatus({
                         state: 'error',
                         message: err.message || String(err),
@@ -617,6 +634,7 @@ function OAuthStatusMessage({
           </Box>
         </Box>
       )
+      }
 
     case 'custom_platform':
       {
@@ -739,7 +757,6 @@ function OAuthStatusMessage({
             // Reset AppState model so logo reflects the new provider default
             setAppState(prev => ({ ...prev, mainLoopModel: null, mainLoopModelForSession: null }))
             setOAuthStatus({ state: 'success' })
-            void onDone()
           }
         }, [activeField, inputValue, displayValues, setOAuthStatus, onDone])
 
@@ -965,7 +982,6 @@ function OAuthStatusMessage({
             // Reset AppState model so logo reflects the new provider default
             setAppState(prev => ({ ...prev, mainLoopModel: null, mainLoopModelForSession: null }))
             setOAuthStatus({ state: 'success' })
-            void onDone()
           }
         }, [activeField, openaiInputValue, openaiDisplayValues, setOAuthStatus, onDone])
 
@@ -1204,7 +1220,6 @@ function OAuthStatusMessage({
             // Reset AppState model so logo reflects the new provider default
             setAppState(prev => ({ ...prev, mainLoopModel: null, mainLoopModelForSession: null }))
             setOAuthStatus({ state: 'success' })
-            void onDone()
           }
         }, [activeField, geminiInputValue, geminiDisplayValues, onDone, setOAuthStatus])
 
@@ -1371,7 +1386,6 @@ function OAuthStatusMessage({
                 updateSettingsForSource('userSettings', { model: value } as any)
                 setAppState(prev => ({ ...prev, mainLoopModel: value, mainLoopModelForSession: null }));
                 setOAuthStatus({ state: 'success' });
-                void onDone();
               }}
               onCancel={() => {
                 const selected = sortedModels[0]?.id ?? '';
@@ -1379,7 +1393,6 @@ function OAuthStatusMessage({
                 updateSettingsForSource('userSettings', { model: selected } as any)
                 setAppState(prev => ({ ...prev, mainLoopModel: selected, mainLoopModelForSession: null }));
                 setOAuthStatus({ state: 'success' });
-                void onDone();
               }}
             />
           </Box>

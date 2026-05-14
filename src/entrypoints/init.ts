@@ -57,6 +57,10 @@ import { setShellIfWindows } from '../utils/windowsPaths.js'
 import { initSentry } from '../utils/sentry.js'
 import { initUser } from '../utils/user.js'
 import { initLangfuse, shutdownLangfuse } from '../services/langfuse/index.js'
+import {
+  checkApiControlConfig,
+  disableNonCoStrictProviders,
+} from '../services/apiControlConfig/index.js'
 import { setThemeConfigCallbacks } from '@anthropic/ink'
 
 // initialize1PEventLogging is dynamically imported to defer OpenTelemetry sdk-logs/resources
@@ -171,6 +175,20 @@ export const init = memoize(async (): Promise<void> => {
     })
     logForDebugging('[init] configureGlobalAgents complete')
     profileCheckpoint('init_network_configured')
+
+    // Check remote API control config — if enabled_api is false, disable
+    // third-party providers (OpenAI, Gemini, Grok, Anthropic) so only
+    // CoStrict remains available.
+    try {
+      const result = await checkApiControlConfig()
+      if (result.enabled_api === false) {
+        disableNonCoStrictProviders()
+      }
+    } catch (err) {
+      logForDebugging(
+        `[init] API control config check failed: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
 
     // Initialize Sentry for error reporting (no-op if SENTRY_DSN not set)
     initSentry()
