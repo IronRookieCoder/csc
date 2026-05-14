@@ -1094,11 +1094,6 @@ async function* runShellCommand({
         return;
       }
       backgroundShellId = foregroundTaskId;
-      const resolve = resolveProgress;
-      if (resolve) {
-        resolveProgress = null;
-        resolve();
-      }
       logEvent(eventName, {
         command_type: getCommandTypeForLogging(command),
       });
