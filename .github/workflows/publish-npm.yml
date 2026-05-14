@@ -34,14 +34,23 @@ jobs:
         run: |
           RAW="${{ github.event.inputs.version || github.ref_name }}"
           RAW_NO_V="${RAW#v}"
-          if git rev-parse "v${RAW_NO_V}" >/dev/null 2>&1; then
-            echo "tag=v${RAW_NO_V}" >> "$GITHUB_OUTPUT"
-            echo "ref=v${RAW_NO_V}" >> "$GITHUB_OUTPUT"
+          TAG="v${RAW_NO_V}"
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
           elif git rev-parse "${RAW}" >/dev/null 2>&1; then
             echo "tag=${RAW}" >> "$GITHUB_OUTPUT"
             echo "ref=${RAW}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "${TAG}"
+            git push origin "${TAG}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
           else
-            echo "Error: neither v${RAW_NO_V} nor ${RAW} exists" >&2
+            echo "Error: tag ${TAG} does not exist" >&2
             exit 1
           fi
           echo "raw=${RAW_NO_V}" >> "$GITHUB_OUTPUT"
