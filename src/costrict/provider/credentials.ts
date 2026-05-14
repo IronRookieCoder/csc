@@ -1,6 +1,6 @@
 /**
  * CoStrict 凭证管理模块
- * 负责读写 ~/.claude/csc-auth.json
+ * 负责读写 ~/.costrict/share/auth.json
  */
 
 import { promises as fs } from 'node:fs'
@@ -62,7 +62,7 @@ export async function loadCoStrictCredentials(): Promise<CoStrictCredentials | n
 }
 
 /**
- * 保存 CoStrict 凭证到 ~/.claude/csc-auth.json
+ * 保存 CoStrict 凭证到 ~/.costrict/share/auth.json
  */
 export async function saveCoStrictCredentials(
   credentials: CoStrictCredentials,
