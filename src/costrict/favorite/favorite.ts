@@ -8,8 +8,14 @@ import { clearSkillCaches } from '../../skills/loadSkillsDir.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import type { McpServerConfig } from '../../services/mcp/types.js'
 
-const FAVORITE_PAGE_SIZE = 100
+const FAVORITE_PAGE_SIZE = 20
 const FAVORITE_MAX_PAGES = 20
+const FAVORITE_LIST_CACHE_TTL_MS = 30000
+
+let _listFavoriteItemsCache: {
+  promise: Promise<FavoriteItemWithStatus[]>
+  expiry: number
+} | null = null
 
 export type FavoriteItemType = 'skill' | 'agent' | 'command' | 'mcp'
 
@@ -395,8 +401,19 @@ async function ensureInstalled(slugOrId: string): Promise<FavoriteStateRecord> {
   }
 }
 
+const SUPPORTED_MCP_TYPES = [
+  'stdio',
+  'sse',
+  'http',
+  'ws',
+  'sdk',
+  'claudeai-proxy',
+  'sse-ide',
+  'ws-ide',
+]
+
 function convertMcpConfig(config: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (typeof config.type === 'string' && (config.type === 'local' || config.type === 'remote')) {
+  if (typeof config.type === 'string' && SUPPORTED_MCP_TYPES.includes(config.type)) {
     return config
   }
   if (config.mcpServers && typeof config.mcpServers === 'object' && !Array.isArray(config.mcpServers)) {
@@ -430,11 +447,14 @@ function convertSingleMcpServer(server: Record<string, unknown>): Record<string,
   }
   if (cmdArray.length === 0) return undefined
   const result: Record<string, unknown> = {
-    type: 'local',
-    command: cmdArray,
+    type: 'stdio',
+    command: cmdArray[0],
+  }
+  if (cmdArray.length > 1) {
+    result.args = cmdArray.slice(1)
   }
   if (typeof server.environment === 'object' && server.environment !== null) {
-    result.environment = server.environment
+    result.env = server.environment
   }
   return result
 }
@@ -572,18 +592,29 @@ async function readItemForConfig(installed: FavoriteStateRecord): Promise<Favori
 }
 
 export async function listFavoriteItems(type?: FavoriteItemType): Promise<FavoriteItemWithStatus[]> {
+  const cacheKey = type ?? 'all'
+  const now = Date.now()
+  if (
+    _listFavoriteItemsCache &&
+    _listFavoriteItemsCache.expiry > now &&
+    cacheKey === 'all'
+  ) {
+    return _listFavoriteItemsCache.promise
+  }
+
   const storeTypes = type ? [LOCAL_TO_STORE_TYPE[type]] : Object.values(LOCAL_TO_STORE_TYPE)
   const errors: Error[] = []
-  const candidatePages = await Promise.all(
-    [...new Set(storeTypes)].map(async (st) =>
-      listRemoteCandidates(st, { favorited: 'true' }).catch((error) => {
-        console.warn('failed to fetch remote favorite candidates', { type: st, error })
-        if (error instanceof Error) errors.push(error)
-        return []
-      }),
-    ),
-  )
-  const candidates = candidatePages.flat()
+  const candidates: Array<{ id: string } & Record<string, unknown>> = []
+
+  for (const st of [...new Set(storeTypes)]) {
+    try {
+      const page = await listRemoteCandidates(st, { favorited: 'true' })
+      candidates.push(...page)
+    } catch (error) {
+      console.warn('failed to fetch remote favorite candidates', { type: st, error })
+      if (error instanceof Error) errors.push(error)
+    }
+  }
 
   // If all remote fetches failed, propagate the first error so the UI can show it
   if (candidates.length === 0 && errors.length > 0) {
@@ -604,6 +635,7 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
   for (const candidate of candidates) {
     const item = parseFavoriteListItem(candidate)
     if (!item) continue
+    if (!item.favorited) continue
     if (seen.has(item.slug)) continue
     seen.add(item.slug)
     const local = state.items[item.slug]
@@ -632,7 +664,16 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
     }
   }
 
-  return result.sort((a, b) => a.name.localeCompare(b.name))
+  const sorted = result.sort((a, b) => a.name.localeCompare(b.name))
+
+  if (!type) {
+    _listFavoriteItemsCache = {
+      promise: Promise.resolve(sorted),
+      expiry: Date.now() + FAVORITE_LIST_CACHE_TTL_MS,
+    }
+  }
+
+  return sorted
 }
 
 export async function viewFavoriteItem(slugOrId: string): Promise<FavoriteItemWithStatus> {
