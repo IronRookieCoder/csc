@@ -524,7 +524,7 @@ function OAuthStatusMessage({
           <Text bold>
             {startingMessage
               ? startingMessage
-              : `Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.`}
+              : `Costrict can be used with your Costrict subscription or billed based on API usage through your Console account.`}
           </Text>
 
           <Text>Select login method:</Text>
