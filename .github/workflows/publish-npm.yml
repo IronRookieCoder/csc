@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (例如: v1.9.0)'
+        description: '版本号 (例如: 4.0.16)'
         required: true
         type: string
+      dry_run:
+        description: 'Dry run (仅验证，不实际发布)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,7 +27,26 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2, 2026-04-25
         with:
-          ref: ${{ github.event.inputs.version || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve version ref
+        id: version
+        run: |
+          RAW="${{ github.event.inputs.version || github.ref_name }}"
+          RAW_NO_V="${RAW#v}"
+          if git rev-parse "v${RAW_NO_V}" >/dev/null 2>&1; then
+            echo "tag=v${RAW_NO_V}" >> "$GITHUB_OUTPUT"
+            echo "ref=v${RAW_NO_V}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse "${RAW}" >/dev/null 2>&1; then
+            echo "tag=${RAW}" >> "$GITHUB_OUTPUT"
+            echo "ref=${RAW}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Error: neither v${RAW_NO_V} nor ${RAW} exists" >&2
+            exit 1
+          fi
+          echo "raw=${RAW_NO_V}" >> "$GITHUB_OUTPUT"
+
+      - run: git checkout "${{ steps.version.outputs.ref }}"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6, 2026-04-25
         with:
@@ -43,14 +67,22 @@ jobs:
         run: bun test
 
       - name: Publish to npm
+        if: ${{ !github.event.inputs.dry_run }}
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Publish to npm (dry-run)
+        if: ${{ github.event.inputs.dry_run }}
+        run: npm publish --dry-run --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Generate changelog
+        if: ${{ !github.event.inputs.dry_run }}
         id: changelog
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${{ steps.version.outputs.tag }}"
           PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION#v}$" | head -1)
 
           if [ -n "$PREV_TAG" ]; then
@@ -66,14 +98,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        if: ${{ !github.event.inputs.dry_run }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2, 2026-04-25
         with:
-          name: ${{ github.event.inputs.version || github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
           body: |
             ## What's Changed
 
             ${{ steps.changelog.outputs.commits }}
 
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.inputs.version || github.ref_name }}^...${{ github.event.inputs.version || github.ref_name }}
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.tag }}^...${{ steps.version.outputs.tag }}
           draft: false
-          prerelease: ${{ contains(github.event.inputs.version || github.ref_name, 'rc') || contains(github.event.inputs.version || github.ref_name, 'beta') || contains(github.event.inputs.version || github.ref_name, 'alpha') }}
+          prerelease: ${{ contains(steps.version.outputs.raw, 'rc') || contains(steps.version.outputs.raw, 'beta') || contains(steps.version.outputs.raw, 'alpha') }}
