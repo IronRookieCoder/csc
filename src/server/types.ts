@@ -13,7 +13,7 @@ export const connectResponseSchema = lazySchema(() =>
 export type ServerConfig = {
   port: number
   host: string
-  authToken: string
+  authToken?: string
   unix?: string
   /** Idle timeout for detached sessions (ms). 0 = never expire. */
   idleTimeoutMs?: number
@@ -29,6 +29,11 @@ export type SessionState =
   | 'detached'
   | 'stopping'
   | 'stopped'
+
+export type SessionBusyStatus =
+  | { type: 'idle' }
+  | { type: 'busy' }
+  | { type: 'retry'; attempt: number; message: string; next: number }
 
 export type SessionInfo = {
   id: string
@@ -55,3 +60,40 @@ export type SessionIndexEntry = {
 }
 
 export type SessionIndex = Record<string, SessionIndexEntry>
+
+export type InitData = {
+  commands?: Array<{ name: string; description: string; argumentHint?: string }>
+  agents?: Array<{ name: string; description?: string; model?: string }>
+  models?: unknown
+  account?: {
+    email?: string
+    organization?: string
+    subscriptionType?: string
+    tokenSource?: string
+    apiKeySource?: string
+    apiProvider?: string
+  }
+  output_style?: string
+  available_output_styles?: string[]
+  pid?: number
+}
+
+export type PendingPermission = {
+  requestId: string
+  sessionId: string
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  title: string
+  description: string
+  suggestions: Record<string, unknown>[]
+}
+
+export type PendingQuestion = {
+  requestId: string
+  sessionId: string
+  mcpServerName: string
+  message: string
+  mode: string
+  requestedSchema: Record<string, unknown>
+}

@@ -558,8 +558,6 @@ function OAuthStatusMessage({
                       // 保存凭证
                       const expiryDate = extractExpiryFromJWT(tokens.access_token)
                       await saveCoStrictCredentials({
-                        id: 'csc',
-                        name: 'CSC Auth',
                         access_token: tokens.access_token,
                         refresh_token: tokens.refresh_token,
                         state,

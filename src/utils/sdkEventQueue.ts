@@ -53,23 +53,15 @@ type TaskNotificationSdkEvent = {
   }
 }
 
-// Mirrors notifySessionStateChanged. The CCR bridge already receives this
-// via its own listener; SDK consumers (scmuxd, VS Code) need the same signal
-// to know when the main turn's generator is idle vs actively producing.
-// The 'idle' transition fires AFTER heldBackResult flushes and the bg-agent
-// do-while loop exits — so SDK consumers can trust it as the authoritative
-// "turn is over" signal even when result was withheld for background agents.
-type SessionStateChangedEvent = {
-  type: 'system'
-  subtype: 'session_state_changed'
-  state: 'idle' | 'running' | 'requires_action'
-}
+// SessionStateChangedEvent is now emitted directly by sessionState.ts's
+// registerSdkEventConsumer() — it bypasses this queue entirely so status
+// transitions reach SDK consumers (scmuxd, VS Code) without delay.
+// See SdkEventConsumer in src/utils/sessionState.ts for the type.
 
 export type SdkEvent =
   | TaskStartedEvent
   | TaskProgressEvent
   | TaskNotificationSdkEvent
-  | SessionStateChangedEvent
 
 const MAX_QUEUE_SIZE = 1000
 const queue: SdkEvent[] = []

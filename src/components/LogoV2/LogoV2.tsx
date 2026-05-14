@@ -57,6 +57,9 @@ const ChannelsNoticeModule =
     ? (require('./ChannelsNotice.js') as typeof import('./ChannelsNotice.js'))
     : null;
 /* eslint-enable @typescript-eslint/no-require-imports */
+function ChannelsNoticeIfLoaded() {
+  return ChannelsNoticeModule ? <ChannelsNoticeModule.ChannelsNotice /> : null
+}
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
 import { useShowGuestPassesUpsell, incrementGuestPassesSeenCount } from './GuestPassesUpsell.js';
 import {
@@ -157,7 +160,7 @@ export function LogoV2(): React.ReactNode {
         {/* NOTE: Opus 1M merge notice disabled
         <Opus1mMergeNotice />
         */}
-        {ChannelsNoticeModule && <ChannelsNoticeModule.ChannelsNotice />}
+        <ChannelsNoticeIfLoaded />
         {isDebugMode() && (
           <Box paddingLeft={2} flexDirection="column">
             <Text color="warning">Debug mode enabled</Text>
@@ -223,7 +226,7 @@ export function LogoV2(): React.ReactNode {
     const separator = ' · ';
     const atPrefix = '@';
     const cwdAvailableWidth = agentName
-      ? columns - layoutWidth - atPrefix.length - stringWidth(agentName) - separator.length
+      ? columns - layoutWidth - atPrefix.length - stringWidth(agentName!) - separator.length
       : columns - layoutWidth;
     const truncatedCwd = truncatePath(cwd, Math.max(cwdAvailableWidth, 10));
     // OffscreenFreeze: logo is the first thing to enter scrollback; useMainLoopModel()
@@ -260,7 +263,7 @@ export function LogoV2(): React.ReactNode {
         {/* NOTE: Opus 1M merge notice disabled
         <Opus1mMergeNotice />
         */}
-        {ChannelsNoticeModule && <ChannelsNoticeModule.ChannelsNotice />}
+        <ChannelsNoticeIfLoaded />
         {showSandboxStatus && (
           <Box marginTop={1} flexDirection="column">
             <Text color="warning">Your bash commands will be sandboxed. Disable with /sandbox.</Text>
@@ -276,13 +279,13 @@ export function LogoV2(): React.ReactNode {
   const modelLine = notLoggedIn
     ? 'Not logged in'
     : !process.env.IS_DEMO && config.oauthAccount?.organizationName
-      ? `${modelDisplayName} · ${billingType} · ${config.oauthAccount.organizationName}`
+      ? `${modelDisplayName} · ${billingType} · ${config.oauthAccount!.organizationName}`
       : `${modelDisplayName} · ${billingType}`;
   // Calculate cwd width accounting for agent name if present
   const cwdSeparator = ' · ';
   const cwdAtPrefix = '@';
   const cwdAvailableWidth = agentName
-    ? LEFT_PANEL_MAX_WIDTH - cwdAtPrefix.length - stringWidth(agentName) - cwdSeparator.length
+    ? LEFT_PANEL_MAX_WIDTH - cwdAtPrefix.length - stringWidth(agentName!) - cwdSeparator.length
     : LEFT_PANEL_MAX_WIDTH;
   const truncatedCwd = truncatePath(cwd, Math.max(cwdAvailableWidth, 10));
   const cwdLine = agentName ? `@${agentName} · ${truncatedCwd}` : truncatedCwd;
@@ -362,8 +365,8 @@ export function LogoV2(): React.ReactNode {
       {/* NOTE: Opus 1M merge notice disabled
       <Opus1mMergeNotice />
       */}
-      {ChannelsNoticeModule && <ChannelsNoticeModule.ChannelsNotice />}
-      {isDebugMode() && (
+        <ChannelsNoticeIfLoaded />
+        {isDebugMode() && (
         <Box paddingLeft={2} flexDirection="column">
           <Text color="warning">Debug mode enabled</Text>
           <Text dimColor>Logging to: {isDebugToStdErr() ? 'stderr' : getDebugLogPath()}</Text>
@@ -383,7 +386,7 @@ export function LogoV2(): React.ReactNode {
       {announcement && (
         <Box paddingLeft={2} flexDirection="column">
           {!process.env.IS_DEMO && config.oauthAccount?.organizationName && (
-            <Text dimColor>Message from {config.oauthAccount.organizationName}:</Text>
+            <Text dimColor>Message from {config.oauthAccount!.organizationName}:</Text>
           )}
           <Text>{announcement}</Text>
         </Box>

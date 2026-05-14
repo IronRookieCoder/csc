@@ -866,14 +866,12 @@ export class QueryEngine {
             )
           }
 
-          if (includePartialMessages) {
-            yield {
-              type: 'stream_event' as const,
-              event,
-              session_id: getSessionId(),
-              parent_tool_use_id: null,
-              uuid: randomUUID(),
-            }
+          yield {
+            type: 'stream_event' as const,
+            event,
+            session_id: getSessionId(),
+            parent_tool_use_id: null,
+            uuid: randomUUID(),
           }
 
           break
@@ -1161,6 +1159,7 @@ export class QueryEngine {
         duration_ms: Date.now() - startTime,
         duration_api_ms: getTotalAPIDuration(),
         is_error: true,
+        is_interrupted: this.abortController.signal.aborted,
         num_turns: turnCount,
         stop_reason: lastStopReason,
         session_id: getSessionId(),
@@ -1173,11 +1172,6 @@ export class QueryEngine {
           initialAppState.fastMode,
         ),
         uuid: randomUUID(),
-        // Diagnostic prefix: these are what isResultSuccessful() checks — if
-        // the result type isn't assistant-with-text/thinking or user-with-
-        // tool_result, and stop_reason isn't end_turn, that's why this fired.
-        // errors[] is turn-scoped via the watermark; previously it dumped the
-        // entire process's logError buffer (ripgrep timeouts, ENOENT, etc).
         errors: (() => {
           const all = getInMemoryErrors()
           const start = errorLogWatermark

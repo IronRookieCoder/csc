@@ -99,17 +99,14 @@ export const UDS_IDLE_TIMEOUT_MS = 30_000
  */
 export function getDefaultUdsSocketPath(): string {
   if (defaultSocketPath) return defaultSocketPath
-  const nonce = randomBytes(16).toString('hex')
+  const nonce = randomBytes(4).toString('hex')
   if (process.platform === 'win32') {
     defaultSocketPath = `\\\\.\\pipe\\claude-code-${process.pid}-${nonce}`
     return defaultSocketPath
   }
-  defaultSocketPath = join(
-    tmpdir(),
-    'claude-code-socks',
-    `${process.pid}-${nonce}`,
-    'messaging.sock',
-  )
+  // Flat path to stay within sockaddr_un.sun_path limits (104 on macOS, 108 on Linux).
+  // The previous nested path could exceed 104 bytes when tmpdir() is long.
+  defaultSocketPath = join(tmpdir(), `cc-${process.pid}-${nonce}.sock`)
   return defaultSocketPath
 }
 

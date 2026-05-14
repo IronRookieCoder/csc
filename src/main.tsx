@@ -3981,9 +3981,11 @@ async function run(): Promise<CommanderCommand> {
 					// Mark shouldAvoidPermissionPrompts so permissions.ts step 1e-headless
 					// picks up askUserQuestionTimeoutSeconds from settings and applies the
 					// configured auto-select timeout instead of hanging indefinitely.
+					// When --permission-prompt-tool is specified (e.g. serve mode with stdio),
+					// the stdio protocol handles permission prompts — don't suppress them.
 					toolPermissionContext: {
 						...toolPermissionContext,
-						shouldAvoidPermissionPrompts: true,
+						shouldAvoidPermissionPrompts: !options.permissionPromptTool,
 					},
 					effortValue:
 						parseEffortValue(options.effort) ??
@@ -5953,14 +5955,80 @@ async function run(): Promise<CommanderCommand> {
 			await mcpResetChoicesHandler();
 		});
 
-	// claude server
+	// csc serve — HTTP API server for IDE plugins and web clients.
+	// Also accessible via `csc server` alias.
 	if (feature("DIRECT_CONNECT")) {
+		const serveAction = async (opts: {
+			port: string;
+			host: string;
+			authToken?: string;
+			unix?: string;
+			workspace?: string;
+			idleTimeout: string;
+			maxSessions: string;
+		}) => {
+			const { startServer } = await import("./server/server.js");
+			const { EventBus } = await import("./server/eventBus.js");
+			const { SessionManager } =
+				await import("./server/sessionManager.js");
+			const { printBanner } =
+				await import("./server/serverBanner.js");
+			const { getScriptArgsForChild, saveChildSpawnPrefix } =
+				await import("./server/sessionHandle.js");
+
+			await saveChildSpawnPrefix();
+			const eventBus = new EventBus();
+			const config = {
+				port: parseInt(opts.port, 10),
+				host: opts.host,
+				authToken: undefined,
+				unix: opts.unix,
+				workspace: opts.workspace,
+				idleTimeoutMs: parseInt(opts.idleTimeout, 10),
+				maxSessions: parseInt(opts.maxSessions, 10),
+			};
+
+			const sessionManager = new SessionManager({
+				eventBus,
+				idleTimeoutMs: config.idleTimeoutMs,
+				maxSessions: config.maxSessions,
+				workspace: config.workspace,
+			});
+			await sessionManager.init();
+
+			const server = startServer(config, sessionManager, eventBus);
+			const actualPort = server.port ?? config.port;
+			printBanner(config, undefined, actualPort);
+
+			sessionManager.startProbeSession({
+				cwd: config.workspace || process.cwd(),
+				execPath: process.execPath,
+				scriptArgs: getScriptArgsForChild(),
+			});
+
+			let shuttingDown = false;
+			const shutdown = async () => {
+				if (shuttingDown) return;
+				shuttingDown = true;
+				sessionManager.killProbe();
+				server.stop(true);
+				eventBus.destroy();
+				await sessionManager.destroyAll();
+				process.exit(0);
+			};
+			process.on("SIGINT", () => void shutdown());
+			process.on("SIGTERM", () => void shutdown());
+		};
+
 		program
 			.command("server")
-			.description("Start a CoStrict session server")
+			.description("Start a CoStrict session server (alias: serve)")
 			.option("--port <number>", "HTTP port", "0")
-			.option("--host <string>", "Bind address", "0.0.0.0")
-			.option("--auth-token <token>", "Bearer token for auth")
+			.option("--host <string>", "Bind address", "127.0.0.1")
+			.option(
+				"--auth-token <token>",
+				"Bearer token for auth (currently disabled)",
+			)
 			.option("--unix <path>", "Listen on a unix domain socket")
 			.option(
 				"--workspace <dir>",
@@ -5969,96 +6037,40 @@ async function run(): Promise<CommanderCommand> {
 			.option(
 				"--idle-timeout <ms>",
 				"Idle timeout for detached sessions in ms (0 = never expire)",
-				"600000",
+				"1800000",
 			)
 			.option(
 				"--max-sessions <n>",
 				"Maximum concurrent sessions (0 = unlimited)",
 				"32",
 			)
-			.action(
-				async (opts: {
-					port: string;
-					host: string;
-					authToken?: string;
-					unix?: string;
-					workspace?: string;
-					idleTimeout: string;
-					maxSessions: string;
-				}) => {
-					const { randomBytes } = await import("crypto");
-					const { startServer } = await import("./server/server.js");
-					const { SessionManager } =
-						await import("./server/sessionManager.js");
-					const { DangerousBackend } =
-						await import("./server/backends/dangerousBackend.js");
-					const { printBanner } =
-						await import("./server/serverBanner.js");
-					const { createServerLogger } =
-						await import("./server/serverLog.js");
-					const {
-						writeServerLock,
-						removeServerLock,
-						probeRunningServer,
-					} = await import("./server/lockfile.js");
+			.action(serveAction);
 
-					const existing = await probeRunningServer();
-					if (existing) {
-						process.stderr.write(
-							`A claude server is already running (pid ${existing.pid}) at ${existing.httpUrl}\n`,
-						);
-						process.exit(1);
-					}
-
-					const authToken =
-						opts.authToken ??
-						`sk-ant-cc-${randomBytes(16).toString("base64url")}`;
-
-					const config = {
-						port: parseInt(opts.port, 10),
-						host: opts.host,
-						authToken,
-						unix: opts.unix,
-						workspace: opts.workspace,
-						idleTimeoutMs: parseInt(opts.idleTimeout, 10),
-						maxSessions: parseInt(opts.maxSessions, 10),
-					};
-
-					const backend = new DangerousBackend();
-					const sessionManager = new SessionManager(backend, {
-						idleTimeoutMs: config.idleTimeoutMs,
-						maxSessions: config.maxSessions,
-					});
-					const logger = createServerLogger();
-
-					const server = startServer(config, sessionManager, logger);
-					const actualPort = server.port ?? config.port;
-					printBanner(config, authToken, actualPort);
-
-					await writeServerLock({
-						pid: process.pid,
-						port: actualPort,
-						host: config.host,
-						httpUrl: config.unix
-							? `unix:${config.unix}`
-							: `http://${config.host}:${actualPort}`,
-						startedAt: Date.now(),
-					});
-
-					let shuttingDown = false;
-					const shutdown = async () => {
-						if (shuttingDown) return;
-						shuttingDown = true;
-						// Stop accepting new connections before tearing down sessions.
-						server.stop(true);
-						await sessionManager.destroyAll();
-						await removeServerLock();
-						process.exit(0);
-					};
-					process.once("SIGINT", () => void shutdown());
-					process.once("SIGTERM", () => void shutdown());
-				},
-			);
+		program
+			.command("serve")
+			.description("Start a CoStrict HTTP API server")
+			.option("--port <number>", "HTTP port", "0")
+			.option("--host <string>", "Bind address", "127.0.0.1")
+			.option(
+				"--auth-token <token>",
+				"Bearer token for auth (currently disabled)",
+			)
+			.option("--unix <path>", "Listen on a unix domain socket")
+			.option(
+				"--workspace <dir>",
+				"Default working directory for sessions that do not specify cwd",
+			)
+			.option(
+				"--idle-timeout <ms>",
+				"Idle timeout for detached sessions in ms (0 = never expire)",
+				"1800000",
+			)
+			.option(
+				"--max-sessions <n>",
+				"Maximum concurrent sessions (0 = unlimited)",
+				"32",
+			)
+			.action(serveAction);
 	}
 
 	// `claude ssh <host> [dir]` — registered here only so --help shows it.

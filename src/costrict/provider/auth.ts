@@ -174,8 +174,6 @@ export async function loginCoStrict(
 
   const expiryDate = extractExpiryFromJWT(tokens.access_token)
   const credentials: CoStrictCredentials = {
-    id: 'csc',
-    name: 'CSC Auth',
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     state,
