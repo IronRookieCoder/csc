@@ -248,7 +248,16 @@ export async function loadSessionMessages(sessionDir: string, sessionId: string,
     const jsonlFiles = entries.filter((f) => f.endsWith('.jsonl'))
     log.debug('found jsonl files', { sessionDir, count: jsonlFiles.length, files: jsonlFiles.slice(0, 5) })
 
-    for (const file of jsonlFiles) {
+    // 优先读取文件名包含 sessionId 的文件，减少无意义解析
+    const prioritized = jsonlFiles.sort((a, b) => {
+      const aHas = a.includes(sessionId)
+      const bHas = b.includes(sessionId)
+      if (aHas && !bHas) return -1
+      if (!aHas && bHas) return 1
+      return 0
+    })
+
+    for (const file of prioritized) {
       const filePath = path.join(sessionDir, file)
       try {
         const text = await fs.readFile(filePath, 'utf-8')

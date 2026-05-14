@@ -44,6 +44,8 @@ function resolveRuntime(): { entry: string; isBun: boolean } | null {
 	if (typeof Bun !== 'undefined' && Bun.which) {
 		const bun = Bun.which('bun')
 		if (bun) return { entry: bun, isBun: true }
+		const node = Bun.which('node')
+		if (node) return { entry: node, isBun: false }
 	}
 
 	return null

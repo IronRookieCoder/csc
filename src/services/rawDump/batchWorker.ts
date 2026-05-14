@@ -13,7 +13,24 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('raw-dump-batch')
 
-const BATCH_INTERVAL_MS = 30_000 // 每轮间隔
+type RepoInfo = Awaited<ReturnType<typeof getRepoInfo>>
+
+const BATCH_INTERVAL_MS = 120_000 // 每轮间隔（2 分钟），降低内联运行时的 CPU 影响
+
+// Git repo 信息缓存，同一 directory 的多个 task 短时间内不需要重复 spawn git
+const repoInfoCache = new Map<string, { repoInfo: RepoInfo; ts: number }>()
+const REPO_CACHE_TTL_MS = 60_000
+
+async function getCachedRepoInfo(directory: string): Promise<RepoInfo> {
+  const cached = repoInfoCache.get(directory)
+  if (cached && Date.now() - cached.ts < REPO_CACHE_TTL_MS) {
+    log.debug('repo info cache hit', { directory })
+    return cached.repoInfo
+  }
+  const repoInfo = await getRepoInfo(directory)
+  repoInfoCache.set(directory, { repoInfo, ts: Date.now() })
+  return repoInfo
+}
 // 进程内重入保护：文件锁不防同进程重入，必须用内存 flag 兜底
 let isRunning = false
 
@@ -30,21 +47,41 @@ function isParentAlive(): boolean {
   }
 }
 
-async function processTask(task: QueueTask) {
+// Session messages 缓存：同一 session 的多个 task 短时间内不需要重复读取 JSONL
+const sessionMessagesCache = new Map<string, { messages: Record<string, unknown>[]; ts: number }>()
+const SESSION_CACHE_TTL_MS = 60_000
+
+async function getCachedSessionMessages(sessionDir: string, sessionID: string, messageID?: string) {
+  const cacheKey = `${sessionDir}:${sessionID}`
+  const cached = sessionMessagesCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < SESSION_CACHE_TTL_MS) {
+    log.debug('session messages cache hit', { sessionID, messageID })
+    return cached.messages
+  }
+  const start = Date.now()
+  const messages = await loadSessionMessages(sessionDir, sessionID, messageID)
+  const elapsed = Date.now() - start
+  if (elapsed > 100) {
+    log.info('loadSessionMessages slow', { sessionID, elapsedMs: elapsed, messageCount: messages.length })
+  }
+  sessionMessagesCache.set(cacheKey, { messages, ts: Date.now() })
+  return messages
+}
+
+async function processTask(task: QueueTask, state: Awaited<ReturnType<typeof readState>>) {
   log.info('processing task', { sessionID: task.sessionID, messageID: task.messageID })
 
   const sessionDir = getSessionDirectory(task.directory, task.sessionID)
-  const messages = await loadSessionMessages(sessionDir, task.sessionID, task.messageID)
+  const messages = await getCachedSessionMessages(sessionDir, task.sessionID, task.messageID)
 
   if (messages.length === 0) {
     log.warn('no messages found', { sessionDir, sessionID: task.sessionID })
   }
 
   const authData = await authWithFallback()
-  const state = await readState()
 
   // 预加载 git 信息，commits 和 repo 字段共享，避免每个 task 重复 spawn git 进程
-  const repoInfo = await getRepoInfo(task.directory)
+  const repoInfo = await getCachedRepoInfo(task.directory)
 
   try {
     // conversation
@@ -66,9 +103,12 @@ async function processTask(task: QueueTask) {
     await uploadCommits({ directory: task.directory }, authData, state, { repoInfo })
 
     log.info('task completed', { sessionID: task.sessionID, conversationUploaded })
-  } finally {
-    // 无论成功或失败，都写入 state（commits 已逐条更新）
-    await writeState(state)
+  } catch (err) {
+    log.error('task failed', {
+      error: err instanceof Error ? err.message : String(err),
+      sessionID: task.sessionID,
+    })
+    throw err
   }
 }
 
@@ -82,13 +122,13 @@ async function runBatch() {
 
   try {
     // 第二道防线：跨进程文件锁
-    if (!acquireLock()) {
+    if (!(await acquireLock())) {
       log.debug('another worker process holds the lock, skip')
       return
     }
 
     try {
-      const tasks = readQueue()
+      const tasks = await readQueue()
       if (tasks.length === 0) {
         log.debug('queue empty')
         return
@@ -97,7 +137,7 @@ async function runBatch() {
       // 第三道防线：读完立刻清空队列
       // - 处理期间新进来的任务会在下一轮处理
       // - 即使有意外的并发 runBatch 拿到锁，也只会看到空队列直接返回
-      clearQueue()
+      await clearQueue()
 
       log.info(`processing ${tasks.length} tasks`)
 
@@ -114,9 +154,12 @@ async function runBatch() {
       const uniqueTasks = Array.from(deduped.values()).sort((a, b) => a.enqueuedAt - b.enqueuedAt)
       log.info(`deduped to ${uniqueTasks.length} unique tasks`)
 
+      // 一次性读取 state，所有 task 共享，减少文件锁竞争和重复 JSON 解析
+      const state = await readState()
+
       for (const task of uniqueTasks) {
         try {
-          await processTask(task)
+          await processTask(task, state)
         } catch (err) {
           log.error('task failed', {
             error: err instanceof Error ? err.message : String(err),
@@ -125,9 +168,11 @@ async function runBatch() {
         }
       }
 
+      // 所有 task 处理完后一次性写入 state
+      await writeState(state)
       log.info('batch completed')
     } finally {
-      releaseLock()
+      await releaseLock()
     }
   } finally {
     isRunning = false
