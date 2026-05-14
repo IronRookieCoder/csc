@@ -6656,6 +6656,16 @@ async function run(): Promise<CommanderCommand> {
 			});
 	}
 
+  // Cloud command - manage cs-cloud daemon (download binary + forward commands)
+  program
+    .command('cloud [args...]', { noHelp: true })
+    .description('Manage cloud daemon (register device and connect via WebSocket tunnel)')
+    .allowUnknownOption()
+    .action(async (args: string[]) => {
+      const { cloudHandler } = await import('./cli/handlers/cloud.js');
+      await cloudHandler(args);
+    });
+
   // Update command - check and install updates
   program
     .command('update')
