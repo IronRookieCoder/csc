@@ -3,10 +3,24 @@ import { createInterface } from 'readline'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
-import { INIT_TIMEOUT_MS, getScriptArgsForChild, loadChildSpawnPrefix } from './childSpawn.js'
+import {
+  INIT_TIMEOUT_MS,
+  getScriptArgsForChild,
+  loadChildSpawnPrefix,
+} from './childSpawn.js'
 import { ControlChannel } from './sessionControlChannel.js'
-import { routeMessage, type StdoutMessage, type MessageRouterCtx } from './sessionMessageRouter.js'
-import type { SessionBusyStatus, SessionState, InitData, PendingPermission, PendingQuestion } from './types.js'
+import {
+  routeMessage,
+  type StdoutMessage,
+  type MessageRouterCtx,
+} from './sessionMessageRouter.js'
+import type {
+  SessionBusyStatus,
+  SessionState,
+  InitData,
+  PendingPermission,
+  PendingQuestion,
+} from './types.js'
 import type { DisposableChildProcess } from '../utils/killOnDrop.js'
 import type { SessionMessage } from './transcriptReader.js'
 
@@ -169,13 +183,15 @@ export class SessionHandle implements DisposableChildProcess {
     this.eventBus = opts.eventBus
     this._model = opts.model
     this._agent = opts.agent
-    this._permissionMode = opts.permissionMode ?? 'acceptEdits'
+    this._permissionMode = opts.permissionMode ?? 'default'
     this.verbose = opts.verbose ?? false
   }
 
   onMessage(listener: MessageListener): () => void {
     this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 
   spawn(): void {
@@ -214,7 +230,12 @@ export class SessionHandle implements DisposableChildProcess {
     const saved = loadChildSpawnPrefix()
     const defineArgs = saved?.defineArgs ?? []
     const featureArgs = saved?.featureArgs ?? []
-    const spawnArgs = [...defineArgs, ...featureArgs, ...this.opts.scriptArgs, ...printArgs.filter((x): x is string => x != null)]
+    const spawnArgs = [
+      ...defineArgs,
+      ...featureArgs,
+      ...this.opts.scriptArgs,
+      ...printArgs.filter((x): x is string => x != null),
+    ]
 
     this._spawnCwd = this.opts.cwd
     this.child = spawn(this.opts.execPath, spawnArgs, {
@@ -244,7 +265,9 @@ export class SessionHandle implements DisposableChildProcess {
         const reject = this.initReject
         this.initResolve = null
         this.initReject = null
-        process.stderr.write(`[serve:${this.sessionId}] exit_code=${code} cwd=${this.cwd} stderr:\n${this.lastStderr.slice(-5).join('\n')}\n`)
+        process.stderr.write(
+          `[serve:${this.sessionId}] exit_code=${code} cwd=${this.cwd} stderr:\n${this.lastStderr.slice(-5).join('\n')}\n`,
+        )
         reject(new Error(`Process exited with code ${code}`))
       }
       if (this.promptReject) {
@@ -363,7 +386,10 @@ export class SessionHandle implements DisposableChildProcess {
     this.eventBus.publishSessionEvent(this.sessionId, event, data)
   }
 
-  private emitOpencodeEvent(event: string, properties: Record<string, unknown>): void {
+  private emitOpencodeEvent(
+    event: string,
+    properties: Record<string, unknown>,
+  ): void {
     if (this.opts.silent) return
     if (properties.type === event && 'properties' in properties) {
       this.eventBus.publish(event, properties as Record<string, unknown>)
@@ -410,27 +436,47 @@ export class SessionHandle implements DisposableChildProcess {
       getProviderId: () => this._providerId,
       getInitRequestId: () => this.initRequestId,
       getLastMessageUuid: () => this._lastMessageUuid,
-      setStatus: (s) => { this._status = s },
-      setBusyStatus: (s) => { this._busyStatus = s },
-      setModel: (m) => { this._model = m },
-      setProviderId: (id) => { this._providerId = id },
-      setInitData: (d) => { this._initData = d },
-      setLastMessageUuid: (u) => { this._lastMessageUuid = u },
-      setLastActiveAt: (t) => { this.lastActiveAt = t },
-      addCost: (c) => { this._costUsd += c },
-      addInputTokens: (t) => { this._inputTokens += t },
-      addOutputTokens: (t) => { this._outputTokens += t },
+      setStatus: s => {
+        this._status = s
+      },
+      setBusyStatus: s => {
+        this._busyStatus = s
+      },
+      setModel: m => {
+        this._model = m
+      },
+      setProviderId: id => {
+        this._providerId = id
+      },
+      setInitData: d => {
+        this._initData = d
+      },
+      setLastMessageUuid: u => {
+        this._lastMessageUuid = u
+      },
+      setLastActiveAt: t => {
+        this.lastActiveAt = t
+      },
+      addCost: c => {
+        this._costUsd += c
+      },
+      addInputTokens: t => {
+        this._inputTokens += t
+      },
+      addOutputTokens: t => {
+        this._outputTokens += t
+      },
       getControlChannel: () => this._controlChannel,
       getPendingPermissions: () => this.pendingPermissions,
       getPendingQuestions: () => this.pendingQuestions,
-      resolveInit: (data) => {
+      resolveInit: data => {
         const resolve = this.initResolve
         this.initResolve = null
         this.initReject = null
         resolve?.(data)
         this.opts.onInit?.(data)
       },
-      resolvePrompt: (value) => {
+      resolvePrompt: value => {
         this._busyStatus = { type: 'idle' }
         this.emitBusyStatus()
         if (this.promptResolve) {
@@ -442,22 +488,28 @@ export class SessionHandle implements DisposableChildProcess {
           this._titleGenerationAttempted = true
           const content = this._firstPromptContent
           void this.sendControlRequest(
-            { subtype: 'generate_session_title', description: content, persist: true },
+            {
+              subtype: 'generate_session_title',
+              description: content,
+              persist: true,
+            },
             30_000,
-          ).then((res) => {
-            const title = (res.title as string) || content.slice(0, 100)
-            this.setTitle(title)
-          }).catch(() => {
-            this.setTitle(content.slice(0, 100))
-          })
+          )
+            .then(res => {
+              const title = (res.title as string) || content.slice(0, 100)
+              this.setTitle(title)
+            })
+            .catch(() => {
+              this.setTitle(content.slice(0, 100))
+            })
         }
       },
       emitEvent: (event, data) => this.emitEvent(event, data),
       emitOpencodeEvent: (event, props) => this.emitOpencodeEvent(event, props),
       emitBusyStatus: () => this.emitBusyStatus(),
-      emitMessage: (msg) => this.emitMessage(msg),
-      writeStdin: (data) => this.writeStdin(data),
-      pushBufferMessage: (msg) => this.pushMessage(msg),
+      emitMessage: msg => this.emitMessage(msg),
+      writeStdin: data => this.writeStdin(data),
+      pushBufferMessage: msg => this.pushMessage(msg),
     }
   }
 
@@ -501,11 +553,12 @@ export class SessionHandle implements DisposableChildProcess {
     return (response.mcpServers as unknown[]) ?? []
   }
 
-  async prompt(content: string, opts?: { parts?: Array<Record<string, unknown>>; messageID?: string }): Promise<{ done: boolean; error?: string }> {
+  async prompt(
+    content: string,
+    opts?: { parts?: Array<Record<string, unknown>>; messageID?: string },
+  ): Promise<{ done: boolean; error?: string }> {
     if (this._status === 'stopped') {
-      throw new Error(
-        `Session ${this.sessionId} is stopped`,
-      )
+      throw new Error(`Session ${this.sessionId} is stopped`)
     }
     if (this._prompting) {
       throw new Error(
@@ -558,11 +611,11 @@ export class SessionHandle implements DisposableChildProcess {
     }
 
     return new Promise((resolve, reject) => {
-      this.promptResolve = (value) => {
+      this.promptResolve = value => {
         this._prompting = false
         resolve(value)
       }
-      this.promptReject = (reason) => {
+      this.promptReject = reason => {
         this._prompting = false
         reject(reason)
       }
@@ -590,7 +643,7 @@ export class SessionHandle implements DisposableChildProcess {
         resolve()
       }, 2000)
       const originalResolve = this.promptResolve
-      this.promptResolve = (value) => {
+      this.promptResolve = value => {
         clearTimeout(timeout)
         originalResolve?.(value)
         resolve()
@@ -642,7 +695,8 @@ export class SessionHandle implements DisposableChildProcess {
       behavior,
     })
     if (toolName === 'AskUserQuestion') {
-      const eventType = behavior === 'allow' ? 'question.replied' : 'question.rejected'
+      const eventType =
+        behavior === 'allow' ? 'question.replied' : 'question.rejected'
       this.emitOpencodeEvent(eventType, {
         sessionID: this.sessionId,
         requestID: requestId,
@@ -677,7 +731,8 @@ export class SessionHandle implements DisposableChildProcess {
       request_id: requestId,
       action,
     })
-    const eventType = action === 'accept' ? 'question.replied' : 'question.rejected'
+    const eventType =
+      action === 'accept' ? 'question.replied' : 'question.rejected'
     this.emitOpencodeEvent(eventType, {
       sessionID: this.sessionId,
       requestID: requestId,
