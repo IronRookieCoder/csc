@@ -240,7 +240,7 @@ ${allSkillNames.map(n => `  "${n}": "${commitSha}"`).join(',\n')}
 }
 
 // List all skill names
-export function listBuiltinSkillNames(): string[] {
+export function listBuiltinSkills(): string[] {
   return ${JSON.stringify(allSkillNames)}
 }
 
