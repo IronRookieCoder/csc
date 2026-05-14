@@ -184,6 +184,19 @@
 | `CLAUDE_CODE_BUBBLEWRAP` | boolean | `false` | 启用 Bubblewrap 沙箱 |
 | `CLAUDE_CODE_ENABLE_XAA` | boolean | `false` | 启用 XAA（外部认证代理） |
 
+### Raw Dump 数据上报
+
+| 变量名 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `CSC_DISABLE_RAW_DUMP` | boolean | `false` | 禁用数据上报（设为 `0` 或 `false` 表示启用） |
+| `COSTRICT_DISABLE_RAW_DUMP` | boolean | `false` | 兼容 opencode 的禁用开关 |
+| `CSC_RAW_DUMP_DEBUG` | boolean | `false` | 开启 raw dump 调试日志 |
+| `CSC_RAW_DUMP_BASE_URL` | string | - | 自定义上报服务端地址 |
+| `COSTRICT_RAW_DUMP_BASE_URL` | string | - | 兼容 opencode 的自定义上报地址 |
+| `COSTRICT_BASE_URL` | string | `https://zgsm.sangfor.com` | CoStrict 服务地址 |
+| `CSC_RAW_DUMP_LOCAL_MODE` | boolean | `false` | **本地留存模式**：数据只写入本地文件，不上报服务端 |
+| `CSC_RAW_DUMP_LOCAL_DIR` | string | `~/.claude/raw-dump-local` | 本地留存目录 |
+
 ### Bash/终端
 
 | 变量名 | 类型 | 默认值 | 说明 |

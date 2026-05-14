@@ -31,25 +31,62 @@ src/services/rawDump/
 
 ## 上报流程
 
-```
-主进程：assistant message 完成
-  → reportTurn(sessionID, messageID, directory)
-    → enqueue({ sessionID, messageID, directory })  写入队列文件
-    → ensureBatchWorker()  启动 detached batch worker（仅一次）
+```mermaid
+flowchart TD
+    subgraph 主进程
+        A[reportTurn / reportSession] --> B{isEnabled?}
+        B -->|否| Z([返回])
+        B -->|是| C[enqueue 写入 JSONL 队列]
+        C --> D{batchWorkerSpawned?}
+        D -->|是| Z
+        D -->|否| E[ensureBatchWorker]
+    end
 
-Batch Worker 进程（独立，每 30s + 随机抖动检查一次）：
-  → acquireLock()          # 文件锁，防止多 worker 并发
-  → readQueue()            # 读取队列文件
-  → dedup tasks            # 同一个 session 的多个 task 只保留最新一个
-  → for each task:
-      → auth()             # 加载凭证、刷新 token
-      → loadSessionMessages()  # 从 JSONL 加载会话消息
-      → uploadConversation()   → POST /raw-store/task-conversation
-      → uploadSummary()        → POST /raw-store/task-summary
-      → uploadCommits()        → POST /raw-store/commit（逐条更新 state）
-      → writeState(state)      # finally 中执行，确保 state 一定写入
-  → clearQueue()           # 清空队列
-  → releaseLock()
+    subgraph Worker 启动
+        E --> F[spawnBatchWorker]
+        F -->|dev / bun| G1[bun run batchWorker.ts]
+        F -->|build / node| G2[node batchWorker.js]
+        F -->|binary 模式失败| H[startBatchWorker 内联]
+    end
+
+    subgraph BatchWorker 循环
+        I[startBatchWorker] --> J[setTimeout 30s]
+        J --> K[runBatch]
+        K --> L{isRunning?}
+        L -->|是| J
+        L -->|否| M[acquireLock]
+        M -->|失败| J
+        M -->|成功| N[readQueue]
+        N --> O{队列空?}
+        O -->|是| P[releaseLock] --> J
+        O -->|否| Q[clearQueue]
+        Q --> R[去重]
+        R --> S[processTask]
+        S --> T[loadSessionMessages]
+        T --> U[authWithFallback]
+        U --> V[预加载 git 信息]
+        V --> W[uploadConversation]
+        V --> X[uploadSummary]
+        V --> Y[uploadCommits]
+        W --> Z1[writeState]
+        X --> Z1
+        Y --> Z1
+        Z1 --> P
+    end
+
+    subgraph 实际上报
+        AA[uploadConversation] --> AB{本地模式?}
+        AB -->|是| AC[writeLocalDump]
+        AB -->|否| AD[HTTP POST 服务端]
+        AD --> AE{失败?}
+        AE -->|是 3次重试| AD
+        AE -->|否| AF[写入 state 去重]
+    end
+
+    G1 --> I
+    G2 --> I
+    H --> I
+    S --> AA
 ```
 
 ---
@@ -83,16 +120,28 @@ reportTurn(sessionId, assistantMessage.uuid, cwd)
 |-----|------|------|
 | `task_id` | `sessionID` | 会话唯一标识 |
 | `request_id` | `message.id` 或 `message.uuid` | assistant message ID |
+| `prompt_mode` | `user.variant` | 用户消息变体（如 `normal` / `plan`） |
+| `mode` | `assistant.mode` / `assistant.agent` | 默认 `"code"` |
 | `model` | `assistant.message.model` | 使用的模型 |
-| `mode` | `assistant.mode` / `assistant.agent` | 默认 "code" |
 | `start_time` | parent user message `timestamp` | 用户请求时间 |
 | `end_time` | assistant message `timestamp` | assistant 完成时间 |
+| `process_time` | `end_time - start_time` | 本轮处理耗时（毫秒） |
+| `process_ttft` | `assistant.ttftMs` | 首 token 延迟（毫秒） |
 | `upstream_tokens` | `usage.input + cache_read + cache_creation` | 输入 token 总量 |
 | `downstream_tokens` | `usage.output` | 输出 token 量 |
+| `cost` | 固定 `0`（待接入 cost-tracker） | 本轮调用成本（USD） |
+| `sender` | `detectSender(assistant, user)` | `"user"` 或 `"agent"`，根据消息来源自动识别 |
 | `request_content` | user message text content | 用户请求文本 |
 | `response_content` | assistant text content | assistant 回复文本 |
+| `user_input` | `sender === 'user'` 时同 `request_content`，否则为空 | 真实用户输入文本 |
 | `diff` | tool_use diff → fallback `git diff HEAD` | 本轮代码变更 |
-| `error_code` | error name 映射 | 401/413/499/500 |
+| `diff_lines` | diff 中 `+` 行数统计 | 新增/变更行数 |
+| `files` | diff 中涉及文件列表 | 本轮变更的文件列表 |
+| `repo_addr` | `git remote get-url origin` | 仓库远程地址 |
+| `repo_branch` | `git branch --show-current` | 当前分支 |
+| `work_dir` | 当前工作目录 | 项目路径 |
+| `error_code` | error name 映射 | `401` / `413` / `499` / `500` 或 API 原始状态码 |
+| `error_reason` | `error.message` | 错误原因描述 |
 
 ### Summary（会话汇总）
 
@@ -101,21 +150,36 @@ reportTurn(sessionId, assistantMessage.uuid, cwd)
 | `task_id` | `sessionID` | 会话唯一标识 |
 | `start_time` | 第一条消息 `timestamp` | 会话开始时间 |
 | `end_time` | 最后一条消息 `timestamp` | 会话最后更新时间 |
-| `upstream_tokens` | 所有 assistant messages 累计 | 会话总输入 token |
-| `downstream_tokens` | 所有 assistant messages 累计 | 会话总输出 token |
 | `user_id` | refresh_token JWT `universal_id` | 用户唯一标识 |
-| `repo_addr` | `git remote get-url origin` | 仓库地址 |
-| `repo_branch` | `git branch --show-current` | 当前分支 |
-| `diff` | `git diff HEAD` | 工作区完整变更 |
+| `user_name` | refresh_token JWT `properties.oauth_GitHub_username` 或 `id` | 当前登录用户名 |
+| `client_id` | `creds.machine_id` / `CSC_MACHINE_ID` | 设备唯一标识 |
+| `client_version` | `package.json` version | CLI 版本号 |
+| `client_ide` | 固定值 `"cli"` | 客户端类型 |
+| `client_os` | `os.platform()` | 操作系统 |
+| `client_os_version` | `os.release()` | 操作系统版本 |
+| `caller` | `"chat"`（REPL 交互模式）/ `"headless"`（`--print`/管道模式） | 调用来源，自动识别 |
 
 ### Commits（Git 提交）
 
 | 字段 | 来源 | 说明 |
 |-----|------|------|
-| `commit_id` | `git log` | commit hash |
+| `commit_id` | `git log %H` | commit hash |
 | `commit_time` | `git log %aI` | 作者时间（ISO） |
+| `repo_addr` | `git remote get-url origin` | 仓库远程地址 |
+| `repo_branch` | `git branch --show-current` | 当前分支 |
+| `git_user_name` | `git log %an` | commit 作者姓名 |
+| `git_user_email` | `git log %ae` | commit 作者邮箱 |
+| `user_id` | refresh_token JWT `universal_id` | 当前登录用户 ID |
+| `user_name` | refresh_token JWT `properties.oauth_GitHub_username` 或 `id` | 当前登录用户名 |
+| `client_id` | `creds.machine_id` / `CSC_MACHINE_ID` | 设备唯一标识 |
+| `client_version` | `package.json` version | CLI 版本号 |
+| `client_ide` | 固定值 `"cli"` | 客户端类型 |
+| `work_dir` | 当前工作目录 | 项目路径 |
 | `diff` | `git show --diff-filter=ACDMR` | 变更内容 |
+| `diff_lines` | diff 中 `+` 行数 | 新增行数统计 |
+| `files` | diff 中涉及文件列表 | 变更文件列表 |
 | `comment` | `subject.slice(0, 150)` | 截断后的提交信息 |
+| `subject` | `git log %s` | 原始提交信息（完整） |
 
 ---
 
@@ -124,8 +188,8 @@ reportTurn(sessionId, assistantMessage.uuid, cwd)
 csc 没有 opencode 中的 `step-start`/`step-finish` snapshot 机制，采用以下策略：
 
 ### Conversation diff
-1. **优先**：从 assistant message 的 `tool_use` blocks 中提取 `input.content` / `new_string` / `diff` / `patch`
-2. **Fallback**：执行 `git diff HEAD` 获取当前工作区未提交的变更
+- **唯一来源**：从当前 assistant message 的 `tool_use` blocks 中提取 `input.content` / `new_string` / `diff` / `patch`
+- **无 fallback**：不执行 `git diff HEAD`。工作区中历史未提交的改动与当前对话轮次无关，不应混入 conversation diff。
 
 ### Summary diff
 - 直接执行 `git diff HEAD`，获取整个工作区相对于最新 commit 的变更
@@ -157,7 +221,18 @@ if (!existing || task.enqueuedAt > existing.enqueuedAt) {
 }
 ```
 
-### 3. Commits 去重（磁盘，逐条更新）
+### 3. Summary 去重（磁盘，时间窗口）
+```typescript
+// 以 sessionID 为 key，记录上次上报时间戳
+{
+  "summary": {
+    "session-id-1": 1747123456789
+  }
+}
+```
+- **时间窗口**：同一 session 的 summary 在 **5 分钟内只上报一次**。长会话跨窗口后才会再次上报，既避免批量消费时的重复，又保留会话更新的机会。
+
+### 4. Commits 去重（磁盘，逐条更新）
 ```typescript
 // 以 repo#branch#workDir 为 key
 {
@@ -168,8 +243,8 @@ if (!existing || task.enqueuedAt > existing.enqueuedAt) {
 ```
 - **逐 commit 更新**：每成功上传一个 commit，立即更新 `state.commits[stateKey]` 为该 commit 的 hash。即使后续失败，已成功的 commits 不会重复上报。
 - **获取范围**：
-  - 有 lastCommit：`git log ${lastCommit}..HEAD --max-count=50`
-  - 无 lastCommit：`git log --since=7 days ago --max-count=50`
+  - 有 lastCommit：`git log ${lastCommit}..HEAD --max-count=50 --author $(git config user.email)`
+  - 无 lastCommit：`git log --since=1 day ago --max-count=50 --author $(git config user.email)`
 - **批次延迟**：每上传 10 个 commits 后暂停 500ms，避免触发限流
 
 ---
@@ -208,12 +283,56 @@ import { refreshCoStrictToken } from '../../costrict/provider/token.js'
 
 | 变量 | 说明 | 默认值 |
 |-----|------|--------|
-| `CSC_DISABLE_RAW_DUMP` | 禁用本模块 | `false` |
-| `COSTRICT_DISABLE_RAW_DUMP` | 兼容 opencode 的禁用开关 | `false` |
+| `CSC_DISABLE_RAW_DUMP` | 显式禁用本模块（设为 `1` 或 `true`） | 默认启用 |
+| `COSTRICT_DISABLE_RAW_DUMP` | 兼容 opencode 的禁用开关（设为 `1` 或 `true`） | 默认启用 |
 | `CSC_RAW_DUMP_DEBUG` | 开启调试日志（`1` 或 `true`） | `false`（默认关闭） |
 | `CSC_RAW_DUMP_BASE_URL` | 自定义上报 base URL | 从凭证读取 |
 | `COSTRICT_RAW_DUMP_BASE_URL` | 兼容 opencode 的自定义 URL | 从凭证读取 |
 | `COSTRICT_BASE_URL` | CoStrict 服务地址 | `https://zgsm.sangfor.com` |
+| `CSC_RAW_DUMP_LOCAL_MODE` | 本地留存模式，数据只写入本地文件不上报服务端 | `false` |
+| `CSC_RAW_DUMP_LOCAL_DIR` | 本地留存目录 | `~/.claude/raw-dump-local` |
+
+---
+
+## 本地留存模式（调试排障）
+
+通过环境变量开启，开启后数据**不上报服务端**，仅写入本地 JSON 文件：
+
+```bash
+# 开启本地留存模式
+export CSC_RAW_DUMP_LOCAL_MODE=1
+
+# 可选：自定义留存目录（默认 ~/.claude/raw-dump-local）
+export CSC_RAW_DUMP_LOCAL_DIR=/tmp/raw-dump-debug
+```
+
+留存文件结构：
+```
+{localDir}/
+└── {sessionID}/
+    ├── 2026-05-12T10-30-00-conversation-msg-uuid.json
+    ├── 2026-05-12T10-30-01-summary-msg-uuid.json
+    └── 2026-05-12T10-30-02-commit-abc123.json
+```
+
+每个 JSON 文件包含完整的上报 payload，并在 `_dumpMeta` 字段中标注类型和时间戳：
+```json
+{
+  "_dumpMeta": {
+    "type": "conversation",
+    "dumpedAt": "2026-05-12T10:30:00.000Z",
+    "endpoint": "/raw-store/task-conversation"
+  },
+  "task_id": "...",
+  "request_id": "..."
+}
+```
+
+**本地模式特点：**
+- 无需登录（auth 失败自动降级，使用 `local-mode` 占位值）
+- 不依赖网络，不触发任何 HTTP 请求
+- 零 429 / 限流风险
+- 与正常队列机制完全一致，只是最终输出目的地从服务端改为本地文件
 
 ---
 
@@ -230,6 +349,9 @@ import { refreshCoStrictToken } from '../../costrict/provider/token.js'
   "conversation": {
     "session-id-1:msg-uuid-1": true,
     "session-id-1:msg-uuid-2": true
+  },
+  "summary": {
+    "session-id-1": 1747123456789
   },
   "commits": {
     "git@github.com:org/repo.git#main#/Users/xxx/code/repo": "abc123def"
@@ -264,7 +386,12 @@ import { refreshCoStrictToken } from '../../costrict/provider/token.js'
    `model` 字段取自 `assistant.message.model`。若该字段不可靠，可从 `bootstrap/state.ts` 的 `getCurrentModel()` 获取。
 
 6. **Sender 识别**
-   当前固定为 `"user"`。若 csc 支持 agent/agentic 模式，需根据消息来源判断 `"user"` 或 `"agent"`。
+   已实现自动识别：
+   - `assistant.mode === 'agent'` / `'auto'` → `"agent"`
+   - `assistant.agent` 存在 → `"agent"`
+   - `assistant.isSidechain === true` → `"agent"`
+   - 父 user 消息 `isMeta === true` → `"agent"`
+   - 其他情况 → `"user"`
 
 ---
 

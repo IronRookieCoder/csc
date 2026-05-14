@@ -3883,6 +3883,7 @@ async function run(): Promise<CommanderCommand> {
 			if (isBareMode()) {
 				// skip — no-op
 			} else if (isNonInteractiveSession) {
+					process.env.CSC_RAW_DUMP_CALLER = 'headless'
 				// In headless mode, await to ensure plugin sync completes before CLI exits
 				await initializeVersionedPlugins();
 				profileCheckpoint("action_after_plugins_init");
@@ -4291,6 +4292,8 @@ async function run(): Promise<CommanderCommand> {
 				);
 				return;
 			}
+
+			process.env.CSC_RAW_DUMP_CALLER = 'chat'
 
 			// Log model config at startup
 			logEvent("tengu_startup_manual_model_config", {
