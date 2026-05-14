@@ -1,6 +1,7 @@
 import type { Command } from '../commands.js'
 import type { LocalCommandCall } from '../types/command.js'
 import { getAPIProvider } from '../utils/model/providers.js'
+import { isThirdPartyApiEnabled } from '../services/apiControlConfig/index.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { applyConfigEnvironmentVariables } from '../utils/managedEnv.js'
@@ -85,16 +86,11 @@ const call: LocalCommandCall = async (args, _context) => {
     }
   }
 
-  // Validate provider
-  const validProviders = [
-    'anthropic',
-    'openai',
-    'gemini',
-    'grok',
-    'bedrock',
-    'vertex',
-    'foundry',
-  ]
+  // Validate provider — dynamically filter based on remote API control config
+  const thirdPartyEnabled = isThirdPartyApiEnabled()
+  const validProviders = thirdPartyEnabled
+    ? ['anthropic', 'openai', 'gemini', 'grok', 'bedrock', 'vertex', 'foundry']
+    : []
   if (!validProviders.includes(arg)) {
     return {
       type: 'text',
