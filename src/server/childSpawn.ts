@@ -1,3 +1,5 @@
+import { basename } from 'path'
+
 export const INIT_TIMEOUT_MS = (() => {
   const raw = Number(process.env.CSC_SERVE_INIT_TIMEOUT_MS)
   return Number.isFinite(raw) && raw > 0 ? raw : 120000
@@ -6,10 +8,18 @@ export const INIT_TIMEOUT_MS = (() => {
 export function getScriptArgsForChild(): string[] {
   const argv1 = process.argv[1]
   if (!argv1) return []
+  // If the executable is not bun/node, we're in a compiled standalone binary.
+  // In compiled mode, argv[1] may be the original entrypoint path (e.g.
+  // "src/entrypoints/cli.tsx") which looks like a script — prevent that.
+  const execBase = basename(process.execPath)
+  if (!/^(bun|node)/i.test(execBase)) return []
   // Bun standalone executable embeds a virtual snapshot path like "B:/~BUN/root/cli.js".
   // This is not a real file on disk — skip it so the child process (the same exe)
   // is not launched with a bogus script argument.
   if (argv1.startsWith('B:/~BUN/') || argv1.startsWith('/snapshot/')) return []
+  // When running as a compiled standalone binary (./csc), argv[1] is the binary
+  // itself — same as execPath. Do not treat it as a script file.
+  if (argv1 === process.execPath) return []
   if (argv1.endsWith('.ts') || argv1.endsWith('.tsx') || argv1.includes('/') || argv1.includes('\\')) {
     return [argv1]
   }
