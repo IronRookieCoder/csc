@@ -43,6 +43,9 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
           # Update scripts/defines.ts
           sed -i "s/\"MACRO.VERSION\": JSON.stringify(\"[^\"]*\")/\"MACRO.VERSION\": JSON.stringify(\"$VERSION\")/" scripts/defines.ts
+          # Verify
+          echo "package.json version: $(jq -r '.version' package.json)"
+          grep "MACRO.VERSION" scripts/defines.ts
           # Commit and push version bump
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -50,13 +53,25 @@ jobs:
           git commit -m "chore(release): bump version to ${VERSION}"
           git push origin HEAD
 
-      - name: Create tag if missing
+      - name: Create or recreate tag
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
-          if ! git rev-parse "${TAG}" >/dev/null 2>&1; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-parse "${TAG}^{commit}")
+            if [ "${TAG_COMMIT}" != "${HEAD_COMMIT}" ]; then
+              echo "Tag ${TAG} exists but points to old commit ${TAG_COMMIT}, recreating on ${HEAD_COMMIT}"
+              git push --delete origin "${TAG}" || true
+              git tag -d "${TAG}" || true
+              git tag "${TAG}"
+              git push origin "${TAG}"
+            else
+              echo "Tag ${TAG} already points to current HEAD"
+            fi
+          else
             git tag "${TAG}"
             git push origin "${TAG}"
           fi
