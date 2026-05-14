@@ -13,6 +13,39 @@
 
 import { lastGrapheme } from './intl.js'
 
+function isEnvTruthy(value: string | undefined): boolean {
+  return value === '1' || value === 'true'
+}
+
+function supportsEarlyInputRawMode(): boolean {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
+    return false
+  }
+
+  if (process.platform !== 'win32') {
+    return true
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_STDIN_RAW_MODE)) {
+    return false
+  }
+
+  const term = process.env.TERM?.toLowerCase() ?? ''
+  const termProgram = process.env.TERM_PROGRAM?.toLowerCase() ?? ''
+  const msystem = process.env.MSYSTEM?.toLowerCase() ?? ''
+  const shell = process.env.SHELL?.toLowerCase() ?? ''
+
+  return !(
+    term === 'cygwin' ||
+    term.includes('mintty') ||
+    termProgram.includes('mintty') ||
+    msystem.length > 0 ||
+    shell.includes('msys') ||
+    shell.includes('cygwin') ||
+    shell.includes('mingw')
+  )
+}
+
 // Buffer for early input characters
 let earlyInputBuffer = ''
 // Flag to track if we're currently capturing
@@ -33,7 +66,7 @@ export function startCapturingEarlyInput(): void {
   // be in print mode. Raw mode disables ISIG (terminal Ctrl+C → SIGINT),
   // which would make -p uninterruptible.
   if (
-    !process.stdin.isTTY ||
+    !supportsEarlyInputRawMode() ||
     isCapturing ||
     process.argv.includes('-p') ||
     process.argv.includes('--print')
