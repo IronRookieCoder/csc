@@ -8,15 +8,19 @@ const outdir = 'dist'
 const { rmSync } = await import('fs')
 rmSync(outdir, { recursive: true, force: true })
 
-// Step 1.5: Generate review builtin files
-console.log('Generating review builtin files...')
-const { spawnSync: genSpawnSync } = await import('child_process')
-const genResult = genSpawnSync('bun', ['run', 'scripts/generate-review-builtin.ts'], {
-  stdio: 'inherit',
-  cwd: process.cwd(),
-})
-if (genResult.status !== 0) {
-  console.warn('Warning: generate-review-builtin.ts failed, using existing files')
+// Step 1.5: Generate review builtin files (skip with SKIP_REVIEW_BUILTIN=1)
+if (process.env.SKIP_REVIEW_BUILTIN) {
+  console.log('Skipping review builtin generation (SKIP_REVIEW_BUILTIN is set)')
+} else {
+  console.log('Generating review builtin files...')
+  const { spawnSync: genSpawnSync } = await import('child_process')
+  const genResult = genSpawnSync('bun', ['run', 'scripts/generate-review-builtin.ts'], {
+    stdio: 'inherit',
+    cwd: process.cwd(),
+  })
+  if (genResult.status !== 0) {
+    console.warn('Warning: generate-review-builtin.ts failed, using existing files')
+  }
 }
 
 // Default features that match the official CLI build.
