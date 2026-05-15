@@ -126,12 +126,15 @@ export function snipCompactIfNeeded(
   }
 
   // Filter out messages whose UUIDs are listed in removedUuids
-  const removedSet = new Set(removedUuids)
+  // Guard: filter out any falsy entries (e.g. messages that lacked a uuid)
+  const removedSet = new Set<string>(
+    removedUuids.filter((u): u is string => typeof u === 'string'),
+  )
   const kept: Message[] = []
   let tokensFreed = 0
 
   for (const msg of messages) {
-    if (removedSet.has(msg.uuid)) {
+    if (msg.uuid && removedSet.has(msg.uuid)) {
       tokensFreed += estimateMessageTokens(msg)
       continue
     }

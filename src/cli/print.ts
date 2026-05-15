@@ -55,6 +55,7 @@ import {
   getSessionState,
   notifySessionStateChanged,
   notifySessionMetadataChanged,
+  registerSdkEventConsumer,
   setPermissionModeChangedListener,
   type RequiresActionDetails,
   type SessionExternalMetadata,
@@ -160,7 +161,7 @@ import {
   DEFAULT_OUTPUT_STYLE_NAME,
   getAllOutputStyles,
 } from 'src/constants/outputStyles.js'
-import { TEAMMATE_MESSAGE_TAG, TICK_TAG } from 'src/constants/xml.js'
+import { TASK_NOTIFICATION_TAG, TEAMMATE_MESSAGE_TAG, TICK_TAG } from 'src/constants/xml.js'
 import {
   getSettings_DEPRECATED,
   getSettingsWithSources,
@@ -1041,6 +1042,13 @@ function runHeadlessStreaming(
   let abortController: AbortController | undefined
   // Same queue sendRequest() enqueues to — one FIFO for everything.
   const output = structuredIO.outbound
+
+  // Push session_state_changed events directly to output (bypasses SDK
+  // event queue). Aligned with OpenCode: status transitions reach clients
+  // immediately via direct push, not delayed until drainSdkEvents().
+  const unregisterSdkConsumer = registerSdkEventConsumer(event => {
+    output.enqueue(event as unknown as StdoutMessage)
+  })
 
   // Ctrl+C in -p mode: abort the in-flight query, then shut down gracefully.
   // gracefulShutdown persists session state and flushes analytics, with a
@@ -2783,7 +2791,7 @@ function runHeadlessStreaming(
           uuid: randomUUID(),
         })
         void run()
-      } else {
+      } else if (!process.env.CSC_SERVE_MODE) {
         // Wait for any in-flight push suggestion before closing the output stream.
         if (suggestionState.inflightPromise) {
           await Promise.race([suggestionState.inflightPromise, sleep(5000)])
@@ -3155,6 +3163,32 @@ function runHeadlessStreaming(
           notifySessionMetadataChanged({ model })
           injectModelSwitchBreadcrumbs(requestedModel, model)
 
+          sendControlResponseSuccess(msg)
+        } else if (msg.request.subtype === 'set_agent') {
+          const agent = typeof msg.request.agent === 'string' ? msg.request.agent : undefined
+          // 'build' is the frontend display name for the default (no-agent) mode.
+          // Treat it as clearing the agent, same as undefined.
+          const resolvedAgent = agent === 'build' ? undefined : agent
+          setMainThreadAgentType(resolvedAgent)
+          saveAgentSetting(resolvedAgent ?? '')
+          if (resolvedAgent) {
+            // Apply the agent's system prompt so QueryEngine picks it up on the next turn.
+            // QueryEngine.ask() uses options.systemPrompt (customSystemPrompt) directly,
+            // bypassing buildEffectiveSystemPrompt/mainThreadAgentDefinition. For built-in
+            // agents the getSystemPrompt params are ignored; pass a minimal stub.
+            const agentDef = currentAgents.find(a => a.agentType === resolvedAgent)
+            if (agentDef) {
+              const agentSystemPrompt = isBuiltInAgent(agentDef)
+                ? agentDef.getSystemPrompt({ toolUseContext: { options: {} as never } })
+                : agentDef.getSystemPrompt()
+              if (agentSystemPrompt) {
+                options.systemPrompt = agentSystemPrompt
+              }
+            }
+          } else {
+            // Switching back to default mode: clear any previously applied agent system prompt.
+            options.systemPrompt = undefined
+          }
           sendControlResponseSuccess(msg)
         } else if (msg.request.subtype === 'set_max_thinking_tokens') {
           if (msg.request.max_thinking_tokens === null) {
@@ -4326,35 +4360,50 @@ function runHeadlessStreaming(
         trackReceivedMessageUuid(userMsg.uuid as UUID)
       }
 
-      enqueue({
-        mode: 'prompt' as const,
-        // file_attachments rides the protobuf catchall from the web composer.
-        // Same-ref no-op when absent (no 'file_attachments' key).
-        value: await resolveAndPrepend(
-          userMsg,
-          (userMsg.message as { content: ContentBlockParam[] }).content,
-        ),
-        uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
-        priority: (userMsg as { priority?: string })
-          .priority as import('src/types/textInputTypes.js').QueuePriority,
-      })
-      // Increment prompt count for attribution tracking and save snapshot
-      // The snapshot persists promptCount so it survives compaction
-      if (feature('COMMIT_ATTRIBUTION')) {
-        setAppState(prev => ({
-          ...prev,
-          attribution: incrementPromptCount(prev.attribution, snapshot => {
-            void recordAttributionSnapshot(snapshot).catch(error => {
-              logForDebugging(`Attribution: Failed to save snapshot: ${error}`)
-            })
-          }),
-        }))
+      const rawContent = typeof userMsg.content === 'string' ? userMsg.content : ''
+      const isTaskNotification = rawContent.trimStart().startsWith(
+        `<${TASK_NOTIFICATION_TAG}>`,
+      )
+
+      if (isTaskNotification) {
+        enqueue({
+          mode: 'task-notification' as const,
+          value: rawContent,
+          uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
+          priority: (userMsg as { priority?: string })
+            .priority as import('src/types/textInputTypes.js').QueuePriority,
+        })
+      } else {
+        enqueue({
+          mode: 'prompt' as const,
+          // file_attachments rides the protobuf catchall from the web composer.
+          // Same-ref no-op when absent (no 'file_attachments' key).
+          value: await resolveAndPrepend(
+            userMsg,
+            (userMsg.message as { content: ContentBlockParam[] }).content,
+          ),
+          uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
+          priority: (userMsg as { priority?: string })
+            .priority as import('src/types/textInputTypes.js').QueuePriority,
+        })
+        // Increment prompt count for attribution tracking and save snapshot
+        // The snapshot persists promptCount so it survives compaction
+        if (feature('COMMIT_ATTRIBUTION')) {
+          setAppState(prev => ({
+            ...prev,
+            attribution: incrementPromptCount(prev.attribution, snapshot => {
+              void recordAttributionSnapshot(snapshot).catch(error => {
+                logForDebugging(`Attribution: Failed to save snapshot: ${error}`)
+              })
+            }),
+          }))
+        }
       }
       void run()
     }
     inputClosed = true
     cronScheduler?.stop()
-    if (!running) {
+    if (!running && !process.env.CSC_SERVE_MODE) {
       // If a push-suggestion is in-flight, wait for it to emit before closing
       // the output stream (5 s safety timeout to prevent hanging).
       if (suggestionState.inflightPromise) {

@@ -46,7 +46,7 @@ export function projectSnippedView(messages: Message[]): Message[] {
         | undefined
       if (meta?.removedUuids) {
         for (const uuid of meta.removedUuids) {
-          removedSet.add(uuid)
+          if (typeof uuid === 'string') removedSet.add(uuid)
         }
       }
     }

@@ -1371,7 +1371,9 @@ async function hasPermissionsToUseToolInner(
     appState.toolPermissionContext.mode === 'bypassPermissions' ||
     (appState.toolPermissionContext.mode === 'plan' &&
       appState.toolPermissionContext.isBypassPermissionsModeAvailable)
-  if (shouldBypassPermissions) {
+  // requiresUserInteraction tools (e.g. AskUserQuestion) must always ask
+  // the user, even in bypassPermissions mode.
+  if (shouldBypassPermissions && !tool.requiresUserInteraction?.()) {
     return {
       behavior: 'allow',
       updatedInput: getUpdatedInputOrFallback(toolPermissionResult, input),

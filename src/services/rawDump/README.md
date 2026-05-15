@@ -406,7 +406,7 @@ export CSC_RAW_DUMP_LOCAL_DIR=/tmp/raw-dump-debug
 | 运行时 | Effect-TS | Bun + 纯 Node.js API |
 | 上报模式 | 单条即时上报 | 队列 + batch worker 顺序消费 |
 | 限流防护 | 无 | 队列 + 单 worker + 重试 + 批次延迟 + 抖动 |
-| 凭证路径 | `~/.costrict/credentials.json` | `~/.claude/csc-auth.json` |
+| 凭证路径 | `~/.costrict/credentials.json` | `~/.costrict/share/auth.json` |
 
 ---
 
