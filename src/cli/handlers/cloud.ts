@@ -222,6 +222,13 @@ async function ensureCsCloud(): Promise<string> {
 	return bin
 }
 
+function getCloudRawArgs(): string[] {
+	const argv = process.argv.slice(2)
+	const index = argv.indexOf("cloud")
+	if (index === -1) return []
+	return argv.slice(index + 1)
+}
+
 async function runCsCloud(args: string[]): Promise<void> {
 	const bin = await ensureCsCloud()
 	const child = spawn(bin, args, {
@@ -240,20 +247,21 @@ async function runCsCloud(args: string[]): Promise<void> {
 }
 
 export async function cloudHandler(rawArgs: string[]): Promise<void> {
-	if (rawArgs.length === 0) {
+	const args = getCloudRawArgs()
+	if (args.length === 0) {
 		console.error("specify a subcommand. usage: csc cloud <command> [args...]")
 		process.exit(1)
 	}
 
-	if (rawArgs[0] === "upgrade") {
+	if (args[0] === "upgrade") {
 		const bin = csCloudBin()
 		if (fs.existsSync(bin)) {
-			await runCsCloud(rawArgs)
+			await runCsCloud(args)
 			return
 		}
 		await ensureCsCloud()
 		return
 	}
 
-	await runCsCloud(rawArgs)
+	await runCsCloud(args)
 }
