@@ -37,12 +37,13 @@ export async function saveChildSpawnPrefix(): Promise<void> {
   const { execPath, scriptArgs } = getChildSpawnArgs()
   let defineArgs: string[] = []
   let featureArgs: string[] = []
-  // Only pass --feature/define flags when running as a script (dev mode).
-  // In compiled standalone executable mode scriptArgs is empty, and feature
-  // flags are already baked in at compile time — passing --feature to the
-  // child process would cause "unknown option" errors.
-  const isScriptMode = scriptArgs.length > 0
-  if (isScriptMode) {
+  // Only pass --feature/define flags when running TypeScript source files.
+  // In compiled builds (dist/cli-node.js, standalone binary) feature flags are
+  // already baked in at compile time — passing -d/--feature to the child process
+  // would cause "unknown option" errors in Node.js or standalone mode.
+  // Dev mode: .ts/.tsx source files need -d flags. Build: .js files don't.
+  const isRunningSourceFile = scriptArgs.length > 0 && (scriptArgs[0].endsWith('.tsx') || scriptArgs[0].endsWith('.ts'))
+  if (isRunningSourceFile) {
     try {
       const definesMod = await import('../../scripts/defines.js') as { getMacroDefines: () => Record<string, string>; DEFAULT_BUILD_FEATURES: readonly string[] }
       const defines = definesMod.getMacroDefines()

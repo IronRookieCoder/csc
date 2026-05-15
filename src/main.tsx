@@ -5996,7 +5996,7 @@ async function run(): Promise<CommanderCommand> {
 			});
 			await sessionManager.init();
 
-			const server = startServer(config, sessionManager, eventBus);
+			const server = await startServer(config, sessionManager, eventBus);
 			const actualPort = server.port ?? config.port;
 			printBanner(config, undefined, actualPort);
 
