@@ -105,7 +105,7 @@ async function postJson(
   let lastError: Error | undefined
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
-      const delay = 5000 * Math.pow(2, attempt - 1) // 5s, 10s
+      const delay = 5000 * 2 ** (attempt - 1) // 5s, 10s
       log.debug(`retrying ${endpoint} after ${delay}ms`, { attempt })
       await new Promise((r) => setTimeout(r, delay))
     }

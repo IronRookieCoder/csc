@@ -114,7 +114,6 @@ export async function pollLoginToken(
         throw new Error('Login cancelled')
       }
       if (error.message?.includes('Login failed')) throw error
-      continue
     }
   }
 
