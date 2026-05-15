@@ -38,6 +38,16 @@ export type InstallStatus =
   | 'install_failed'
   | 'in_progress'
 
+export type InstallResult = {
+  status: InstallStatus
+  /** Human-readable error category for targeted troubleshooting */
+  errorCategory?: string
+  /** Suggested fix based on the detected error */
+  suggestion?: string
+  /** Raw npm stderr for advanced debugging */
+  npmStderr?: string
+}
+
 export type AutoUpdaterResult = {
   version: string | null
   status: InstallStatus
@@ -452,9 +462,137 @@ export async function getVersionHistory(limit: number): Promise<string[]> {
   }
 }
 
+/**
+ * Analyze npm/bun install stderr to produce a targeted error category and suggestion.
+ */
+export function analyzeNpmError(
+  stderr: string,
+  stdout: string,
+): { category: string; suggestion: string } {
+  const combined = `${stderr} ${stdout}`.toLowerCase()
+
+  if (
+    combined.includes('eacces') ||
+    combined.includes('eperm') ||
+    combined.includes('permission denied') ||
+    combined.includes('operation not permitted')
+  ) {
+    return {
+      category: 'Permission denied',
+      suggestion:
+        'The package manager lacks write permission to the global install directory.\n' +
+        'Options:\n' +
+        '  1. Fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors\n' +
+        '  2. Run with sudo (not recommended long-term)\n' +
+        '  3. Switch to local installation: csc install --local\n' +
+        '  4. Switch to native installation: csc install',
+    }
+  }
+
+  if (
+    combined.includes('erofs') ||
+    combined.includes('read-only file system')
+  ) {
+    return {
+      category: 'Read-only file system',
+      suggestion:
+        'The target directory is read-only.\n' +
+        'Try installing to a user-writable prefix:\n' +
+        '  npm config set prefix ~/.npm-global\n' +
+        'Or switch to local/native installation.',
+    }
+  }
+
+  if (
+    combined.includes('etimedout') ||
+    combined.includes('econnrefused') ||
+    combined.includes('enotfound') ||
+    combined.includes('network timeout') ||
+    combined.includes('socket hang up')
+  ) {
+    return {
+      category: 'Network error',
+      suggestion:
+        'Unable to reach the npm registry.\n' +
+        'Try:\n' +
+        '  • Check your internet connection\n' +
+        '  • If behind a proxy, configure npm: npm config set proxy http://...\n' +
+        '  • Try again later (registry may be temporarily unavailable)',
+    }
+  }
+
+  if (
+    combined.includes('e404') ||
+    combined.includes('not found') ||
+    combined.includes('no matching version') ||
+    combined.includes('package not found')
+  ) {
+    return {
+      category: 'Package or version not found',
+      suggestion:
+        `The package "${MACRO.PACKAGE_URL}" or the requested version could not be found.\n` +
+        'Possible causes:\n' +
+        '  • Scoped package requires npm login: npm whoami\n' +
+        '  • The version tag does not exist yet\n' +
+        '  • Corporate registry mirror is missing this package',
+    }
+  }
+
+  if (
+    combined.includes('ebusy') ||
+    combined.includes('eexist') ||
+    combined.includes('resource busy') ||
+    combined.includes('file exists')
+  ) {
+    return {
+      category: 'File locked or already exists',
+      suggestion:
+        'A file is locked or already exists.\n' +
+        'Try:\n' +
+        '  • Close other CoStrict / Node processes\n' +
+        '  • Delete the lock file and retry: rm ~/.claude/.update.lock',
+    }
+  }
+
+  if (combined.includes('elifecycle') || combined.includes('postinstall')) {
+    return {
+      category: 'Install script failed',
+      suggestion:
+        'A post-install script failed.\n' +
+        'Try:\n' +
+        '  • npm install -g --ignore-scripts (workaround, skips lifecycle hooks)\n' +
+        '  • Check that your Node.js version is supported',
+    }
+  }
+
+  if (combined.includes('enoent') || combined.includes('no such file')) {
+    return {
+      category: 'Missing file or directory',
+      suggestion:
+        'A required file or directory is missing.\n' +
+        'Try reinstalling:\n' +
+        '  npm uninstall -g ' +
+        MACRO.PACKAGE_URL +
+        ' && npm install -g ' +
+        MACRO.PACKAGE_URL,
+    }
+  }
+
+  // Fallback
+  return {
+    category: 'Installation failed',
+    suggestion:
+      'The package manager returned an unrecognized error.\n' +
+      'You can try:\n' +
+      '  • Run the install command manually to see full output\n' +
+      '  • Clear npm cache: npm cache clean --force\n' +
+      '  • Switch to native installation: csc install',
+  }
+}
+
 export async function installGlobalPackage(
   specificVersion?: string | null,
-): Promise<InstallStatus> {
+): Promise<InstallResult> {
   if (!(await acquireLock())) {
     logError(
       new AutoUpdaterError('Another process is currently installing an update'),
@@ -465,7 +603,7 @@ export async function installGlobalPackage(
       currentVersion:
         MACRO.VERSION as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
-    return 'in_progress'
+    return { status: 'in_progress' }
   }
 
   try {
@@ -477,23 +615,30 @@ export async function installGlobalPackage(
         currentVersion:
           MACRO.VERSION as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
-      console.error(`
-Error: Windows NPM detected in WSL
-
-You're running CoStrict in WSL but using the Windows NPM installation from /mnt/c/.
-This configuration is not supported for updates.
-
-To fix this issue:
-  1. Install Node.js within your Linux distribution: e.g. sudo apt install nodejs npm
-  2. Make sure Linux NPM is in your PATH before the Windows version
-  3. Try updating again with 'csc update'
-`)
-      return 'install_failed'
+      return {
+        status: 'install_failed',
+        errorCategory: 'Windows NPM in WSL',
+        suggestion:
+          'You are running CoStrict in WSL but using the Windows NPM installation from /mnt/c/.\n' +
+          'To fix:\n' +
+          '  1. Install Node.js inside WSL: sudo apt install nodejs npm\n' +
+          '  2. Ensure Linux npm appears first in PATH\n' +
+          '  3. Retry: csc update',
+      }
     }
 
     const { hasPermissions } = await checkGlobalInstallPermissions()
     if (!hasPermissions) {
-      return 'no_permissions'
+      return {
+        status: 'no_permissions',
+        errorCategory: 'Insufficient permissions',
+        suggestion:
+          'No write access to the global npm prefix.\n' +
+          'Try:\n' +
+          '  1. Fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors\n' +
+          '  2. Run: sudo csc update (temporary workaround)\n' +
+          '  3. Switch to native installation: csc install',
+      }
     }
 
     // Use specific version if provided, otherwise use latest
@@ -510,11 +655,20 @@ To fix this issue:
       { cwd: homedir() },
     )
     if (installResult.code !== 0) {
+      const { category, suggestion } = analyzeNpmError(
+        installResult.stderr,
+        installResult.stdout,
+      )
       const error = new AutoUpdaterError(
-        `Failed to install new version of claude: ${installResult.stdout} ${installResult.stderr}`,
+        `Failed to install new version: ${category}\nstdout: ${installResult.stdout}\nstderr: ${installResult.stderr}`,
       )
       logError(error)
-      return 'install_failed'
+      return {
+        status: 'install_failed',
+        errorCategory: category,
+        suggestion,
+        npmStderr: installResult.stderr,
+      }
     }
 
     // Set installMethod to 'global' to track npm global installations
@@ -523,7 +677,7 @@ To fix this issue:
       installMethod: 'global',
     }))
 
-    return 'success'
+    return { status: 'success' }
   } finally {
     // Ensure we always release the lock
     await releaseLock()
