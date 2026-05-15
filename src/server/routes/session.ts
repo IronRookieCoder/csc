@@ -221,14 +221,12 @@ export function createSessionRoutes(
       const url = new URL(c.req.url)
       const limit = parseInt(url.searchParams.get('limit') ?? '50', 10)
       const offset = parseInt(url.searchParams.get('offset') ?? '0', 10)
-      // 优先从请求头 x-csc-directory 取工作目录（cs-cloud 通过此头传递），
-      // fallback 到 query string 的 dir 参数
       const headerDir = c.req.header('x-csc-directory')
       const dir = (headerDir ? decodeURIComponent(headerDir) : undefined)
         ?? url.searchParams.get('dir')
         ?? undefined
-      // roots=true 时只返回没有 parentID 的顶层 session（csc 无 parent 概念，全部视为 root）
-      // const rootsOnly = url.searchParams.get('roots') === 'true'
+
+      const canonicalDir = dir ? await canonicalizePath(dir).catch(() => dir) : undefined
 
       // 从磁盘读取历史 session 列表
       let historySessions: Awaited<ReturnType<typeof listSessionsImpl>> = []
@@ -271,7 +269,6 @@ export function createSessionRoutes(
 
       // 补充内存中有但磁盘还没落盘的活跃 session（刚创建还没写过消息的）
       const historyIds = new Set(historySessions.map(s => s.sessionId))
-      const canonicalDir = dir ? await canonicalizePath(dir).catch(() => dir) : undefined
       for (const handle of sessionManager.getAllSessions()) {
         if (!historyIds.has(handle.sessionId)) {
           if (canonicalDir) {
@@ -283,7 +280,31 @@ export function createSessionRoutes(
         }
       }
 
-      // 过滤掉已知的无意义管理命令会话（用户直接输入后立即退出，没有实际对话内容）
+      // Pre-canonicalize all session cwds for consistent cwd filtering
+      const cwdCache = new Map<string, string>()
+      const getCwd = async (p: string) => {
+        const hit = cwdCache.get(p)
+        if (hit !== undefined) return hit
+        const c = await canonicalizePath(p).catch(() => p)
+        cwdCache.set(p, c)
+        return c
+      }
+
+      // Filter by cwd to prevent cross-workspace leakage
+      const cwdFiltered: typeof merged = []
+      for (const s of merged) {
+        if (canonicalDir) {
+          const sessionCwd = s.cwd ?? s.directory ?? ''
+          if (sessionCwd) {
+            const c = await getCwd(sessionCwd)
+            if (c !== canonicalDir) continue
+          } else {
+            continue
+          }
+        }
+        cwdFiltered.push(s)
+      }
+
       const BORING_COMMANDS = new Set([
         '/exit', '/quit', '/bye',
         '/clear', '/reset',
@@ -292,7 +313,7 @@ export function createSessionRoutes(
         '/help', '/version',
         '/compact',
       ])
-      const filtered = merged.filter(s => {
+      const filtered = cwdFiltered.filter(s => {
         const t = s.title.trim()
         if (!t) return false
         if (BORING_COMMANDS.has(t)) return false
@@ -308,7 +329,10 @@ export function createSessionRoutes(
     .get('/session/status', async c => {
       const headerDir = c.req.header('x-csc-directory')
       const dir = headerDir ? decodeURIComponent(headerDir) : undefined
-      const statuses = sessionManager.getSessionStatuses(dir)
+      const activeCount = sessionManager.getActiveCount()
+      const indexCount = sessionManager.getLoadedIndexCount()
+      const statuses = await sessionManager.getSessionStatuses(dir)
+      process.stderr.write(`[status] dir=${dir ?? '(none)'} active=${activeCount} index=${indexCount} result=${JSON.stringify(statuses)}\n`)
       return c.json(statuses)
     })
     .get('/session/:sessionID', async c => {
@@ -318,6 +342,7 @@ export function createSessionRoutes(
         const info = handle.getInfo()
         return c.json({
           ...info,
+          busy_status: handle.getEffectiveBusyStatus(),
           message_count: handle.messageCount,
           usage: handle.usage,
         })

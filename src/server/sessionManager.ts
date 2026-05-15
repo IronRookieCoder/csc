@@ -147,6 +147,10 @@ export class SessionManager {
     return this.sessions.size
   }
 
+  getLoadedIndexCount(): number {
+    return this.loadedIndex.size
+  }
+
   getSession(id: string): SessionHandle | undefined {
     return this.sessions.get(id)
   }
@@ -163,7 +167,20 @@ export class SessionManager {
         const handleCwd = await canonicalizePath(handle.cwd)
         if (handleCwd !== canonicalCwd) continue
       }
-      result[id] = handle.busyStatus
+      result[id] = handle.getEffectiveBusyStatus()
+    }
+    // Supplement with persisted sessions that are no longer in memory
+    // (evicted by idle timeout / LRU). They are always idle.
+    if (canonicalCwd) {
+      for (const [id, entry] of this.loadedIndex) {
+        if (result[id]) continue
+        try {
+          const entryCwd = await canonicalizePath(entry.cwd)
+          if (entryCwd === canonicalCwd) {
+            result[id] = { type: 'idle' }
+          }
+        } catch {}
+      }
     }
     return result
   }

@@ -141,6 +141,16 @@ export class SessionHandle implements DisposableChildProcess {
     return this._lastMessageUuid
   }
 
+  getEffectiveBusyStatus(): SessionBusyStatus {
+    if (this._prompting) {
+      return { type: 'busy' }
+    }
+    if (this._status === 'stopped') {
+      return { type: 'idle' }
+    }
+    return this._busyStatus
+  }
+
   get ready(): boolean {
     return this._status === 'running'
   }
