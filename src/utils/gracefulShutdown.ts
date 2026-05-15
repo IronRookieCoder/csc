@@ -65,23 +65,23 @@ function cleanupTerminalModes(): void {
     // we're busy unmounting. Otherwise events arrive during cooked-mode
     // cleanup and either echo to the screen or leak to the shell.
     writeSync(1, DISABLE_MOUSE_TRACKING)
-    // Exit alt screen FIRST so printResumeHint() (and all sequences below)
-    // land on the main buffer.
-    //
-    // Unmount Ink directly rather than writing EXIT_ALT_SCREEN ourselves.
-    // Ink registered its unmount with signal-exit, so it will otherwise run
-    // AGAIN inside forceExit() → process.exit(). Two problems with letting
-    // that happen:
-    //   1. If we write 1049l here and unmount writes it again later, the
-    //      second one triggers another DECRC — the cursor jumps back over
-    //      the resume hint and the shell prompt lands on the wrong line.
-    //   2. unmount()'s onRender() must run with altScreenActive=true (alt-
-    //      screen cursor math) AND on the alt buffer. Exiting alt-screen
-    //      here first makes onRender() scribble a REPL frame onto main.
-    // Calling unmount() now does the final render on the alt buffer,
-    // unsubscribes from signal-exit, and writes 1049l exactly once.
     const inst = instances.get(process.stdout)
     if (inst?.isAltScreenActive) {
+      // Exit alt screen FIRST so printResumeHint() (and all sequences below)
+      // land on the main buffer.
+      //
+      // Unmount Ink directly rather than writing EXIT_ALT_SCREEN ourselves.
+      // Ink registered its unmount with signal-exit, so it will otherwise run
+      // AGAIN inside forceExit() -> process.exit(). Two problems with letting
+      // that happen:
+      //   1. If we write 1049l here and unmount writes it again later, the
+      //      second one triggers another DECRC — the cursor jumps back over
+      //      the resume hint and the shell prompt lands on the wrong line.
+      //   2. unmount()'s onRender() must run with altScreenActive=true (alt-
+      //      screen cursor math) AND on the alt buffer. Exiting alt-screen
+      //      here first makes onRender() scribble a REPL frame onto main.
+      // Calling unmount() now does the final render on the alt buffer,
+      // unsubscribes from signal-exit, and writes 1049l exactly once.
       try {
         inst.unmount()
       } catch {
@@ -89,6 +89,8 @@ function cleanupTerminalModes(): void {
         // so printResumeHint still hits the main buffer.
         writeSync(1, EXIT_ALT_SCREEN)
       }
+    } else if (inst) {
+      inst.clearMainScreenForShutdown()
     }
     // Catches events that arrived during the unmount tree-walk.
     // detachForShutdown() below also drains.
@@ -169,9 +171,7 @@ function printResumeHint(): void {
 
       writeSync(
         1,
-        chalk.dim(
-          `\nResume this session with:\ncsc --resume ${resumeArg}\n`,
-        ),
+        chalk.dim(`\nResume this session with:\ncsc --resume ${resumeArg}\n`),
       )
       resumeHintPrinted = true
     } catch {
