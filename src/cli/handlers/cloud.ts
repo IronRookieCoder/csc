@@ -253,15 +253,6 @@ export async function cloudHandler(rawArgs: string[]): Promise<void> {
 		process.exit(1)
 	}
 
-	if (args[0] === "upgrade") {
-		const bin = csCloudBin()
-		if (fs.existsSync(bin)) {
-			await runCsCloud(args)
-			return
-		}
-		await ensureCsCloud()
-		return
-	}
-
+	await ensureCsCloud()
 	await runCsCloud(args)
 }
