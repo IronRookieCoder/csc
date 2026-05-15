@@ -125,6 +125,7 @@ mock.module('@ant/model-provider', () => ({
   anthropicToolsToOpenAI: () => [],
   anthropicToolChoiceToOpenAI: () => undefined,
   adaptOpenAIStreamToAnthropic: () => eventStream(_nextEvents),
+  resolveGrokModel: (model: string) => model,
 }))
 
 mock.module('../../utils/messages.js', () => ({

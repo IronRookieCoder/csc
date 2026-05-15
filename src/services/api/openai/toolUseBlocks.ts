@@ -66,9 +66,16 @@ export function getFinalContentBlocks<T extends StreamContentBlock>(
   contentBlocks: Record<number, T | undefined>,
   tools: Tools,
 ): T[] {
-  return Object.keys(contentBlocks)
+  const orderedBlocks = Object.keys(contentBlocks)
     .sort((a, b) => Number(a) - Number(b))
     .map(k => contentBlocks[Number(k)])
     .filter(isDefined)
-    .filter(block => !shouldDropEmptyInvalidToolUseBlock(block, tools))
+  const filteredBlocks = orderedBlocks.filter(
+    block => !shouldDropEmptyInvalidToolUseBlock(block, tools),
+  )
+
+  // If the model emitted only empty invalid tool calls, keep them visible so
+  // the normal tool validation path can return an InputValidationError. Dropping
+  // the whole response makes the turn end silently.
+  return filteredBlocks.length > 0 ? filteredBlocks : orderedBlocks
 }

@@ -37,6 +37,7 @@ import {
   createAssistantAPIErrorMessage,
   normalizeContentFromAPI,
 } from '../../../utils/messages.js'
+import { getFinalContentBlocks } from '../openai/toolUseBlocks.js'
 
 /**
  * Grok (xAI) query path. Grok uses an OpenAI-compatible API, so we reuse
@@ -127,6 +128,7 @@ export async function* queryModelGrok(
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,
     }
+    let stopReason: string | null = null
     let ttftMs = 0
     const start = Date.now()
 
@@ -171,22 +173,8 @@ export async function* queryModelGrok(
           break
         }
         case 'content_block_stop': {
-          const idx = (event as any).index
-          const block = contentBlocks[idx]
-          if (!block || !partialMessage) break
-
-          const m: AssistantMessage = {
-            message: {
-              ...partialMessage,
-              content: normalizeContentFromAPI([block], tools, options.agentId),
-            },
-            requestId: undefined,
-            type: 'assistant',
-            uuid: randomUUID(),
-            timestamp: new Date().toISOString(),
-          }
-          collectedMessages.push(m)
-          yield m
+          // Block accumulation is complete; assembly happens at message_stop
+          // so empty invalid tool placeholders can be filtered in context.
           break
         }
         case 'message_delta': {
@@ -194,10 +182,39 @@ export async function* queryModelGrok(
           if (deltaUsage) {
             usage = { ...usage, ...deltaUsage }
           }
+          if ((event as any).delta?.stop_reason != null) {
+            stopReason = (event as any).delta.stop_reason
+          }
           break
         }
-        case 'message_stop':
+        case 'message_stop': {
+          if (partialMessage) {
+            const allBlocks = getFinalContentBlocks(contentBlocks, tools)
+            if (allBlocks.length > 0) {
+              const m: AssistantMessage = {
+                message: {
+                  ...partialMessage,
+                  content: normalizeContentFromAPI(
+                    allBlocks,
+                    tools,
+                    options.agentId,
+                  ),
+                  usage,
+                  stop_reason: stopReason,
+                  stop_sequence: null,
+                },
+                requestId: undefined,
+                type: 'assistant',
+                uuid: randomUUID(),
+                timestamp: new Date().toISOString(),
+              }
+              collectedMessages.push(m)
+              yield m
+            }
+            partialMessage = null
+          }
           break
+        }
       }
 
       if (
@@ -213,6 +230,31 @@ export async function* queryModelGrok(
         event,
         ...(event.type === 'message_start' ? { ttftMs } : undefined),
       } as StreamEvent
+    }
+
+    if (partialMessage) {
+      const allBlocks = getFinalContentBlocks(contentBlocks, tools)
+      if (allBlocks.length > 0) {
+        const m: AssistantMessage = {
+          message: {
+            ...partialMessage,
+            content: normalizeContentFromAPI(
+              allBlocks,
+              tools,
+              options.agentId,
+            ),
+            usage,
+            stop_reason: stopReason,
+            stop_sequence: null,
+          },
+          requestId: undefined,
+          type: 'assistant',
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+        }
+        collectedMessages.push(m)
+        yield m
+      }
     }
 
     // Record LLM observation in Langfuse (no-op if not configured)

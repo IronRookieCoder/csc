@@ -50,6 +50,7 @@ export function filterEmptyInvalidToolUseMessages(
       .map(toolUse => toolUse.id),
   )
   if (droppedIds.size === 0) return toolUseMessages
+  if (droppedIds.size === toolUseMessages.length) return toolUseMessages
 
   for (const assistantMessage of assistantMessages) {
     const content = assistantMessage.message.content

@@ -190,4 +190,31 @@ describe('filterEmptyInvalidToolUseMessages', () => {
     expect(filtered).toEqual([validTaskUpdate])
     expect(assistantMessage.message.content).toEqual([validTaskUpdate])
   })
+
+  test('keeps a lone empty invalid tool-use block so validation can report it', async () => {
+    const taskUpdateTool = {
+      name: 'TaskUpdate',
+      inputSchema: {
+        safeParse: (input: Record<string, unknown>) => ({
+          success: typeof input.taskId === 'string',
+        }),
+      },
+    }
+    const emptyTaskUpdate = {
+      type: 'tool_use',
+      id: 'empty-task-update',
+      name: 'TaskUpdate',
+      input: {},
+    } as ToolUseBlock
+    const assistantMessage = makeAssistantMessage([emptyTaskUpdate])
+
+    const filtered = filterEmptyInvalidToolUseMessages(
+      [emptyTaskUpdate],
+      [assistantMessage],
+      makeContext([taskUpdateTool]),
+    )
+
+    expect(filtered).toEqual([emptyTaskUpdate])
+    expect(assistantMessage.message.content).toEqual([emptyTaskUpdate])
+  })
 })

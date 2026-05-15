@@ -73,7 +73,7 @@ describe('getFinalContentBlocks', () => {
     ])
   })
 
-  test('drops explicit empty JSON object inputs for tools that require fields', () => {
+  test('keeps a lone stringified empty invalid tool-use block so validation can surface an error', () => {
     const blocks = getFinalContentBlocks(
       {
         0: {
@@ -86,10 +86,17 @@ describe('getFinalContentBlocks', () => {
       tools,
     )
 
-    expect(blocks).toEqual([])
+    expect(blocks).toEqual([
+      {
+        type: 'tool_use',
+        id: 'empty-json-task-update',
+        name: 'TaskUpdate',
+        input: '{}',
+      },
+    ])
   })
 
-  test('drops empty object inputs for tools that require fields', () => {
+  test('keeps a lone empty invalid tool-use block so validation can surface an error', () => {
     const blocks = getFinalContentBlocks(
       {
         0: {
@@ -102,7 +109,14 @@ describe('getFinalContentBlocks', () => {
       tools,
     )
 
-    expect(blocks).toEqual([])
+    expect(blocks).toEqual([
+      {
+        type: 'tool_use',
+        id: 'empty-object-task-update',
+        name: 'TaskUpdate',
+        input: {},
+      },
+    ])
   })
 
   test('keeps unknown tool-use blocks and preserves content order', () => {
