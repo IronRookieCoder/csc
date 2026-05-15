@@ -243,7 +243,82 @@ if (typeof globalThis.Bun === "undefined") {
     }
     return h;
   }
-  globalThis.Bun = { which, $, hash };
+  // Bun.serve polyfill — bridges Hono fetch handler to Node.js http.
+  // Returns a Promise that resolves with the actual port after 'listening' event.
+  const { createServer: _createHttpServer } = await import("http");
+  async function serve(options) {
+    return new Promise((resolve) => {
+      const server = _createHttpServer((req, res) => {
+        const host = req.headers.host || (options.hostname + ":" + (options.port || 0));
+        const url = new URL(req.url || "/", "http://" + host);
+        const headers = new Headers();
+        const rawHeaders = req.headers;
+        for (const key of Object.keys(rawHeaders)) {
+          const val = rawHeaders[key];
+          if (val != null) headers.set(key, Array.isArray(val) ? val.join(", ") : val);
+        }
+        const chunks = [];
+        req.on("data", (c) => chunks.push(c));
+        req.on("end", () => {
+          const hasBody = req.method !== "GET" && req.method !== "HEAD" && chunks.length > 0;
+          const request = new Request(url.toString(), {
+            method: req.method || "GET",
+            headers,
+            body: hasBody ? Buffer.concat(chunks) : undefined,
+          });
+          Promise.resolve(options.fetch(request))
+            .then((response) => {
+              res.statusCode = response.status;
+              response.headers.forEach((v, k) => res.setHeader(k, v));
+              if (response.body) {
+                const reader = response.body.getReader();
+                const pump = () => reader.read().then(({ done, value }) => {
+                  if (done) { res.end(); return; }
+                  res.write(value);
+                  pump();
+                }).catch(() => res.end());
+                pump();
+              } else {
+                res.end();
+              }
+            })
+            .catch((err) => {
+              if (!res.headersSent) res.statusCode = 500;
+              res.end();
+            });
+        });
+      });
+      server.once("listening", () => {
+        const addr = server.address();
+        const actualPort = typeof addr === "object" && addr ? addr.port : options.port || 0;
+        resolve({
+          port: actualPort,
+          hostname: options.hostname,
+          stop: () => server.close(),
+        });
+      });
+      server.listen(options.port || 0, options.hostname || "0.0.0.0");
+    });
+  }
+  // Bun.semver — delegate to npm semver package
+  const { createRequire: _createRequire } = await import("module");
+  const _nodeRequire = _createRequire(import.meta.url);
+  let _semver = null;
+  function getSemver() {
+    if (!_semver) _semver = _nodeRequire("semver");
+    return _semver;
+  }
+  const semverPolyfill = {
+    order: (a, b) => {
+      const r = getSemver().compare(a, b, { loose: true });
+      return r > 0 ? 1 : r < 0 ? -1 : 0;
+    },
+    satisfies: (version, range) => getSemver().satisfies(version, range, { loose: true }),
+  };
+  // Bun.version & env stubs
+  const version = "1.2.0";
+  const env = process.env;
+  globalThis.Bun = { which, $, hash, serve, semver: semverPolyfill, version, env };
 }
 import "./cli.js"
 `
