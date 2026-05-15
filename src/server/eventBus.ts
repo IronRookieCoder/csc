@@ -74,7 +74,7 @@ export class EventBus {
           const sid = dataObj?.session_id ?? dataObj?.sessionID
           if (typeof sid === 'string') {
             const sessionCwd = this.sessionCwds.get(sid)
-            if (sessionCwd && sessionCwd !== client.cwdFilter) {
+            if (sessionCwd !== client.cwdFilter) {
               continue
             }
           }

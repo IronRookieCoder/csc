@@ -161,7 +161,7 @@ import {
   DEFAULT_OUTPUT_STYLE_NAME,
   getAllOutputStyles,
 } from 'src/constants/outputStyles.js'
-import { TEAMMATE_MESSAGE_TAG, TICK_TAG } from 'src/constants/xml.js'
+import { TASK_NOTIFICATION_TAG, TEAMMATE_MESSAGE_TAG, TICK_TAG } from 'src/constants/xml.js'
 import {
   getSettings_DEPRECATED,
   getSettingsWithSources,
@@ -4360,29 +4360,44 @@ function runHeadlessStreaming(
         trackReceivedMessageUuid(userMsg.uuid as UUID)
       }
 
-      enqueue({
-        mode: 'prompt' as const,
-        // file_attachments rides the protobuf catchall from the web composer.
-        // Same-ref no-op when absent (no 'file_attachments' key).
-        value: await resolveAndPrepend(
-          userMsg,
-          (userMsg.message as { content: ContentBlockParam[] }).content,
-        ),
-        uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
-        priority: (userMsg as { priority?: string })
-          .priority as import('src/types/textInputTypes.js').QueuePriority,
-      })
-      // Increment prompt count for attribution tracking and save snapshot
-      // The snapshot persists promptCount so it survives compaction
-      if (feature('COMMIT_ATTRIBUTION')) {
-        setAppState(prev => ({
-          ...prev,
-          attribution: incrementPromptCount(prev.attribution, snapshot => {
-            void recordAttributionSnapshot(snapshot).catch(error => {
-              logForDebugging(`Attribution: Failed to save snapshot: ${error}`)
-            })
-          }),
-        }))
+      const rawContent = typeof userMsg.content === 'string' ? userMsg.content : ''
+      const isTaskNotification = rawContent.trimStart().startsWith(
+        `<${TASK_NOTIFICATION_TAG}>`,
+      )
+
+      if (isTaskNotification) {
+        enqueue({
+          mode: 'task-notification' as const,
+          value: rawContent,
+          uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
+          priority: (userMsg as { priority?: string })
+            .priority as import('src/types/textInputTypes.js').QueuePriority,
+        })
+      } else {
+        enqueue({
+          mode: 'prompt' as const,
+          // file_attachments rides the protobuf catchall from the web composer.
+          // Same-ref no-op when absent (no 'file_attachments' key).
+          value: await resolveAndPrepend(
+            userMsg,
+            (userMsg.message as { content: ContentBlockParam[] }).content,
+          ),
+          uuid: userMsg.uuid as `${string}-${string}-${string}-${string}-${string}`,
+          priority: (userMsg as { priority?: string })
+            .priority as import('src/types/textInputTypes.js').QueuePriority,
+        })
+        // Increment prompt count for attribution tracking and save snapshot
+        // The snapshot persists promptCount so it survives compaction
+        if (feature('COMMIT_ATTRIBUTION')) {
+          setAppState(prev => ({
+            ...prev,
+            attribution: incrementPromptCount(prev.attribution, snapshot => {
+              void recordAttributionSnapshot(snapshot).catch(error => {
+                logForDebugging(`Attribution: Failed to save snapshot: ${error}`)
+              })
+            }),
+          }))
+        }
       }
       void run()
     }
