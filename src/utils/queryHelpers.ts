@@ -26,7 +26,7 @@ import {
   createFileStateCacheWithSizeLimit,
   type FileStateCache,
 } from './fileStateCache.js'
-import { isNotEmptyMessage, normalizeMessages } from './messages.js'
+import { isNotEmptyMessage, isThinkingMessage, normalizeMessages } from './messages.js'
 import { expandPath } from './path.js'
 import type {
   inputSchema as permissionToolInputSchema,
@@ -115,6 +115,13 @@ export function* normalizeMessage(message: Message): Generator<SDKMessage> {
       for (const _ of normalizeMessages([message])) {
         // Skip empty messages (e.g., "(no content)") that shouldn't be output to SDK
         if (!isNotEmptyMessage(_)) {
+          continue
+        }
+        // Skip thinking-only messages: normalizeMessages splits a multi-block
+        // AssistantMessage (e.g. [thinking, text]) into one message per block.
+        // Emitting the thinking-only fragment causes serve mode to send a second
+        // session.message event, which cs-cloud renders as a duplicate response.
+        if (isThinkingMessage(_)) {
           continue
         }
         yield {
