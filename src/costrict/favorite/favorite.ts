@@ -11,7 +11,8 @@ import { createCoStrictFetch } from '../provider/fetch.js'
 import { getCoStrictBaseURL } from '../provider/auth.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
-import { clearSkillCaches } from '../../skills/loadSkillsDir.js'
+import { clearCommandsCache } from '../../commands.js'
+import { skillChangeDetector } from '../../utils/skills/skillChangeDetector.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import { logForDebugging } from '../../utils/debug.js'
 import type { McpServerConfig } from '../../services/mcp/types.js'
@@ -516,7 +517,8 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
       const destDir = path.join(skillsDir(), item.slug)
       await mkdir(skillsDir(), { recursive: true })
       await copyDir(localPath, destDir)
-      clearSkillCaches()
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'agent': {
@@ -591,7 +593,8 @@ async function removeItemFromConfig(
     case 'skill': {
       const destDir = path.join(skillsDir(), slug)
       await rm(destDir, { recursive: true, force: true })
-      clearSkillCaches()
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'agent': {
