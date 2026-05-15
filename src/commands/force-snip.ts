@@ -1,3 +1,4 @@
+import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
 import type { Command, LocalCommandCall } from '../types/command.js'
 import type { Message } from '../types/message.js'
@@ -25,7 +26,7 @@ const call: LocalCommandCall = async (_args, context) => {
   // Collect UUIDs of every message that will be snipped (everything currently
   // in the conversation). The next call to `snipCompactIfNeeded` will honour
   // the boundary and strip these from the model-facing view.
-  const removedUuids = messages.map(m => m.uuid)
+  const removedUuids = messages.map(m => m.uuid).filter((u): u is UUID => !!u)
 
   const boundaryMessage: Message = {
     type: 'system',

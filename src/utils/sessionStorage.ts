@@ -1996,7 +1996,9 @@ function applySnipRemovals(messages: Map<UUID, TranscriptMessage>): void {
   for (const entry of messages.values()) {
     const removedUuids = (entry as WithSnipMeta).snipMetadata?.removedUuids
     if (!removedUuids) continue
-    for (const uuid of removedUuids) toDelete.add(uuid)
+    for (const uuid of removedUuids) {
+      if (uuid) toDelete.add(uuid)
+    }
   }
   if (toDelete.size === 0) return
 
