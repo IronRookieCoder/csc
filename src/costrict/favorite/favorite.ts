@@ -6,6 +6,7 @@ import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
 import { clearSkillCaches } from '../../skills/loadSkillsDir.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { logForDebugging } from '../../utils/debug.js'
 import type { McpServerConfig } from '../../services/mcp/types.js'
 
 const FAVORITE_PAGE_SIZE = 20
@@ -611,7 +612,7 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
       const page = await listRemoteCandidates(st, { favorited: 'true' })
       candidates.push(...page)
     } catch (error) {
-      console.warn('failed to fetch remote favorite candidates', { type: st, error })
+      logForDebugging(`failed to fetch remote favorite candidates: type=${st}, error=${error instanceof Error ? error.message : String(error)}`)
       if (error instanceof Error) errors.push(error)
     }
   }
