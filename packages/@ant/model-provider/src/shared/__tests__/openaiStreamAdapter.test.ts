@@ -184,6 +184,212 @@ describe('adaptOpenAIStreamToAnthropic', () => {
     expect(fullArgs).toBe('{"command":"ls"}')
   })
 
+  test('deduplicates cumulative tool argument snapshots', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_cumulative',
+                  type: 'function',
+                  function: { name: 'TaskUpdate', arguments: '{"status"' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: '{"status":"completed"' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: {
+                    arguments: '{"status":"completed","taskId":"1"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const jsonDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'input_json_delta',
+    ) as any[]
+    expect(jsonDeltas.map(e => e.delta.partial_json).join('')).toBe(
+      '{"status":"completed","taskId":"1"}',
+    )
+  })
+
+  test('starts a new tool block when a backend reuses tool_calls index with a new id', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_1',
+                  type: 'function',
+                  function: { name: 'TaskUpdate', arguments: '' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: {
+                    arguments: '{"status": in_progresss", "taskId": "1"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_2',
+                  type: 'function',
+                  function: {
+                    name: 'TaskUpdate',
+                    arguments: '{"status": "completed", "taskId": "2"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const blockStarts = events.filter(
+      e => e.type === 'content_block_start',
+    ) as any[]
+    expect(blockStarts.map(e => e.content_block.id)).toEqual([
+      'call_1',
+      'call_2',
+    ])
+
+    const jsonDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'input_json_delta',
+    ) as any[]
+    expect(jsonDeltas.map(e => e.index)).toEqual([
+      blockStarts[0].index,
+      blockStarts[1].index,
+    ])
+  })
+
+  test('keeps one tool block when a backend sends the id after arguments started', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: { name: 'TaskUpdate', arguments: '{"status":' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_late',
+                  type: 'function',
+                  function: { arguments: '"completed"}' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const blockStarts = events.filter(
+      e => e.type === 'content_block_start',
+    ) as any[]
+    expect(blockStarts).toHaveLength(1)
+
+    const jsonDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'input_json_delta',
+    ) as any[]
+    expect(jsonDeltas.map(e => e.delta.partial_json).join('')).toBe(
+      '{"status":"completed"}',
+    )
+  })
+
   test('maps finish_reason stop to end_turn', async () => {
     const events = await collectEvents([
       makeChunk({
@@ -256,6 +462,26 @@ describe('adaptOpenAIStreamToAnthropic', () => {
     expect(msgDelta.delta.stop_reason).toBe('tool_use')
   })
 
+  test('maps finish_reason tool_calls without tool calls to tool_use', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'I should list tasks next.' },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const msgDelta = events.find(e => e.type === 'message_delta') as any
+    expect(msgDelta.delta.stop_reason).toBe('tool_use')
+  })
+
   test('maps finish_reason length to max_tokens', async () => {
     const events = await collectEvents([
       makeChunk({
@@ -307,6 +533,26 @@ describe('adaptOpenAIStreamToAnthropic', () => {
     expect(blockStarts.length).toBe(2)
     expect(blockStarts[0].content_block.type).toBe('text')
     expect(blockStarts[1].content_block.type).toBe('tool_use')
+  })
+
+  test('preserves tool_calls finish reason when provider omits tool call blocks', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: { content: '现在调用 TaskUpdate 标记完成。' },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const messageDelta = events.find(e => e.type === 'message_delta') as any
+    expect(messageDelta.delta.stop_reason).toBe('tool_use')
   })
 })
 

@@ -27,12 +27,15 @@ import {
   AUTO_REJECT_MESSAGE,
   DONT_ASK_REJECT_MESSAGE,
   SYNTHETIC_MODEL,
+  normalizeContentFromAPI,
 } from '../messages'
 import type {
   Message,
   AssistantMessage,
   UserMessage,
 } from '../../types/message'
+import { TaskGetTool } from '@claude-code-best/builtin-tools/tools/TaskGetTool/TaskGetTool.js'
+import { TaskUpdateTool } from '@claude-code-best/builtin-tools/tools/TaskUpdateTool/TaskUpdateTool.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -203,6 +206,165 @@ describe('createToolResultStopMessage', () => {
   })
 })
 
+describe('normalizeContentFromAPI task tool input repair', () => {
+  test('repairs unquoted TaskUpdate status and preserves taskId', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"status": in_progresss", "taskId": "1"}',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({
+      status: 'in_progress',
+      taskId: '1',
+    })
+  })
+
+  test('repairs misspelled completed TaskUpdate status', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"status": completedd", "taskId": "2"}',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({
+      status: 'completed',
+      taskId: '2',
+    })
+  })
+
+  test('repairs common TaskUpdate aliases and loose scalar values', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input:
+            "{'status': done, 'task_id': 2, 'addBlockedBy': [1, '3'], 'active_form': 'Running checks'}",
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({
+      status: 'completed',
+      taskId: '2',
+      addBlockedBy: ['1', '3'],
+      activeForm: 'Running checks',
+    })
+  })
+
+  test('repairs unterminated TaskUpdate string values', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"taskId": "4", "subject": "Run final verification',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({
+      taskId: '4',
+      subject: 'Run final verification',
+    })
+  })
+
+  test('does not repair malformed non-task tool input', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskGet',
+          input: '{"taskId": "1"}',
+        } as any,
+        {
+          type: 'tool_use',
+          id: 'toolu_2',
+          name: 'Bash',
+          input: '{"command": ls"}',
+        } as any,
+      ],
+      [TaskGetTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({ taskId: '1' })
+    expect((content[1] as any).input).toEqual({})
+  })
+
+  test('does not repair task inputs missing required fields', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskCreate',
+          input: '{"subject": "missing description"',
+        } as any,
+        {
+          type: 'tool_use',
+          id: 'toolu_2',
+          name: 'TaskUpdate',
+          input: '{"status": completedd"}',
+        } as any,
+      ],
+      [] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({})
+    expect((content[1] as any).input).toEqual({})
+  })
+
+  test('does not repair TaskUpdate into a no-op when status is invalid', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"status": unknown_state", "taskId": "2"}',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({})
+  })
+
+  test('does not repair TaskUpdate with only taskId', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"taskId": "2"',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+    )
+
+    expect((content[0] as any).input).toEqual({})
+  })
+})
+
 // ─── isSyntheticMessage ─────────────────────────────────────────────────
 
 describe('isSyntheticMessage', () => {
@@ -286,6 +448,66 @@ describe('hasToolCallsInLastAssistantTurn', () => {
 
   test('returns false for empty messages', () => {
     expect(hasToolCallsInLastAssistantTurn([])).toBe(false)
+  })
+})
+
+describe('normalizeMessagesForAPI parallel task results', () => {
+  test('merges consecutive tool_result messages after one assistant turn', () => {
+    const assistant = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'task-create-1',
+          name: 'TaskCreate',
+          input: {
+            subject: 'one',
+            description: 'first',
+          },
+        },
+        {
+          type: 'tool_use',
+          id: 'task-create-2',
+          name: 'TaskCreate',
+          input: {
+            subject: 'two',
+            description: 'second',
+          },
+        },
+      ] as any,
+    })
+    const result1 = createUserMessage({
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'task-create-1',
+          content: 'Task #1 created',
+        },
+      ] as any,
+      toolUseResult: { task: { id: '1', subject: 'one' } },
+      sourceToolAssistantUUID: assistant.uuid as any,
+    })
+    const result2 = createUserMessage({
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'task-create-2',
+          content: 'Task #2 created',
+        },
+      ] as any,
+      toolUseResult: { task: { id: '2', subject: 'two' } },
+      sourceToolAssistantUUID: assistant.uuid as any,
+    })
+
+    const normalized = normalizeMessagesForAPI([assistant, result1, result2])
+
+    expect(normalized).toHaveLength(2)
+    expect(normalized[0]!.type).toBe('assistant')
+    expect(normalized[1]!.type).toBe('user')
+    const content = normalized[1]!.message.content as any[]
+    expect(content.map(block => block.tool_use_id)).toEqual([
+      'task-create-1',
+      'task-create-2',
+    ])
   })
 })
 
