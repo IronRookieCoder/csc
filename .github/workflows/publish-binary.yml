@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
       is_tag: ${{ steps.resolve.outputs.is_tag }}
       matrix: ${{ steps.resolve.outputs.matrix }}
     steps:
@@ -46,14 +47,17 @@ jobs:
 
           # Determine if ref is a tag
           if git rev-parse --verify "refs/tags/${REF}" >/dev/null 2>&1; then
+            TAG_NAME="${REF}"
             VERSION="${REF#v}"
             IS_TAG=true
           else
             VERSION=$(git rev-parse --short HEAD)
+            TAG_NAME=""
             IS_TAG=false
           fi
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           echo "is_tag=${IS_TAG}" >> "$GITHUB_OUTPUT"
 
           # Build matrix based on platform input
@@ -165,9 +169,9 @@ jobs:
           mkdir -p release
 
           if [[ "$TARGET" == windows* ]]; then
-            zip -j "release/csc-v${VERSION}-${TARGET}.zip" "dist/csc-${TARGET}.exe"
+            zip -j "release/csc-${VERSION}-${TARGET}.zip" "dist/csc-${TARGET}.exe"
           else
-            tar -czf "release/csc-v${VERSION}-${TARGET}.tar.gz" -C dist "csc-${TARGET}"
+            tar -czf "release/csc-${VERSION}-${TARGET}.tar.gz" -C dist "csc-${TARGET}"
           fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -189,8 +193,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: v${{ needs.resolve.outputs.version }}
-          name: v${{ needs.resolve.outputs.version }}
+          tag_name: ${{ needs.resolve.outputs.tag_name }}
+          name: ${{ needs.resolve.outputs.tag_name }}
           files: release/*
           draft: false
           prerelease: ${{ contains(needs.resolve.outputs.version, 'rc') || contains(needs.resolve.outputs.version, 'beta') || contains(needs.resolve.outputs.version, 'alpha') }}
