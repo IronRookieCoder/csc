@@ -365,8 +365,8 @@ function ModeIndicator({
     ...(shouldShowPrStatus
       ? [<PrBadge key="pr-status" number={prStatus.number!} url={prStatus.url!} reviewState={prStatus.reviewState!} />]
       : []),
-    // RSS memory indicator — always visible
-    ...(rssState
+    // RSS memory indicator — configurable via showMemoryPid
+    ...(isMemoryPidEnabled() && rssState
       ? [
           <Text
             key="rss"
@@ -625,4 +625,8 @@ function getSpinnerHintParts(
 
 function isPrStatusEnabled(): boolean {
   return getGlobalConfig().prStatusFooterEnabled ?? true;
+}
+
+function isMemoryPidEnabled(): boolean {
+  return getGlobalConfig().showMemoryPid ?? true;
 }

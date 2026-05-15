@@ -544,6 +544,9 @@ export type GlobalConfig = {
   // PR status footer configuration (feature-flagged via GrowthBook)
   prStatusFooterEnabled?: boolean // Show PR review status in footer (default: true)
 
+  // RSS memory + PID footer display
+  showMemoryPid?: boolean // Show memory usage and PID in footer (default: true)
+
   // Tmux live panel visibility (ant-only, toggled via Enter on tmux pill)
   tungstenPanelVisible?: boolean
 
@@ -673,6 +676,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'copyOnSelect',
   'permissionExplainerEnabled',
   'prStatusFooterEnabled',
+  'showMemoryPid',
   'remoteControlAtStartup',
   'remoteDialogSeen',
 ] as const

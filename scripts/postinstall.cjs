@@ -13,7 +13,7 @@
 
 const { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } =
   require("fs")
-const { spawnSync } = require("child_process")
+const { spawn, spawnSync } = require("child_process")
 const { setDefaultResultOrder } = require("node:dns")
 const path = require("path")
 const os = require("os")
@@ -95,6 +95,110 @@ function getBinaryPath() {
   const subdir = `${process.arch}-${process.platform}`
   const binary = process.platform === "win32" ? "rg.exe" : "rg"
   return path.resolve(dir, subdir, binary)
+}
+
+function safeResolve(...parts) {
+  const filtered = parts.filter(Boolean)
+  if (filtered.length === 0) return null
+  return path.resolve(...filtered)
+}
+
+function removePowerShellShimIfOwned(shimPath) {
+  if (!shimPath || !existsSync(shimPath)) return false
+  const cmdShimPath = shimPath.replace(/\.ps1$/i, ".cmd")
+  if (!existsSync(cmdShimPath)) return false
+
+  let content
+  try {
+    content = readFileSync(shimPath, "utf8")
+  } catch {
+    return false
+  }
+
+  // Only remove npm-generated shims for this package. PowerShell resolves
+  // csc.ps1 before csc.cmd, and enterprise ExecutionPolicy often blocks .ps1
+  // launchers while cmd.exe works. Removing this shim makes PowerShell fall
+  // through to the same .cmd launcher used by cmd.exe.
+  const normalized = content.replace(/\\/g, "/")
+  if (!normalized.includes("@costrict") && !normalized.includes("dist/cli-node.js")) {
+    return false
+  }
+
+  try {
+    rmSync(shimPath, { force: true })
+    console.log(`[postinstall] Removed PowerShell shim ${shimPath}; PowerShell will use csc.cmd`)
+    return true
+  } catch (error) {
+    console.warn(
+      `[postinstall] Could not remove PowerShell shim ${shimPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+    return false
+  }
+}
+
+function cleanupWindowsPowerShellShim() {
+  if (process.platform !== "win32") return
+
+  const dirs = getWindowsPowerShellShimDirs()
+  const seen = new Set()
+  for (const dir of dirs) {
+    const shimPath = path.join(dir, "csc.ps1")
+    if (seen.has(shimPath)) continue
+    seen.add(shimPath)
+    removePowerShellShimIfOwned(shimPath)
+  }
+}
+
+function getWindowsPowerShellShimDirs() {
+  return [
+    safeResolve(process.env.npm_config_prefix),
+    safeResolve(process.env.npm_config_local_prefix, "node_modules", ".bin"),
+    safeResolve(process.env.INIT_CWD, "node_modules", ".bin"),
+    safeResolve(projectRoot, "node_modules", ".bin"),
+  ].filter(Boolean)
+}
+
+function scheduleWindowsPowerShellShimCleanup() {
+  if (process.platform !== "win32") return
+
+  const dirs = getWindowsPowerShellShimDirs()
+  if (dirs.length === 0) return
+
+  const script = String.raw`
+const { existsSync, readFileSync, rmSync } = require("fs");
+const path = require("path");
+const dirs = JSON.parse(process.argv[1] || "[]");
+setTimeout(() => {
+  for (const dir of dirs) {
+    const shimPath = path.join(dir, "csc.ps1");
+    const cmdShimPath = path.join(dir, "csc.cmd");
+    if (!existsSync(shimPath) || !existsSync(cmdShimPath)) continue;
+    let content = "";
+    try {
+      content = readFileSync(shimPath, "utf8").replace(/\\/g, "/");
+    } catch {
+      continue;
+    }
+    if (!content.includes("@costrict") && !content.includes("dist/cli-node.js")) continue;
+    try {
+      rmSync(shimPath, { force: true });
+    } catch {}
+  }
+}, 3000);
+`
+
+  try {
+    const child = spawn(process.execPath, ["-e", script, JSON.stringify(dirs)], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    })
+    child.unref()
+  } catch {
+    // Best effort only. Immediate cleanup above covers the normal npm flow.
+  }
 }
 
 // --- Download helpers ---
@@ -341,6 +445,8 @@ async function downloadAndExtract() {
 }
 
 async function main() {
+  cleanupWindowsPowerShellShim()
+  scheduleWindowsPowerShellShimCleanup()
   await downloadAndExtract()
 }
 

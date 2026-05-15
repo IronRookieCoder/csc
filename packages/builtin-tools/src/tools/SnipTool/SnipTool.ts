@@ -79,13 +79,11 @@ Guidelines:
   },
 
   async call(input: SnipInput) {
-    // Snip implementation is handled by the query engine's projection system.
-    // The tool call itself records the intent; the query engine intercepts
-    // snip tool results and adjusts its message projection accordingly.
+    const ids = input?.message_ids ?? []
     return {
       data: {
-        snipped_count: input.message_ids.length,
-        summary: input.reason ?? `Snipped ${input.message_ids.length} messages`,
+        snipped_count: ids.length,
+        summary: input?.reason ?? `Snipped ${ids.length} messages`,
       },
     }
   },

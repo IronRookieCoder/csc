@@ -96,12 +96,12 @@ export async function getCommitLog(cwd: string, lastCommit?: string): Promise<st
 
   if (lastCommit) {
     return gitExec(
-      ['log', `${lastCommit}..HEAD`, '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
+      ['log', `${lastCommit}..HEAD`, '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
       cwd,
     )
   }
   return gitExec(
-    ['log', '--since=1 day ago', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
+    ['log', '--since=1 day ago', '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
     cwd,
   )
 }

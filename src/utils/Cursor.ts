@@ -1232,7 +1232,9 @@ export class MeasuredText {
   public stringIndexToDisplayWidth(text: string, index: number): number {
     if (index <= 0) return 0
     if (index >= text.length) return stringWidth(text)
-    return stringWidth(text.substring(0, index))
+    if (!this.hasAnsiSequence(text))
+      return stringWidth(text.substring(0, index))
+    return this.stringIndexToDisplayWidthWithAnsi(text, index)
   }
 
   // Convert display width to string index
@@ -1243,6 +1245,10 @@ export class MeasuredText {
     // If the text matches our text, use the precomputed graphemes
     if (text === this.text) {
       return this.offsetAtDisplayWidth(targetWidth)
+    }
+
+    if (this.hasAnsiSequence(text)) {
+      return this.offsetAtDisplayWidthInText(text, targetWidth)
     }
 
     // Otherwise compute on the fly
@@ -1269,6 +1275,10 @@ export class MeasuredText {
   private offsetAtDisplayWidth(targetWidth: number): number {
     if (targetWidth <= 0) return 0
 
+    if (this.hasAnsiSequence(this.text)) {
+      return this.offsetAtDisplayWidthInText(this.text, targetWidth)
+    }
+
     let currentWidth = 0
     const boundaries = this.getGraphemeBoundaries()
 
@@ -1289,13 +1299,67 @@ export class MeasuredText {
     return this.text.length
   }
 
+  private stringIndexToDisplayWidthWithAnsi(
+    text: string,
+    index: number,
+  ): number {
+    const endIndex = Math.min(index, text.length)
+    let offset = 0
+    let currentWidth = 0
+
+    while (offset < endIndex) {
+      const ansiEnd = this.getAnsiSequenceEndInText(text, offset)
+      if (ansiEnd !== null) {
+        if (ansiEnd > endIndex) break
+        offset = ansiEnd
+        continue
+      }
+
+      const segment = this.getGraphemeAtOffsetInText(text, offset)
+      if (segment.length === 0) break
+      currentWidth += stringWidth(segment)
+      offset += segment.length
+    }
+
+    return currentWidth
+  }
+
+  private offsetAtDisplayWidthInText(
+    text: string,
+    targetWidth: number,
+  ): number {
+    if (targetWidth <= 0) return 0
+
+    let offset = 0
+    let currentWidth = 0
+
+    while (offset < text.length) {
+      const ansiEnd = this.getAnsiSequenceEndInText(text, offset)
+      if (ansiEnd !== null) {
+        offset = ansiEnd
+        continue
+      }
+
+      const segment = this.getGraphemeAtOffsetInText(text, offset)
+      if (segment.length === 0) break
+
+      const segmentWidth = stringWidth(segment)
+      if (currentWidth + segmentWidth > targetWidth) break
+
+      currentWidth += segmentWidth
+      offset += segment.length
+    }
+
+    return offset
+  }
+
   private measureWrappedText(): WrappedLine[] {
     // Protect tabs from being expanded by npm wrap-ansi in Node.js dist builds.
     // Bun.wrapAnsi preserves tabs, but npm wrap-ansi expands them to spaces,
     // which breaks the indexOf-based offset recovery below.
     const TAB_PLACEHOLDER_CANDIDATES = ['\u2060', '\u2061', '\u2062', '\u2063']
     const tabPlaceholder = TAB_PLACEHOLDER_CANDIDATES.find(
-      (ch) => !this.text.includes(ch),
+      ch => !this.text.includes(ch),
     )
     const hasTabs = this.text.includes('\t')
 
@@ -1353,17 +1417,31 @@ export class MeasuredText {
           )
         }
       } else {
-        // For non-blank lines, find the text in this.text
-        const startOffset = this.text.indexOf(text, searchOffset)
+        // For non-blank lines, find the text in this.text. wrap-ansi may add
+        // style reset/reopen sequences at visual wrap boundaries, so the
+        // wrapped line can be a display-equivalent string that is not a literal
+        // slice of the input. Fall back to advancing through the original text
+        // by display width instead of crashing the input renderer.
+        let startOffset = this.text.indexOf(text, searchOffset)
+        let lineText = text
 
         if (startOffset === -1) {
-          throw new Error('Failed to find wrapped line in text')
+          startOffset = this.findFallbackStartOffset(
+            searchOffset,
+            lastNewLinePos,
+          )
+          const endOffset = this.findOffsetAtDisplayWidth(
+            startOffset,
+            stringWidth(text),
+          )
+          lineText = this.text.slice(startOffset, endOffset)
+          searchOffset = endOffset
+        } else {
+          searchOffset = startOffset + text.length
         }
 
-        searchOffset = startOffset + text.length
-
         // Check if this line ends with a newline in this.text
-        const potentialNewlinePos = startOffset + text.length
+        const potentialNewlinePos = startOffset + lineText.length
         const endsWithNewline =
           potentialNewlinePos < this.text.length &&
           this.text[potentialNewlinePos] === '\n'
@@ -1374,7 +1452,7 @@ export class MeasuredText {
 
         wrappedLines.push(
           new WrappedLine(
-            text,
+            lineText,
             startOffset,
             isPrecededByNewline(startOffset),
             endsWithNewline,
@@ -1384,6 +1462,116 @@ export class MeasuredText {
     }
 
     return wrappedLines
+  }
+
+  private findFallbackStartOffset(
+    searchOffset: number,
+    lastNewLinePos: number,
+  ): number {
+    let startOffset = Math.max(searchOffset, lastNewLinePos + 1)
+
+    while (startOffset < this.text.length && this.text[startOffset] === '\n') {
+      startOffset++
+    }
+
+    return startOffset
+  }
+
+  private findOffsetAtDisplayWidth(
+    startOffset: number,
+    targetWidth: number,
+  ): number {
+    if (targetWidth <= 0) return startOffset
+
+    let offset = startOffset
+    let currentWidth = 0
+
+    while (offset < this.text.length) {
+      if (this.text[offset] === '\n') break
+
+      const ansiEnd = this.getAnsiSequenceEndInText(this.text, offset)
+      if (ansiEnd !== null) {
+        offset = ansiEnd
+        continue
+      }
+
+      const segment = this.getGraphemeAtOffset(offset)
+      if (segment.length === 0) break
+
+      currentWidth += stringWidth(segment)
+      offset += segment.length
+
+      if (currentWidth >= targetWidth) break
+    }
+
+    return offset
+  }
+
+  private getGraphemeAtOffset(offset: number): string {
+    return this.getGraphemeAtOffsetInText(this.text, offset)
+  }
+
+  private getGraphemeAtOffsetInText(text: string, offset: number): string {
+    const iterator = getGraphemeSegmenter()
+      .segment(text.slice(offset))
+      [Symbol.iterator]()
+    const next = iterator.next()
+    return next.done ? '' : next.value.segment
+  }
+
+  private hasAnsiSequence(text: string): boolean {
+    return (
+      text.includes('\x1b') || text.includes('\x9b') || text.includes('\x9d')
+    )
+  }
+
+  private getAnsiSequenceEndInText(
+    text: string,
+    offset: number,
+  ): number | null {
+    const first = text.charCodeAt(offset)
+    if (first === 0x9b) {
+      return this.findControlSequenceEnd(text, offset + 1)
+    }
+    if (first === 0x9d) {
+      return this.findStringControlEnd(text, offset + 1)
+    }
+    if (first !== 0x1b) return null
+
+    const second = text.charCodeAt(offset + 1)
+    if (Number.isNaN(second)) return null
+
+    if (second === 0x5b) {
+      return this.findControlSequenceEnd(text, offset + 2)
+    }
+    if (second === 0x5d) {
+      return this.findStringControlEnd(text, offset + 2)
+    }
+
+    return Math.min(offset + 2, text.length)
+  }
+
+  private findControlSequenceEnd(text: string, offset: number): number {
+    let i = offset
+    while (i < text.length) {
+      const code = text.charCodeAt(i)
+      if (code >= 0x40 && code <= 0x7e) return i + 1
+      i++
+    }
+    return text.length
+  }
+
+  private findStringControlEnd(text: string, offset: number): number {
+    let i = offset
+    while (i < text.length) {
+      const code = text.charCodeAt(i)
+      if (code === 0x07) return i + 1
+      if (code === 0x1b && text.charCodeAt(i + 1) === 0x5c) {
+        return Math.min(i + 2, text.length)
+      }
+      i++
+    }
+    return text.length
   }
 
   public getWrappedText(): WrappedText {

@@ -216,6 +216,7 @@ export async function auth() {
   const clientId = creds.machine_id || process.env.CSC_MACHINE_ID || 'unknown'
   headers.set('zgsm-client-id', clientId)
   headers.set('zgsm-client-ide', 'cli')
+  headers.set('User-Agent', `csc/${version}`)
 
   const accessPayload = parseJWT(creds.access_token) as JwtPayload
   let refreshPayload: JwtPayload | null = null
@@ -599,7 +600,7 @@ export async function uploadCommits(
       comment: toCommitComment(commit.subject),
       subject: commit.subject,
     }
-    await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body)
+    await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body as unknown as Record<string, unknown>)
     // 每成功一个 commit 立即更新 state，避免失败后全部重传
     state.commits[stateKey] = commit.commit_id
     log.info('commit uploaded', { commit_id: commit.commit_id, progress: `${i + 1}/${commits.length}` })
@@ -742,6 +743,7 @@ export async function authWithFallback(): Promise<
     headers.set('zgsm-client-id', clientId)
     headers.set('zgsm-client-ide', 'cli')
     headers.set('X-Costrict-Version', `csc-${version}`)
+    headers.set('User-Agent', `csc/${version}`)
 
     return {
       baseUrl: resolveRawDumpBaseUrl(),

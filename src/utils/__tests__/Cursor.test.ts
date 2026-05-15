@@ -86,4 +86,46 @@ describe('MeasuredText tab protection', () => {
   })
 })
 
+describe('MeasuredText wrapped line recovery', () => {
+  test('styled long input does not throw when wrap-ansi inserts reset codes', () => {
+    const cursor = Cursor.fromText(
+      'foo\x1b[31mbarbaz\x1b[39mqux',
+      6,
+      'foo\x1b[31mbarbaz\x1b[39mqux'.length,
+    )
 
+    expect(() => cursor.getPosition()).not.toThrow()
+    expect(() => cursor.render(' ', '', text => text)).not.toThrow()
+    expect(cursor.getPosition().line).toBeGreaterThan(0)
+  })
+
+  test('styled long input keeps end offset on final wrapped line', () => {
+    const text = 'foo\x1b[31mbarbaz\x1b[39mqux'
+    const cursor = Cursor.fromText(text, 6, text.length)
+    const position = cursor.getPosition()
+
+    expect(cursor.measuredText.getOffsetFromPosition(position)).toBe(
+      text.length,
+    )
+  })
+
+  test('styled fallback line with reset code maps final position to EOF', () => {
+    const text = 'hello\x1b[31m世界abc\x1b[39mdef'
+    const cursor = Cursor.fromText(text, 6, text.length)
+    const position = cursor.getPosition()
+
+    expect(cursor.measuredText.getOffsetFromPosition(position)).toBe(
+      text.length,
+    )
+  })
+
+  test('OSC styled fallback line maps final position to EOF', () => {
+    const text = 'foo\x1b]8;;https://example.com\x07barbaz\x1b]8;;;;\x07qux'
+    const cursor = Cursor.fromText(text, 4, text.length)
+    const position = cursor.getPosition()
+
+    expect(cursor.measuredText.getOffsetFromPosition(position)).toBe(
+      text.length,
+    )
+  })
+})
