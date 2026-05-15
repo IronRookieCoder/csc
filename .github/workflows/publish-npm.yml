@@ -112,13 +112,13 @@ jobs:
 
       - name: Publish to npm
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: npm publish --provenance --access public --ignore-scripts
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm (dry-run)
         if: ${{ github.event.inputs.dry_run == 'true' }}
-        run: npm publish --dry-run --provenance --access public --ignore-scripts
+        run: npm publish --dry-run --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
