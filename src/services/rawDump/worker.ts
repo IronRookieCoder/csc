@@ -216,6 +216,7 @@ export async function auth() {
   const clientId = creds.machine_id || process.env.CSC_MACHINE_ID || 'unknown'
   headers.set('zgsm-client-id', clientId)
   headers.set('zgsm-client-ide', 'cli')
+  headers.set('User-Agent', `csc/${version}`)
 
   const accessPayload = parseJWT(creds.access_token) as JwtPayload
   let refreshPayload: JwtPayload | null = null
@@ -742,6 +743,7 @@ export async function authWithFallback(): Promise<
     headers.set('zgsm-client-id', clientId)
     headers.set('zgsm-client-ide', 'cli')
     headers.set('X-Costrict-Version', `csc-${version}`)
+    headers.set('User-Agent', `csc/${version}`)
 
     return {
       baseUrl: resolveRawDumpBaseUrl(),
