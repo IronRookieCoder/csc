@@ -98,6 +98,7 @@ import type { QuerySource } from './constants/querySource.js'
 import { createDumpPromptsFetch } from './services/api/dumpPrompts.js'
 import { StreamingToolExecutor } from './services/tools/StreamingToolExecutor.js'
 import { queryCheckpoint } from './utils/queryProfiler.js'
+import { filterEmptyInvalidToolUseMessages } from './services/tools/emptyInvalidToolUseFilter.js'
 import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
@@ -799,11 +800,30 @@ async function* queryLoop(
                 )
               }
             }
-            // Backfill tool_use inputs on a cloned message before yield so
-            // SDK stream output and transcript serialization see legacy/derived
-            // fields. The original `message` is left untouched for
-            // assistantMessages.push below — it flows back to the API and
-            // mutating it would break prompt caching (byte mismatch).
+            // Drop empty invalid tool_use placeholders before they enter the
+            // persisted assistant message or streaming tool execution. Backfill
+            // below still clones before adding observable fields so prompt-cached
+            // messages are not mutated for display-only metadata.
+            let filteredToolUseBlocksForMessage: ToolUseBlock[] | null = null
+            if (message.type === 'assistant') {
+              const assistantMessage = message as AssistantMessage
+              const msgToolUseBlocks = (
+                Array.isArray(assistantMessage.message?.content)
+                  ? assistantMessage.message.content
+                  : []
+              ).filter(
+                (content: { type: string }) => content.type === 'tool_use',
+              ) as ToolUseBlock[]
+              if (msgToolUseBlocks.length > 0) {
+                filteredToolUseBlocksForMessage =
+                  filterEmptyInvalidToolUseMessages(
+                    msgToolUseBlocks,
+                    [assistantMessage],
+                    toolUseContext,
+                  )
+              }
+            }
+
             let yieldMessage: typeof message = message
             if (message.type === 'assistant') {
               const assistantMsg = message as AssistantMessage
@@ -899,13 +919,14 @@ async function* queryLoop(
               const assistantMessage = message as AssistantMessage
               assistantMessages.push(assistantMessage)
 
-              const msgToolUseBlocks = (
-                Array.isArray(assistantMessage.message?.content)
+              const msgToolUseBlocks =
+                filteredToolUseBlocksForMessage ??
+                ((Array.isArray(assistantMessage.message?.content)
                   ? assistantMessage.message.content
                   : []
-              ).filter(
-                (content: { type: string }) => content.type === 'tool_use',
-              ) as ToolUseBlock[]
+                ).filter(
+                  (content: { type: string }) => content.type === 'tool_use',
+                ) as ToolUseBlock[])
               if (msgToolUseBlocks.length > 0) {
                 toolUseBlocks.push(...msgToolUseBlocks)
                 needsFollowUp = true

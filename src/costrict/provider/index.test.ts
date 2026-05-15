@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import type {
-  AssistantMessage,
-  StreamEvent,
-} from '../../types/message.js'
+import type { AssistantMessage, StreamEvent } from '../../types/message.js'
 
 function makeMessageStart(
   overrides: Record<string, any> = {},
@@ -31,15 +28,25 @@ function makeMessageStart(
 
 function makeContentBlockStart(
   index: number,
-  type: 'text' | 'thinking',
+  type: 'text' | 'thinking' | 'tool_use',
+  extra: Record<string, any> = {},
 ): BetaRawMessageStreamEvent {
+  const block =
+    type === 'text'
+      ? { type: 'text', text: '' }
+      : type === 'thinking'
+        ? { type: 'thinking', thinking: '', signature: '' }
+        : {
+            type: 'tool_use',
+            id: `toolu_${index}`,
+            name: 'TaskUpdate',
+            input: {},
+          }
+
   return {
     type: 'content_block_start',
     index,
-    content_block:
-      type === 'text'
-        ? { type: 'text', text: '' }
-        : { type: 'thinking', thinking: '', signature: '' },
+    content_block: { ...block, ...extra },
   } as any
 }
 
@@ -59,6 +66,17 @@ function makeThinkingDelta(
     type: 'content_block_delta',
     index,
     delta: { type: 'thinking_delta', thinking },
+  } as any
+}
+
+function makeInputJsonDelta(
+  index: number,
+  partialJson: string,
+): BetaRawMessageStreamEvent {
+  return {
+    type: 'content_block_delta',
+    index,
+    delta: { type: 'input_json_delta', partial_json: partialJson },
   } as any
 }
 
@@ -196,6 +214,7 @@ mock.module('../../utils/context.js', () => ({
 async function runQueryModel(
   events: BetaRawMessageStreamEvent[],
   optionsOverrides: Record<string, unknown> = {},
+  tools: any[] = [],
 ) {
   _nextEvents = events
   const { queryModelCoStrict } = await import('./index.js')
@@ -204,7 +223,7 @@ async function runQueryModel(
 
   const options: any = {
     model: 'test-model',
-    tools: [],
+    tools,
     agents: [],
     querySource: 'main_loop',
     ...optionsOverrides,
@@ -213,7 +232,7 @@ async function runQueryModel(
   for await (const item of queryModelCoStrict(
     [],
     { type: 'text', text: '' } as any,
-    [],
+    tools,
     new AbortController().signal,
     options,
   )) {
@@ -225,6 +244,22 @@ async function runQueryModel(
   }
 
   return { assistantMessages, streamEvents }
+}
+
+const taskUpdateTool = {
+  name: 'TaskUpdate',
+  inputSchema: {
+    safeParse: (input: Record<string, unknown>) => ({
+      success: typeof input.taskId === 'string',
+    }),
+  },
+}
+
+const taskListTool = {
+  name: 'TaskList',
+  inputSchema: {
+    safeParse: () => ({ success: true }),
+  },
 }
 
 beforeEach(() => {
@@ -257,9 +292,7 @@ describe('queryModelCoStrict', () => {
     expect(assistantMessages).toHaveLength(1)
     expect(assistantMessages[0]!.message.stop_reason).toBe('end_turn')
     expect(
-      (assistantMessages[0]!.message.content as any[]).map(
-        block => block.type,
-      ),
+      (assistantMessages[0]!.message.content as any[]).map(block => block.type),
     ).toEqual(['thinking', 'text'])
   })
 
@@ -271,5 +304,65 @@ describe('queryModelCoStrict', () => {
 
     expect(_lastCreateArgs).not.toBeNull()
     expect(_lastCreateArgs!.max_completion_tokens).toBe(2048)
+  })
+
+  test('drops empty invalid tool-use placeholders while preserving valid tool calls', async () => {
+    const events = [
+      makeMessageStart(),
+      makeContentBlockStart(0, 'tool_use', {
+        id: 'empty-task-update',
+        name: 'TaskUpdate',
+      }),
+      makeContentBlockStop(0),
+      makeContentBlockStart(1, 'tool_use', {
+        id: 'valid-task-update',
+        name: 'TaskUpdate',
+      }),
+      makeInputJsonDelta(1, '{"taskId":"3","status":"completed"}'),
+      makeContentBlockStop(1),
+      makeMessageDelta('tool_use', 12),
+      makeMessageStop(),
+    ]
+
+    const { assistantMessages } = await runQueryModel(events, {}, [
+      taskUpdateTool,
+    ])
+
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0]!.message.content).toEqual([
+      {
+        type: 'tool_use',
+        id: 'valid-task-update',
+        name: 'TaskUpdate',
+        input: '{"taskId":"3","status":"completed"}',
+      },
+    ])
+  })
+
+  test('keeps empty tool-use blocks when the target tool accepts empty input', async () => {
+    const events = [
+      makeMessageStart(),
+      makeContentBlockStart(0, 'tool_use', {
+        id: 'task-list',
+        name: 'TaskList',
+      }),
+      makeContentBlockStop(0),
+      makeMessageDelta('tool_use', 4),
+      makeMessageStop(),
+    ]
+
+    const { assistantMessages } = await runQueryModel(events, {}, [
+      taskListTool,
+    ])
+
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0]!.message.content).toEqual([
+      {
+        type: 'tool_use',
+        id: 'task-list',
+        name: 'TaskList',
+        input: '',
+      },
+    ])
   })
 })

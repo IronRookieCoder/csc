@@ -3,6 +3,7 @@ import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { findToolByName, type ToolUseContext } from '../../Tool.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { all } from '../../utils/generators.js'
+import { filterEmptyInvalidToolUseMessages } from './emptyInvalidToolUseFilter.js'
 import { type MessageUpdateLazy, runToolUse } from './toolExecution.js'
 import { createToolBatchSpan, endToolBatchSpan } from '../langfuse/index.js'
 
@@ -23,11 +24,16 @@ export async function* runTools(
   canUseTool: CanUseToolFn,
   toolUseContext: ToolUseContext,
 ): AsyncGenerator<MessageUpdate, void> {
+  const executableToolUseMessages = filterEmptyInvalidToolUseMessages(
+    toolUseMessages,
+    assistantMessages,
+    toolUseContext,
+  )
   // Wrap all tool calls in this turn under a single Langfuse turn span
   const turnSpan =
-    toolUseMessages.length > 0
+    executableToolUseMessages.length > 0
       ? createToolBatchSpan(toolUseContext.langfuseTrace ?? null, {
-          toolNames: toolUseMessages.map(b => b.name),
+          toolNames: executableToolUseMessages.map(b => b.name),
           batchIndex: 0,
         })
       : null
@@ -37,7 +43,7 @@ export async function* runTools(
 
   let currentContext = contextWithTurn
   for (const { isConcurrencySafe, blocks } of partitionToolCalls(
-    toolUseMessages,
+    executableToolUseMessages,
     currentContext,
   )) {
     if (isConcurrencySafe) {

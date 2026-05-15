@@ -30,6 +30,7 @@ import {
   getEmptyToolPermissionContext,
   toolMatchesName,
 } from '../../../Tool.js'
+import { getFinalContentBlocks } from './toolUseBlocks.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { addToTotalSessionCost } from '../../../cost-tracker.js'
 import { calculateUSDCost } from '../../../utils/modelCost.js'
@@ -160,10 +161,7 @@ function assembleFinalAssistantOutputs(params: {
   } = params
   const outputs: (AssistantMessage | SystemAPIErrorMessage)[] = []
 
-  const allBlocks = Object.keys(contentBlocks)
-    .sort((a, b) => Number(a) - Number(b))
-    .map(k => contentBlocks[Number(k)])
-    .filter(Boolean)
+  const allBlocks = getFinalContentBlocks(contentBlocks, tools)
 
   if (allBlocks.length > 0) {
     outputs.push({

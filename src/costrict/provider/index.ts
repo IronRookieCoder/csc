@@ -41,6 +41,7 @@ import {
   isOpenAIThinkingEnabled,
   resolveOpenAIMaxTokens,
 } from '../../services/api/openai/requestBody.js'
+import { getFinalContentBlocks } from '../../services/api/openai/toolUseBlocks.js'
 import { fetchCoStrictModels } from './models.js'
 import {
   getMainThreadAgentType,
@@ -199,10 +200,7 @@ export async function* queryModelCoStrict(
       const outputs: (AssistantMessage | SystemAPIErrorMessage)[] = []
       if (!partialMessage) return outputs
 
-      const allBlocks = Object.keys(contentBlocks)
-        .sort((a, b) => Number(a) - Number(b))
-        .map(k => contentBlocks[Number(k)])
-        .filter(Boolean)
+      const allBlocks = getFinalContentBlocks(contentBlocks, tools)
 
       if (allBlocks.length > 0) {
         outputs.push({
