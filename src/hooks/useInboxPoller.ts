@@ -44,10 +44,8 @@ import { unassignTeammateTasks } from '../utils/tasks.js'
 import {
   getAgentName,
   isPlanModeRequired,
-  isTeamLead,
   isTeammate,
 } from '../utils/teammate.js'
-import { isInProcessTeammate } from '../utils/teammateContext.js'
 import {
   isModeSetRequest,
   isPermissionRequest,
@@ -70,39 +68,10 @@ import {
   processMailboxPermissionResponse,
   processSandboxPermissionResponse,
 } from './useSwarmPermissionPoller.js'
-
-/**
- * Get the agent name to poll for messages.
- * - In-process teammates return undefined (they use waitForNextPromptOrShutdown instead)
- * - Process-based teammates use their CLAUDE_CODE_AGENT_NAME
- * - Team leads use their name from teamContext.teammates
- * - Standalone sessions return undefined
- */
-function getAgentNameToPoll(appState: AppState): string | undefined {
-  // In-process teammates should NOT use useInboxPoller - they have their own
-  // polling mechanism via waitForNextPromptOrShutdown() in inProcessRunner.ts.
-  // Using useInboxPoller would cause message routing issues since in-process
-  // teammates share the same React context and AppState with the leader.
-  //
-  // Note: This can be called when the leader's REPL re-renders while an
-  // in-process teammate's AsyncLocalStorage context is active (due to shared
-  // setAppState). We return undefined to gracefully skip polling rather than
-  // throwing, since this is a normal occurrence during concurrent execution.
-  if (isInProcessTeammate()) {
-    return undefined
-  }
-  if (isTeammate()) {
-    return getAgentName()
-  }
-  // Team lead polls using their agent name (not ID)
-  if (isTeamLead(appState.teamContext)) {
-    const leadAgentId = appState.teamContext!.leadAgentId
-    // Look up the lead's name from teammates map
-    const leadName = appState.teamContext!.teammates[leadAgentId]?.name
-    return leadName || 'team-lead'
-  }
-  return undefined
-}
+import {
+  getAgentNameToPoll,
+  isPollingAsTeamLead,
+} from './inboxPollerIdentity.js'
 
 const INBOX_POLL_INTERVAL_MS = 1000
 
@@ -143,6 +112,7 @@ export function useInboxPoller({
     const currentAppState = store.getState()
     const agentName = getAgentNameToPoll(currentAppState)
     if (!agentName) return
+    const pollingAsTeamLead = isPollingAsTeamLead(currentAppState, agentName)
 
     const unread = await readUnreadMessages(
       agentName,
@@ -248,10 +218,7 @@ export function useInboxPoller({
     }
 
     // Handle permission requests (leader side) - route to ToolUseConfirmQueue
-    if (
-      permissionRequests.length > 0 &&
-      isTeamLead(currentAppState.teamContext)
-    ) {
+    if (permissionRequests.length > 0 && pollingAsTeamLead) {
       logForDebugging(
         `[InboxPoller] Found ${permissionRequests.length} permission request(s)`,
       )
@@ -397,10 +364,7 @@ export function useInboxPoller({
     }
 
     // Handle sandbox permission requests (leader side) - add to workerSandboxPermissions queue
-    if (
-      sandboxPermissionRequests.length > 0 &&
-      isTeamLead(currentAppState.teamContext)
-    ) {
+    if (sandboxPermissionRequests.length > 0 && pollingAsTeamLead) {
       logForDebugging(
         `[InboxPoller] Found ${sandboxPermissionRequests.length} sandbox permission request(s)`,
       )
@@ -597,10 +561,7 @@ export function useInboxPoller({
     }
 
     // Handle plan approval requests (leader side) - auto-approve and write response to teammate inbox
-    if (
-      planApprovalRequests.length > 0 &&
-      isTeamLead(currentAppState.teamContext)
-    ) {
+    if (planApprovalRequests.length > 0 && pollingAsTeamLead) {
       logForDebugging(
         `[InboxPoller] Found ${planApprovalRequests.length} plan approval request(s), auto-approving`,
       )
@@ -675,10 +636,7 @@ export function useInboxPoller({
     }
 
     // Handle shutdown approvals (leader side) - kill the teammate's pane
-    if (
-      shutdownApprovals.length > 0 &&
-      isTeamLead(currentAppState.teamContext)
-    ) {
+    if (shutdownApprovals.length > 0 && pollingAsTeamLead) {
       logForDebugging(
         `[InboxPoller] Found ${shutdownApprovals.length} shutdown approval(s)`,
       )
