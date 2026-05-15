@@ -237,9 +237,8 @@ export class SessionManager {
 
     this.sessions.set(sessionId, handle)
     if (!opts.silent) {
-      void canonicalizePath(cwd).then(canonical => {
-        this.eventBus.registerSessionCwd(sessionId, canonical)
-      })
+      const canonical = await canonicalizePath(cwd).catch(() => cwd)
+      this.eventBus.registerSessionCwd(sessionId, canonical)
       this.eventBus.publishSessionEvent(sessionId, 'created', {
         status: 'starting',
         created_at: Date.now(),
