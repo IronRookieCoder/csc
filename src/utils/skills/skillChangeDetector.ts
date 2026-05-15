@@ -308,4 +308,10 @@ export const skillChangeDetector = {
   dispose,
   subscribe,
   resetForTesting,
+  /**
+   * Manually trigger a skill-change notification. Used when code mutates
+   * skill directories directly (e.g. /hub enabling a cloud favorite) and
+   * needs the REPL to refresh its command list immediately.
+   */
+  notify: () => skillsChanged.emit(),
 }
