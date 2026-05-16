@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import * as React from 'react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SettingSource } from 'src/utils/settings/constants.js';
 import type { CommandResultDisplay } from '../../commands.js';
 import { useExitOnCtrlCDWithKeybindings } from '../../hooks/useExitOnCtrlCDWithKeybindings.js';
@@ -15,7 +15,9 @@ import {
 import {
   type AgentDefinition,
   getActiveAgentsFromList,
+  getAgentDefinitionsWithOverrides,
 } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js';
+import { getCwd } from '../../utils/cwd.js';
 import { toError } from '../../utils/errors.js';
 import { logError } from '../../utils/log.js';
 import { Select } from '../CustomSelect/select.js';
@@ -49,6 +51,28 @@ export function AgentsMenu({ tools, onExit }: Props): React.ReactNode {
   const mergedTools = useMergedTools(tools, mcpTools, toolPermissionContext);
 
   useExitOnCtrlCDWithKeybindings();
+
+  useEffect(() => {
+    if (allAgents.length > 0 || agents.length > 0) return;
+
+    let cancelled = false;
+    void getAgentDefinitionsWithOverrides(getCwd())
+      .then(freshAgentDefinitions => {
+        if (cancelled) return;
+        if (freshAgentDefinitions.allAgents.length === 0 && freshAgentDefinitions.activeAgents.length === 0) return;
+        setAppState(state => ({
+          ...state,
+          agentDefinitions: freshAgentDefinitions,
+        }));
+      })
+      .catch(error => {
+        logError(toError(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allAgents.length, agents.length, setAppState]);
 
   const agentsBySource: Record<SettingSource | 'all' | 'built-in' | 'plugin', AgentDefinition[]> = useMemo(
     () => ({
