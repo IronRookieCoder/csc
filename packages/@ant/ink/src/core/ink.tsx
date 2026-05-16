@@ -68,6 +68,7 @@ import {
 import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, type Terminal, writeDiffToTerminal } from './terminal.js';
 import {
   CURSOR_HOME,
+  CURSOR_LEFT,
   cursorMove,
   cursorPosition,
   DISABLE_KITTY_KEYBOARD,
@@ -75,6 +76,7 @@ import {
   ENABLE_KITTY_KEYBOARD,
   ENABLE_MODIFY_OTHER_KEYS,
   ERASE_SCREEN,
+  ERASE_TO_END_SCREEN,
 } from './termio/csi.js';
 import {
   DBP,
@@ -1052,6 +1054,20 @@ export default class Ink {
     if (stdin.isTTY && stdin.isRaw && stdin.setRawMode) {
       stdin.setRawMode(false);
     }
+  }
+
+  /**
+   * Clear the visible main-screen region currently owned by Ink.
+   * Used by graceful shutdown for interactive REPL exits, where transient UI
+   * should not remain underneath the shell prompt.
+   */
+  clearMainScreenForShutdown(): void {
+    if (!this.options.stdout.isTTY || this.altScreenActive) return;
+
+    const cursor = this.displayCursor ?? this.frontFrame.cursor;
+    const topOffset = Math.min(Math.max(cursor.y, 0), Math.max(this.frontFrame.viewport.height - 1, 0));
+    const clearFromTop = cursorMove(0, -topOffset) + CURSOR_LEFT + ERASE_TO_END_SCREEN;
+    writeSync(1, clearFromTop);
   }
 
   /** @see drainStdin */

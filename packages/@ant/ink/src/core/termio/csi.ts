@@ -216,6 +216,9 @@ export function eraseToEndOfScreen(): string {
   return csi('J')
 }
 
+/** Erase from cursor to end of screen - constant form */
+export const ERASE_TO_END_SCREEN = csi('J')
+
 /** Erase from cursor to start of screen (CSI 1 J) */
 export function eraseToStartOfScreen(): string {
   return csi(1, 'J')
