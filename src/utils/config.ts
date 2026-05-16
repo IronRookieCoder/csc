@@ -1719,15 +1719,15 @@ export function isAutoUpdaterDisabled(): boolean {
 
 /**
  * Returns true if plugin autoupdate should be skipped.
- * This checks if the auto-updater is disabled AND the FORCE_AUTOUPDATE_PLUGINS
- * env var is not set to 'true'. The env var allows forcing plugin autoupdate
- * even when the auto-updater is otherwise disabled.
+ * Plugin marketplace auto-update is independently configurable from the CLI
+ * binary updater. The official hard stop is DISABLE_AUTOUPDATER; users can
+ * opt plugin updates back in with FORCE_AUTOUPDATE_PLUGINS.
  */
 export function shouldSkipPluginAutoupdate(): boolean {
-  return (
-    isAutoUpdaterDisabled() &&
-    !isEnvTruthy(process.env.FORCE_AUTOUPDATE_PLUGINS)
-  )
+  if (isEnvTruthy(process.env.FORCE_AUTOUPDATE_PLUGINS)) {
+    return false
+  }
+  return isEnvTruthy(process.env.DISABLE_AUTOUPDATER)
 }
 
 export type AutoUpdaterDisabledReason =
