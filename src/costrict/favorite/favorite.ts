@@ -1,15 +1,30 @@
 import path from 'node:path'
-import { mkdir, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises'
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+  copyFile,
+} from 'node:fs/promises'
 import { createCoStrictFetch } from '../provider/fetch.js'
 import { getCoStrictBaseURL } from '../provider/auth.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
-import { clearSkillCaches } from '../../skills/loadSkillsDir.js'
+import { clearCommandsCache } from '../../commands.js'
+import { skillChangeDetector } from '../../utils/skills/skillChangeDetector.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { logForDebugging } from '../../utils/debug.js'
 import type { McpServerConfig } from '../../services/mcp/types.js'
 
-const FAVORITE_PAGE_SIZE = 100
+const FAVORITE_PAGE_SIZE = 20
 const FAVORITE_MAX_PAGES = 20
+const FAVORITE_LIST_CACHE_TTL_MS = 30000
+
+let _listFavoriteItemsCache: {
+  promise: Promise<FavoriteItemWithStatus[]>
+  expiry: number
+} | null = null
 
 export type FavoriteItemType = 'skill' | 'agent' | 'command' | 'mcp'
 
@@ -117,7 +132,26 @@ async function mutateState(fn: (state: FavoriteState) => void | Promise<void>) {
   await writeState(state)
 }
 
-async function listRemoteCandidates(storeType?: string, extraParams?: Record<string, string>) {
+const FETCH_TIMEOUT_MS = 15000
+
+async function fetchWithTimeout(
+  costrictFetch: ReturnType<typeof createCoStrictFetch>,
+  url: string,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  try {
+    const response = await costrictFetch(url, { signal: controller.signal })
+    return response
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+async function listRemoteCandidates(
+  storeType?: string,
+  extraParams?: Record<string, string>,
+) {
   const baseUrl = getCoStrictBaseURL()
   const costrictFetch = createCoStrictFetch()
   const result: Array<{ id: string } & Record<string, unknown>> = []
@@ -133,8 +167,8 @@ async function listRemoteCandidates(storeType?: string, extraParams?: Record<str
         params.set(key, value)
       }
     }
-    const url = `${baseUrl}/api/items?${params.toString()}`
-    const response = await costrictFetch(url)
+    const url = `${baseUrl}/cloud-api/api/items?${params.toString()}`
+    const response = await fetchWithTimeout(costrictFetch, url)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       throw new Error(`Request failed: ${response.status} ${text}`)
@@ -148,10 +182,17 @@ async function listRemoteCandidates(storeType?: string, extraParams?: Record<str
   return result
 }
 
-function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | undefined {
+function parseFavoriteListItem(
+  data: Record<string, unknown>,
+): FavoriteItem | undefined {
   const storeType = String(data.itemType ?? '')
   const localType = STORE_TYPE_MAP[storeType]
   if (!localType) return undefined
+
+  const favorited =
+    typeof data.favorited === 'boolean'
+      ? data.favorited
+      : data.favorited === 'true' || data.favorited === 1
 
   return {
     id: String(data.id),
@@ -162,8 +203,9 @@ function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | un
     content: '',
     category: typeof data.category === 'string' ? data.category : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
-    favoriteCount: typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
-    favorited: typeof data.favorited === 'boolean' ? data.favorited : undefined,
+    favoriteCount:
+      typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
+    favorited,
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
@@ -173,7 +215,10 @@ function parseFavoriteListItem(data: Record<string, unknown>): FavoriteItem | un
 async function getRemoteItem(id: string): Promise<FavoriteItem> {
   const baseUrl = getCoStrictBaseURL()
   const costrictFetch = createCoStrictFetch()
-  const response = await costrictFetch(`${baseUrl}/api/items/${id}`)
+  const response = await fetchWithTimeout(
+    costrictFetch,
+    `${baseUrl}/cloud-api/api/items/${id}`,
+  )
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     throw new Error(`Request failed: ${response.status} ${text}`)
@@ -182,7 +227,9 @@ async function getRemoteItem(id: string): Promise<FavoriteItem> {
   const storeType = String(data.itemType ?? '')
   const localType = STORE_TYPE_MAP[storeType]
   if (!localType) {
-    throw new Error(`Unsupported item type: ${storeType} (${String(data.slug ?? id)})`)
+    throw new Error(
+      `Unsupported item type: ${storeType} (${String(data.slug ?? id)})`,
+    )
   }
   return {
     id: String(data.id),
@@ -193,7 +240,8 @@ async function getRemoteItem(id: string): Promise<FavoriteItem> {
     content: String(data.content ?? ''),
     category: typeof data.category === 'string' ? data.category : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
-    favoriteCount: typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
+    favoriteCount:
+      typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
     favorited: typeof data.favorited === 'boolean' ? data.favorited : undefined,
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
@@ -308,7 +356,7 @@ async function persistInstalledItem(item: FavoriteItem) {
     ) + '\n',
   )
 
-  await mutateState((state) => {
+  await mutateState(state => {
     state.items[item.slug] = {
       id: item.id,
       slug: item.slug,
@@ -316,7 +364,8 @@ async function persistInstalledItem(item: FavoriteItem) {
       itemType: item.itemType,
       localPath: dir,
       lifecycle: state.items[item.slug]?.lifecycle ?? 'downloaded',
-      installedAt: state.items[item.slug]?.installedAt ?? new Date().toISOString(),
+      installedAt:
+        state.items[item.slug]?.installedAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
   })
@@ -324,7 +373,9 @@ async function persistInstalledItem(item: FavoriteItem) {
   return dir
 }
 
-async function hasUsableLocalContent(hit: FavoriteStateRecord): Promise<boolean> {
+async function hasUsableLocalContent(
+  hit: FavoriteStateRecord,
+): Promise<boolean> {
   const contentPath = (() => {
     switch (hit.itemType) {
       case 'skill':
@@ -338,7 +389,9 @@ async function hasUsableLocalContent(hit: FavoriteStateRecord): Promise<boolean>
     }
   })()
   try {
-    const { size } = await import('node:fs/promises').then((m) => m.stat(contentPath))
+    const { size } = await import('node:fs/promises').then(m =>
+      m.stat(contentPath),
+    )
     return size > 0
   } catch {
     return false
@@ -347,13 +400,17 @@ async function hasUsableLocalContent(hit: FavoriteStateRecord): Promise<boolean>
 
 async function ensureInstalled(slugOrId: string): Promise<FavoriteStateRecord> {
   const state = await readState()
-  const hit = state.items[slugOrId] ?? Object.values(state.items).find((item) => item.id === slugOrId)
+  const hit =
+    state.items[slugOrId] ??
+    Object.values(state.items).find(item => item.id === slugOrId)
   if (hit && (await hasUsableLocalContent(hit))) return hit
 
-  let remote = hit ? await getRemoteItem(hit.id).catch(() => undefined) : undefined
+  let remote = hit
+    ? await getRemoteItem(hit.id).catch(() => undefined)
+    : undefined
   if (!remote) {
     const favorites = await listFavoriteItems()
-    const listed = favorites.find((f) => f.slug === slugOrId || f.id === slugOrId)
+    const listed = favorites.find(f => f.slug === slugOrId || f.id === slugOrId)
     if (!listed) throw new Error(`Favorite item not found: ${slugOrId}`)
     remote = await getRemoteItem(listed.id)
   }
@@ -371,11 +428,31 @@ async function ensureInstalled(slugOrId: string): Promise<FavoriteStateRecord> {
   }
 }
 
-function convertMcpConfig(config: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (typeof config.type === 'string' && (config.type === 'local' || config.type === 'remote')) {
+const SUPPORTED_MCP_TYPES = [
+  'stdio',
+  'sse',
+  'http',
+  'ws',
+  'sdk',
+  'claudeai-proxy',
+  'sse-ide',
+  'ws-ide',
+]
+
+function convertMcpConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (
+    typeof config.type === 'string' &&
+    SUPPORTED_MCP_TYPES.includes(config.type)
+  ) {
     return config
   }
-  if (config.mcpServers && typeof config.mcpServers === 'object' && !Array.isArray(config.mcpServers)) {
+  if (
+    config.mcpServers &&
+    typeof config.mcpServers === 'object' &&
+    !Array.isArray(config.mcpServers)
+  ) {
     const servers = Object.entries(config.mcpServers as Record<string, unknown>)
     if (servers.length === 0) return undefined
     const [, server] = servers[0]
@@ -387,7 +464,9 @@ function convertMcpConfig(config: Record<string, unknown>): Record<string, unkno
   return convertSingleMcpServer(config)
 }
 
-function convertSingleMcpServer(server: Record<string, unknown>): Record<string, unknown> | undefined {
+function convertSingleMcpServer(
+  server: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   const command = server.command
   const args = server.args
   if (!command && !args) return undefined
@@ -406,11 +485,14 @@ function convertSingleMcpServer(server: Record<string, unknown>): Record<string,
   }
   if (cmdArray.length === 0) return undefined
   const result: Record<string, unknown> = {
-    type: 'local',
-    command: cmdArray,
+    type: 'stdio',
+    command: cmdArray[0],
+  }
+  if (cmdArray.length > 1) {
+    result.args = cmdArray.slice(1)
   }
   if (typeof server.environment === 'object' && server.environment !== null) {
-    result.environment = server.environment
+    result.env = server.environment
   }
   return result
 }
@@ -435,14 +517,18 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
       const destDir = path.join(skillsDir(), item.slug)
       await mkdir(skillsDir(), { recursive: true })
       await copyDir(localPath, destDir)
-      clearSkillCaches()
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'agent': {
       const mdPath = path.join(localPath, `${item.slug}.md`)
       const content = await readFile(mdPath, 'utf-8')
-      const { frontmatter, content: markdownContent } = parseFrontmatter(content, mdPath)
-      saveGlobalConfig((cfg) => ({
+      const { frontmatter, content: markdownContent } = parseFrontmatter(
+        content,
+        mdPath,
+      )
+      saveGlobalConfig(cfg => ({
         ...cfg,
         agents: {
           ...(cfg.agents ?? {}),
@@ -457,8 +543,11 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
     case 'command': {
       const mdPath = path.join(localPath, `${item.slug}.md`)
       const content = await readFile(mdPath, 'utf-8')
-      const { frontmatter, content: markdownContent } = parseFrontmatter(content, mdPath)
-      saveGlobalConfig((cfg) => ({
+      const { frontmatter, content: markdownContent } = parseFrontmatter(
+        content,
+        mdPath,
+      )
+      saveGlobalConfig(cfg => ({
         ...cfg,
         commands: {
           ...(cfg.commands ?? {}),
@@ -472,7 +561,9 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
     }
     case 'mcp': {
       const mcpJsonPath = path.join(localPath, 'mcp.json')
-      const configJson = JSON.parse(await readFile(mcpJsonPath, 'utf-8')) as Record<string, unknown>
+      const configJson = JSON.parse(
+        await readFile(mcpJsonPath, 'utf-8'),
+      ) as Record<string, unknown>
       const converted = convertMcpConfig(configJson)
       if (!converted) {
         throw new Error(
@@ -481,7 +572,7 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
             `Supported formats: opencode native, VS Code / Claude Desktop style, or simplified { command, args }`,
         )
       }
-      saveGlobalConfig((cfg) => ({
+      saveGlobalConfig(cfg => ({
         ...cfg,
         mcpServers: {
           ...(cfg.mcpServers ?? {}),
@@ -493,16 +584,21 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
   }
 }
 
-async function removeItemFromConfig(itemType: FavoriteItemType, slug: string, _localPath: string) {
+async function removeItemFromConfig(
+  itemType: FavoriteItemType,
+  slug: string,
+  _localPath: string,
+) {
   switch (itemType) {
     case 'skill': {
       const destDir = path.join(skillsDir(), slug)
       await rm(destDir, { recursive: true, force: true })
-      clearSkillCaches()
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'agent': {
-      saveGlobalConfig((cfg) => {
+      saveGlobalConfig(cfg => {
         const agents = { ...(cfg.agents ?? {}) }
         delete agents[slug]
         return { ...cfg, agents }
@@ -510,7 +606,7 @@ async function removeItemFromConfig(itemType: FavoriteItemType, slug: string, _l
       break
     }
     case 'command': {
-      saveGlobalConfig((cfg) => {
+      saveGlobalConfig(cfg => {
         const commands = { ...(cfg.commands ?? {}) }
         delete commands[slug]
         return { ...cfg, commands }
@@ -518,7 +614,7 @@ async function removeItemFromConfig(itemType: FavoriteItemType, slug: string, _l
       break
     }
     case 'mcp': {
-      saveGlobalConfig((cfg) => {
+      saveGlobalConfig(cfg => {
         const mcpServers = { ...(cfg.mcpServers ?? {}) }
         delete mcpServers[slug]
         return { ...cfg, mcpServers }
@@ -528,7 +624,9 @@ async function removeItemFromConfig(itemType: FavoriteItemType, slug: string, _l
   }
 }
 
-async function readItemForConfig(installed: FavoriteStateRecord): Promise<FavoriteItem> {
+async function readItemForConfig(
+  installed: FavoriteStateRecord,
+): Promise<FavoriteItem> {
   const itemMetaPath = path.join(installed.localPath, 'item.json')
   let itemMeta: Record<string, unknown> = {}
   try {
@@ -547,19 +645,49 @@ async function readItemForConfig(installed: FavoriteStateRecord): Promise<Favori
   }
 }
 
-export async function listFavoriteItems(type?: FavoriteItemType): Promise<FavoriteItemWithStatus[]> {
-  const storeTypes = type ? [LOCAL_TO_STORE_TYPE[type]] : Object.values(LOCAL_TO_STORE_TYPE)
-  const candidatePages = await Promise.all(
-    [...new Set(storeTypes)].map(async (st) =>
-      listRemoteCandidates(st, { favorited: 'true' }).catch((error) => {
-        console.warn('failed to fetch remote favorite candidates', { type: st, error })
-        return []
-      }),
-    ),
-  )
-  const candidates = candidatePages.flat()
+export async function listFavoriteItems(
+  type?: FavoriteItemType,
+): Promise<FavoriteItemWithStatus[]> {
+  const cacheKey = type ?? 'all'
+  const now = Date.now()
+  if (
+    _listFavoriteItemsCache &&
+    _listFavoriteItemsCache.expiry > now &&
+    cacheKey === 'all'
+  ) {
+    return _listFavoriteItemsCache.promise
+  }
 
-  const [activeSkillSlugs, activeAgentNames, activeCommandNames, activeMcpNames, state] = await Promise.all([
+  const storeTypes = type
+    ? [LOCAL_TO_STORE_TYPE[type]]
+    : Object.values(LOCAL_TO_STORE_TYPE)
+  const errors: Error[] = []
+  const candidates: Array<{ id: string } & Record<string, unknown>> = []
+
+  for (const st of [...new Set(storeTypes)]) {
+    try {
+      const page = await listRemoteCandidates(st, { favorited: 'true' })
+      candidates.push(...page)
+    } catch (error) {
+      logForDebugging(
+        `failed to fetch remote favorite candidates: type=${st}, error=${error instanceof Error ? error.message : String(error)}`,
+      )
+      if (error instanceof Error) errors.push(error)
+    }
+  }
+
+  // If all remote fetches failed, propagate the first error so the UI can show it
+  if (candidates.length === 0 && errors.length > 0) {
+    throw new Error(`Cloud service unavailable (${errors[0].message})`)
+  }
+
+  const [
+    activeSkillSlugs,
+    activeAgentNames,
+    activeCommandNames,
+    activeMcpNames,
+    state,
+  ] = await Promise.all([
     getActiveSkillSlugs(),
     getActiveAgentNames(),
     getActiveCommandNames(),
@@ -573,13 +701,19 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
   for (const candidate of candidates) {
     const item = parseFavoriteListItem(candidate)
     if (!item) continue
-    if (!item?.favorited) continue
+    if (!item.favorited) continue
     if (seen.has(item.slug)) continue
     seen.add(item.slug)
     const local = state.items[item.slug]
     result.push({
       ...item,
-      status: deriveStatus(local, activeSkillSlugs, activeAgentNames, activeCommandNames, activeMcpNames),
+      status: deriveStatus(
+        local,
+        activeSkillSlugs,
+        activeAgentNames,
+        activeCommandNames,
+        activeMcpNames,
+      ),
       localPath: local?.localPath,
     })
   }
@@ -596,18 +730,35 @@ export async function listFavoriteItems(type?: FavoriteItemType): Promise<Favori
         description: '',
         itemType: record.itemType,
         content: '',
-        status: deriveStatus(record, activeSkillSlugs, activeAgentNames, activeCommandNames, activeMcpNames),
+        status: deriveStatus(
+          record,
+          activeSkillSlugs,
+          activeAgentNames,
+          activeCommandNames,
+          activeMcpNames,
+        ),
         localPath: record.localPath,
       })
     }
   }
 
-  return result.sort((a, b) => a.name.localeCompare(b.name))
+  const sorted = result.sort((a, b) => a.name.localeCompare(b.name))
+
+  if (!type) {
+    _listFavoriteItemsCache = {
+      promise: Promise.resolve(sorted),
+      expiry: Date.now() + FAVORITE_LIST_CACHE_TTL_MS,
+    }
+  }
+
+  return sorted
 }
 
-export async function viewFavoriteItem(slugOrId: string): Promise<FavoriteItemWithStatus> {
+export async function viewFavoriteItem(
+  slugOrId: string,
+): Promise<FavoriteItemWithStatus> {
   const favorites = await listFavoriteItems()
-  const item = favorites.find((f) => f.slug === slugOrId || f.id === slugOrId)
+  const item = favorites.find(f => f.slug === slugOrId || f.id === slugOrId)
   if (!item) throw new Error(`Favorite item not found: ${slugOrId}`)
 
   const detail = await getRemoteItem(item.id)
@@ -618,47 +769,47 @@ export async function viewFavoriteItem(slugOrId: string): Promise<FavoriteItemWi
   }
 }
 
-export async function downloadFavoriteItem(slugOrId: string) {
-  const item = await viewFavoriteItem(slugOrId)
-  const localPath = await persistInstalledItem(item)
-  await mutateState((state) => {
-    const record = state.items[item.slug]
-    record.lifecycle = 'downloaded'
-    record.updatedAt = new Date().toISOString()
-    record.localPath = localPath
-  })
-  return { ...item, status: 'Downloaded' as const, localPath }
-}
-
 export async function loadFavoriteItem(slugOrId: string) {
   const installed = await ensureInstalled(slugOrId)
   const itemForConfig = await readItemForConfig(installed)
   await addItemToConfig(itemForConfig, installed.localPath)
-  await mutateState((state) => {
+  await mutateState(state => {
     const record = state.items[installed.slug]
     record.lifecycle = 'active'
     record.updatedAt = new Date().toISOString()
   })
+  _listFavoriteItemsCache = null
   return installed
 }
 
 export async function unloadFavoriteItem(slugOrId: string) {
   const installed = await ensureInstalled(slugOrId)
-  await removeItemFromConfig(installed.itemType, installed.slug, installed.localPath)
-  await mutateState((state) => {
+  await removeItemFromConfig(
+    installed.itemType,
+    installed.slug,
+    installed.localPath,
+  )
+  await mutateState(state => {
     const record = state.items[installed.slug]
     record.lifecycle = 'unloaded'
     record.updatedAt = new Date().toISOString()
   })
+  _listFavoriteItemsCache = null
   return installed
 }
 
-export async function uninstallFavoriteItem(slugOrId: string) {
-  const installed = await ensureInstalled(slugOrId)
-  await removeItemFromConfig(installed.itemType, installed.slug, installed.localPath)
-  await rm(installed.localPath, { recursive: true, force: true })
-  await mutateState((state) => {
-    delete state.items[installed.slug]
-  })
-  return installed
+/**
+ * Auto-enable all cloud favorite items that are not already active.
+ * Runs in the background so slow network or many items never blocks startup.
+ */
+export async function autoEnableCloudFavorites(): Promise<void> {
+  try {
+    const items = await listFavoriteItems()
+    const toEnable = items.filter(item => item.status !== 'Active')
+    if (toEnable.length === 0) return
+
+    await Promise.allSettled(toEnable.map(item => loadFavoriteItem(item.slug)))
+  } catch {
+    // Silently ignore so a flaky cloud API doesn't break startup
+  }
 }

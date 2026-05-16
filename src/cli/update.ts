@@ -2,7 +2,7 @@ import chalk from 'chalk'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
   getLatestVersion,
-  type InstallStatus,
+  type InstallResult,
   installGlobalPackage,
 } from 'src/utils/autoUpdater.js'
 import { regenerateCompletionCache } from 'src/utils/completionCache.js'
@@ -356,21 +356,21 @@ export async function update() {
   logForDebugging(`update: Update method determined: ${updateMethodName}`)
   logForDebugging(`update: useLocalUpdate: ${useLocalUpdate}`)
 
-  let status: InstallStatus
+  let result: InstallResult
 
   if (useLocalUpdate) {
     logForDebugging(
       'update: Calling installOrUpdateClaudePackage() for local update',
     )
-    status = await installOrUpdateClaudePackage(channel)
+    result = await installOrUpdateClaudePackage(channel)
   } else {
     logForDebugging('update: Calling installGlobalPackage() for global update')
-    status = await installGlobalPackage()
+    result = await installGlobalPackage()
   }
 
-  logForDebugging(`update: Installation status: ${status}`)
+  logForDebugging(`update: Installation status: ${result.status}`)
 
-  switch (status) {
+  switch (result.status) {
     case 'success':
       writeToStdout(
         chalk.green(
@@ -381,40 +381,59 @@ export async function update() {
       break
     case 'no_permissions':
       process.stderr.write(
-        'Error: Insufficient permissions to install update\n',
+        chalk.red('Error: Insufficient permissions to install update') + '\n',
       )
+      if (result.errorCategory) {
+        process.stderr.write(
+          chalk.yellow(`Cause: ${result.errorCategory}`) + '\n',
+        )
+      }
+      if (result.suggestion) {
+        process.stderr.write('\n')
+        process.stderr.write(result.suggestion + '\n')
+      }
       if (useLocalUpdate) {
-        process.stderr.write('Try manually updating with:\n')
+        process.stderr.write('\n')
+        process.stderr.write('Or try manually updating with:\n')
         process.stderr.write(
           `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
-        )
-      } else {
-        process.stderr.write('Try running with sudo or fix npm permissions\n')
-        process.stderr.write(
-          'Or consider using native installation with: claude install\n',
         )
       }
       await gracefulShutdown(1)
       break
     case 'install_failed':
-      process.stderr.write('Error: Failed to install update\n')
+      process.stderr.write(chalk.red('Error: Failed to install update') + '\n')
+      if (result.errorCategory) {
+        process.stderr.write(
+          chalk.yellow(`Cause: ${result.errorCategory}`) + '\n',
+        )
+      }
+      if (result.suggestion) {
+        process.stderr.write('\n')
+        process.stderr.write(result.suggestion + '\n')
+      }
+      if (result.npmStderr) {
+        process.stderr.write('\n')
+        process.stderr.write('Raw error output:\n')
+        process.stderr.write(result.npmStderr + '\n')
+      }
       if (useLocalUpdate) {
-        process.stderr.write('Try manually updating with:\n')
+        process.stderr.write('\n')
+        process.stderr.write('Or try manually updating with:\n')
         process.stderr.write(
           `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
-        )
-      } else {
-        process.stderr.write(
-          'Or consider using native installation with: claude install\n',
         )
       }
       await gracefulShutdown(1)
       break
     case 'in_progress':
       process.stderr.write(
-        'Error: Another instance is currently performing an update\n',
+        chalk.red('Error: Another instance is currently performing an update') +
+          '\n',
       )
-      process.stderr.write('Please wait and try again later\n')
+      process.stderr.write('Please wait a moment and try again.\n')
+      process.stderr.write('If the problem persists, delete the lock file:\n')
+      process.stderr.write('  rm ~/.claude/.update.lock\n')
       await gracefulShutdown(1)
       break
   }

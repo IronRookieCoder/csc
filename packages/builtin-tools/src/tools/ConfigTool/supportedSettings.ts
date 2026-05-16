@@ -131,6 +131,11 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
       'How to spawn teammates: "tmux" for traditional tmux, "in-process" for same process, "auto" to choose automatically',
     options: TEAMMATE_MODES,
   },
+  showMemoryPid: {
+    source: 'global',
+    type: 'boolean',
+    description: 'Show memory usage and PID in the footer status bar',
+  },
   ...(process.env.USER_TYPE === 'ant'
     ? {
         classifierPermissionsEnabled: {

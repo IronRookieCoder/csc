@@ -17,6 +17,7 @@ import { logForDebugging } from 'src/utils/debug.js'
 import { errorMessage } from 'src/utils/errors.js'
 import { truncate } from 'src/utils/format.js'
 import { gracefulShutdown } from 'src/utils/gracefulShutdown.js'
+import { safeParseJSON } from 'src/utils/json.js'
 import { lazySchema } from 'src/utils/lazySchema.js'
 import { parseAddress } from 'src/utils/peerAddress.js'
 import { semanticBoolean } from 'src/utils/semanticBoolean.js'
@@ -86,6 +87,7 @@ const inputSchema = lazySchema(() =>
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>
+type StructuredMessageInput = z.infer<ReturnType<typeof StructuredMessage>>
 
 export type Input = z.infer<InputSchema>
 
@@ -129,6 +131,24 @@ export type SendMessageToolOutput =
   | BroadcastOutput
   | RequestOutput
   | ResponseOutput
+
+function parseProtocolResponseString(
+  content: string,
+): Extract<
+  StructuredMessageInput,
+  { type: 'shutdown_response' | 'plan_approval_response' }
+> | null {
+  const parsed = safeParseJSON(content, false)
+  const result = StructuredMessage().safeParse(parsed)
+  if (!result.success) return null
+  if (
+    result.data.type !== 'shutdown_response' &&
+    result.data.type !== 'plan_approval_response'
+  ) {
+    return null
+  }
+  return result.data
+}
 
 const UDS_INLINE_TOKEN_MARKER = '#token='
 
@@ -725,7 +745,33 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
         return { result: true }
       }
       if (typeof input.message === 'string') {
-        if (!input.summary || input.summary.trim().length === 0) {
+        const protocolResponse = parseProtocolResponseString(input.message)
+        if (
+          protocolResponse?.type === 'shutdown_response' &&
+          input.to !== TEAM_LEAD_NAME
+        ) {
+          return {
+            result: false,
+            message: `shutdown_response must be sent to "${TEAM_LEAD_NAME}"`,
+            errorCode: 9,
+          }
+        }
+        if (
+          protocolResponse?.type === 'shutdown_response' &&
+          !protocolResponse.approve &&
+          (!protocolResponse.reason ||
+            protocolResponse.reason.trim().length === 0)
+        ) {
+          return {
+            result: false,
+            message: 'reason is required when rejecting a shutdown request',
+            errorCode: 9,
+          }
+        }
+        if (
+          !protocolResponse &&
+          (!input.summary || input.summary.trim().length === 0)
+        ) {
           return {
             result: false,
             message: 'summary is required when message is a string',
@@ -799,6 +845,11 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
     },
 
     async call(input, context, canUseTool, assistantMessage) {
+      const protocolResponse =
+        typeof input.message === 'string'
+          ? parseProtocolResponseString(input.message)
+          : null
+
       if (typeof input.message === 'string') {
         const addr = parseAddress(input.to)
         if (addr.scheme === 'uds' && hasInlineUdsToken(input.to)) {
@@ -908,7 +959,11 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
 
       // Route to in-process subagent by name or raw agentId before falling
       // through to ambient-team resolution. Stopped agents are auto-resumed.
-      if (typeof input.message === 'string' && input.to !== '*') {
+      if (
+        typeof input.message === 'string' &&
+        input.to !== '*' &&
+        !protocolResponse
+      ) {
         const appState = context.getAppState()
         const registered = appState.agentNameRegistry.get(input.to)
         const agentId = registered ?? toAgentId(input.to)
@@ -987,6 +1042,35 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
       }
 
       if (typeof input.message === 'string') {
+        if (protocolResponse) {
+          switch (protocolResponse.type) {
+            case 'shutdown_response':
+              if (protocolResponse.approve) {
+                return handleShutdownApproval(
+                  protocolResponse.request_id,
+                  context,
+                )
+              }
+              return handleShutdownRejection(
+                protocolResponse.request_id,
+                protocolResponse.reason!,
+              )
+            case 'plan_approval_response':
+              if (protocolResponse.approve) {
+                return handlePlanApproval(
+                  input.to,
+                  protocolResponse.request_id,
+                  context,
+                )
+              }
+              return handlePlanRejection(
+                input.to,
+                protocolResponse.request_id,
+                protocolResponse.feedback!,
+                context,
+              )
+          }
+        }
         if (input.to === '*') {
           return handleBroadcast(input.message, input.summary, context)
         }

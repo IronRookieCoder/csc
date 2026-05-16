@@ -142,6 +142,15 @@ export const SDKControlSetModelRequestSchema = lazySchema(() =>
     .describe('Sets the model to use for subsequent conversation turns.'),
 )
 
+export const SDKControlSetAgentRequestSchema = lazySchema(() =>
+  z
+    .object({
+      subtype: z.literal('set_agent'),
+      agent: z.string().optional(),
+    })
+    .describe('Sets the agent for subsequent conversation turns.'),
+)
+
 export const SDKControlSetMaxThinkingTokensRequestSchema = lazySchema(() =>
   z
     .object({
@@ -553,6 +562,7 @@ export const SDKControlRequestInnerSchema = lazySchema(() =>
     SDKControlInitializeRequestSchema(),
     SDKControlSetPermissionModeRequestSchema(),
     SDKControlSetModelRequestSchema(),
+    SDKControlSetAgentRequestSchema(),
     SDKControlSetMaxThinkingTokensRequestSchema(),
     SDKControlMcpStatusRequestSchema(),
     SDKControlGetContextUsageRequestSchema(),

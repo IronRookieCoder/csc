@@ -89,6 +89,24 @@ export const ExecuteTool = buildTool({
       }
     }
 
+    const validationResult = await targetTool.validateInput?.(
+      input.params as Record<string, unknown>,
+      context,
+    )
+    if (validationResult && validationResult.result === false) {
+      return {
+        data: {
+          result: null,
+          tool_name: input.tool_name,
+        },
+        newMessages: [
+          createUserMessage({
+            content: `Invalid input for tool "${input.tool_name}": ${validationResult.message}`,
+          }),
+        ],
+      }
+    }
+
     // Check permissions on the target tool
     const permResult = await targetTool.checkPermissions?.(
       input.params as Record<string, unknown>,

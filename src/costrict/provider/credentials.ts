@@ -1,19 +1,17 @@
 /**
  * CoStrict 凭证管理模块
- * 负责读写 ~/.claude/csc-auth.json
+ * 负责读写 ~/.costrict/share/auth.json
  */
 
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
+import { homedir } from 'node:os'
 
 /**
- * CoStrict 凭证格式 (与 IDE 插件兼容)
+ * CoStrict 凭证格式
  */
 export interface CoStrictCredentials {
-  id: string // 标识符
-  name: string // 显示名称
   access_token: string // OAuth 访问令牌
   refresh_token?: string // OAuth 刷新令牌 (可选)
   state?: string // OAuth 状态标识 (可选)
@@ -24,11 +22,13 @@ export interface CoStrictCredentials {
   expired_at?: string // Token 过期时间 (ISO 8601)
 }
 
+const COSTRICT_CONFIG_DIR = join(homedir(), '.costrict', 'share')
+
 /**
- * 获取 ~/.claude/csc-auth.json 路径
+ * 获取 ~/.costrict/share/auth.json 路径
  */
 export function getCoStrictCredentialsPath(): string {
-  return join(getClaudeConfigHomeDir(), 'csc-auth.json')
+  return join(COSTRICT_CONFIG_DIR, 'auth.json')
 }
 
 /**
@@ -62,13 +62,13 @@ export async function loadCoStrictCredentials(): Promise<CoStrictCredentials | n
 }
 
 /**
- * 保存 CoStrict 凭证到 ~/.claude/csc-auth.json
+ * 保存 CoStrict 凭证到 ~/.costrict/share/auth.json
  */
 export async function saveCoStrictCredentials(
   credentials: CoStrictCredentials,
 ): Promise<void> {
   const filepath = getCoStrictCredentialsPath()
-  await fs.mkdir(getClaudeConfigHomeDir(), { recursive: true })
+  await fs.mkdir(COSTRICT_CONFIG_DIR, { recursive: true })
   await fs.writeFile(filepath, JSON.stringify(credentials, null, 2) + '\n', {
     encoding: 'utf-8',
     mode: 0o600,

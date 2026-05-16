@@ -40,6 +40,7 @@ import {
   type ParsedMouse,
   parseMultipleKeypresses,
 } from '../core/parse-keypress.js';
+import { supportsStdinRawMode } from '../core/raw-mode-support.js';
 import reconciler from '../core/reconciler.js';
 import { finishSelection, hasSelection, type SelectionState, startSelection } from '../core/selection.js';
 import { isXtermJs, setXtversionName, supportsExtendedKeys } from '../core/terminal.js';
@@ -157,6 +158,7 @@ export default class App extends PureComponent<Props, State> {
   // Count how many components enabled raw mode to avoid disabling
   // raw mode until all components don't need it anymore
   rawModeEnabledCount = 0;
+  rawModeActive = false;
 
   internal_eventEmitter = new EventEmitter();
   keyParseState = INITIAL_STATE;
@@ -195,7 +197,11 @@ export default class App extends PureComponent<Props, State> {
 
   // Determines if TTY is supported on the provided stdin
   isRawModeSupported(): boolean {
-    return this.props.stdin.isTTY;
+    return supportsStdinRawMode(this.props.stdin);
+  }
+
+  isCookedModeFallbackSupported(): boolean {
+    return this.props.stdin.isTTY && !this.isRawModeSupported();
   }
 
   override render() {
@@ -258,7 +264,7 @@ export default class App extends PureComponent<Props, State> {
       this.pendingHyperlinkTimer = null;
     }
     // ignore calling setRawMode on an handle stdin it cannot be called
-    if (this.isRawModeSupported()) {
+    if (this.rawModeEnabledCount > 0) {
       this.handleSetRawMode(false);
     } else {
       // Even when raw mode was never enabled (e.g. non-TTY stdin on
@@ -279,7 +285,8 @@ export default class App extends PureComponent<Props, State> {
   handleSetRawMode = (isEnabled: boolean): void => {
     const { stdin } = this.props;
 
-    if (!this.isRawModeSupported()) {
+    const rawModeSupported = this.isRawModeSupported();
+    if (!rawModeSupported && !this.isCookedModeFallbackSupported()) {
       if (stdin === process.stdin) {
         throw new Error(
           'Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported',
@@ -314,39 +321,50 @@ export default class App extends PureComponent<Props, State> {
         }
 
         stdin.ref();
-        stdin.setRawMode(true);
-        stdin.addListener('readable', this.handleReadable);
-        // Enable bracketed paste mode
-        this.props.stdout.write(EBP);
-        // Enable terminal focus reporting (DECSET 1004)
-        this.props.stdout.write(EFE);
-        // Enable extended key reporting so ctrl+shift+<letter> is
-        // distinguishable from ctrl+<letter>. We write both the kitty stack
-        // push (CSI >1u) and xterm modifyOtherKeys level 2 (CSI >4;2m) —
-        // terminals honor whichever they implement (tmux only accepts the
-        // latter).
-        if (supportsExtendedKeys()) {
-          this.props.stdout.write(ENABLE_KITTY_KEYBOARD);
-          this.props.stdout.write(ENABLE_MODIFY_OTHER_KEYS);
+        if (rawModeSupported) {
+          stdin.setRawMode(true);
+          this.rawModeActive = true;
+        } else {
+          this.rawModeActive = false;
+          defaultCallbacks.logForDebugging(
+            '[stdin] Raw mode disabled for this Windows terminal; using cooked input fallback',
+            { level: 'warn' },
+          );
         }
-        // Probe terminal identity. XTVERSION survives SSH (query/reply goes
-        // through the pty), unlike TERM_PROGRAM. Used for wheel-scroll base
-        // detection when env vars are absent. Fire-and-forget: the DA1
-        // sentinel bounds the round-trip, and if the terminal ignores the
-        // query, flush() still resolves and name stays undefined.
-        // Deferred to next tick so it fires AFTER the current synchronous
-        // init sequence completes — avoids interleaving with alt-screen/mouse
-        // tracking enable writes that may happen in the same render cycle.
-        setImmediate(() => {
-          void Promise.all([this.querier.send(xtversion()), this.querier.flush()]).then(([r]) => {
-            if (r) {
-              setXtversionName(r.name);
-              defaultCallbacks.logForDebugging(`XTVERSION: terminal identified as "${r.name}"`);
-            } else {
-              defaultCallbacks.logForDebugging('XTVERSION: no reply (terminal ignored query)');
-            }
+        stdin.addListener('readable', this.handleReadable);
+        if (rawModeSupported) {
+          // Enable bracketed paste mode
+          this.props.stdout.write(EBP);
+          // Enable terminal focus reporting (DECSET 1004)
+          this.props.stdout.write(EFE);
+          // Enable extended key reporting so ctrl+shift+<letter> is
+          // distinguishable from ctrl+<letter>. We write both the kitty stack
+          // push (CSI >1u) and xterm modifyOtherKeys level 2 (CSI >4;2m) —
+          // terminals honor whichever they implement (tmux only accepts the
+          // latter).
+          if (supportsExtendedKeys()) {
+            this.props.stdout.write(ENABLE_KITTY_KEYBOARD);
+            this.props.stdout.write(ENABLE_MODIFY_OTHER_KEYS);
+          }
+          // Probe terminal identity. XTVERSION survives SSH (query/reply goes
+          // through the pty), unlike TERM_PROGRAM. Used for wheel-scroll base
+          // detection when env vars are absent. Fire-and-forget: the DA1
+          // sentinel bounds the round-trip, and if the terminal ignores the
+          // query, flush() still resolves and name stays undefined.
+          // Deferred to next tick so it fires AFTER the current synchronous
+          // init sequence completes — avoids interleaving with alt-screen/mouse
+          // tracking enable writes that may happen in the same render cycle.
+          setImmediate(() => {
+            void Promise.all([this.querier.send(xtversion()), this.querier.flush()]).then(([r]) => {
+              if (r) {
+                setXtversionName(r.name);
+                defaultCallbacks.logForDebugging(`XTVERSION: terminal identified as "${r.name}"`);
+              } else {
+                defaultCallbacks.logForDebugging('XTVERSION: no reply (terminal ignored query)');
+              }
+            });
           });
-        });
+        }
       }
 
       this.rawModeEnabledCount++;
@@ -366,13 +384,16 @@ export default class App extends PureComponent<Props, State> {
         return;
       }
 
-      this.props.stdout.write(DISABLE_MODIFY_OTHER_KEYS);
-      this.props.stdout.write(DISABLE_KITTY_KEYBOARD);
-      // Disable terminal focus reporting (DECSET 1004)
-      this.props.stdout.write(DFE);
-      // Disable bracketed paste mode
-      this.props.stdout.write(DBP);
-      stdin.setRawMode(false);
+      if (this.rawModeActive) {
+        this.props.stdout.write(DISABLE_MODIFY_OTHER_KEYS);
+        this.props.stdout.write(DISABLE_KITTY_KEYBOARD);
+        // Disable terminal focus reporting (DECSET 1004)
+        this.props.stdout.write(DFE);
+        // Disable bracketed paste mode
+        this.props.stdout.write(DBP);
+        stdin.setRawMode(false);
+        this.rawModeActive = false;
+      }
       stdin.removeListener('readable', this.handleReadable);
       stdin.unref();
     }
@@ -480,7 +501,7 @@ export default class App extends PureComponent<Props, State> {
   };
 
   handleExit = (error?: Error): void => {
-    if (this.isRawModeSupported()) {
+    if (this.rawModeEnabledCount > 0) {
       this.handleSetRawMode(false);
     }
 

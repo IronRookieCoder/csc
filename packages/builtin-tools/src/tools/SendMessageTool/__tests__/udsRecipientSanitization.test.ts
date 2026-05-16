@@ -1,4 +1,60 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
+
+type MailboxWrite = {
+  recipient: string
+  message: { text: string; from?: string }
+  team?: string
+}
+
+let lastMailboxWrite: MailboxWrite | undefined
+const writeToMailboxMock = mock(
+  async (
+    recipient: string,
+    message: { text: string; from?: string },
+    team?: string,
+  ) => {
+    lastMailboxWrite = { recipient, message, team }
+  },
+)
+mock.module('src/utils/teammateMailbox.js', () => ({
+  createShutdownApprovedMessage: (params: {
+    requestId: string
+    from: string
+    paneId?: string
+    backendType?: string
+  }) => ({
+    type: 'shutdown_approved',
+    requestId: params.requestId,
+    from: params.from,
+    timestamp: '2026-05-14T00:00:00.000Z',
+    paneId: params.paneId,
+    backendType: params.backendType,
+  }),
+  createShutdownRejectedMessage: (params: {
+    requestId: string
+    from: string
+    reason: string
+  }) => ({
+    type: 'shutdown_rejected',
+    requestId: params.requestId,
+    from: params.from,
+    reason: params.reason,
+    timestamp: '2026-05-14T00:00:00.000Z',
+  }),
+  createShutdownRequestMessage: (params: {
+    requestId: string
+    from: string
+    reason?: string
+  }) => ({
+    type: 'shutdown_request',
+    requestId: params.requestId,
+    from: params.from,
+    reason: params.reason,
+    timestamp: '2026-05-14T00:00:00.000Z',
+  }),
+  writeToMailbox: writeToMailboxMock,
+}))
+
 import { SendMessageTool } from '../SendMessageTool.js'
 
 describe('SendMessageTool UDS recipient handling', () => {
@@ -177,5 +233,31 @@ describe('SendMessageTool UDS recipient handling', () => {
 
     expect(result.data.success).toBe(false)
     expect(JSON.stringify(result)).not.toContain('secret-token')
+  })
+
+  test('handles shutdown_response sent as a JSON string protocol response', async () => {
+    writeToMailboxMock.mockClear()
+    lastMailboxWrite = undefined
+
+    const result = await SendMessageTool.call(
+      {
+        to: 'team-lead',
+        summary: 'Approving shutdown',
+        message:
+          '{"type":"shutdown_response","request_id":"shutdown-worker-a","approve":true}',
+      },
+      {
+        getAppState: () => ({ tasks: {} }),
+      } as never,
+      undefined as never,
+      undefined as never,
+    )
+
+    expect(result.data.success).toBe(true)
+    expect(result.data.message).toContain('Shutdown approved')
+    const mailboxWrite = lastMailboxWrite as MailboxWrite | undefined
+    expect(mailboxWrite?.recipient).toBe('team-lead')
+    expect(mailboxWrite?.message.from).toBe('teammate')
+    expect(mailboxWrite?.message.text).toContain('shutdown_approved')
   })
 })

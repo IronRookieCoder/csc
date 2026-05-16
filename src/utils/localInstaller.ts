@@ -4,6 +4,7 @@
 
 import { access, chmod, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { type InstallResult, analyzeNpmError } from './autoUpdater.js'
 import { type ReleaseChannel, saveGlobalConfig } from './config.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 import { getErrnoCode } from './errors.js'
@@ -97,11 +98,17 @@ export async function ensureLocalPackageEnvironment(): Promise<boolean> {
 export async function installOrUpdateClaudePackage(
   channel: ReleaseChannel,
   specificVersion?: string | null,
-): Promise<'in_progress' | 'success' | 'install_failed'> {
+): Promise<InstallResult> {
   try {
     // First ensure the environment is set up
     if (!(await ensureLocalPackageEnvironment())) {
-      return 'install_failed'
+      return {
+        status: 'install_failed',
+        errorCategory: 'Failed to set up local install directory',
+        suggestion:
+          'Could not create ~/.claude/local directory or write package.json.\n' +
+          'Check disk space and permissions.',
+      }
     }
 
     // Use specific version if provided, otherwise use channel tag
@@ -117,11 +124,20 @@ export async function installOrUpdateClaudePackage(
     )
 
     if (result.code !== 0) {
+      const { category, suggestion } = analyzeNpmError(
+        result.stderr,
+        result.stdout,
+      )
       const error = new Error(
-        `Failed to install Claude CLI package: ${result.stderr}`,
+        `Failed to install Claude CLI package: ${category}\nstderr: ${result.stderr}`,
       )
       logError(error)
-      return result.code === 190 ? 'in_progress' : 'install_failed'
+      return {
+        status: result.code === 190 ? 'in_progress' : 'install_failed',
+        errorCategory: category,
+        suggestion,
+        npmStderr: result.stderr,
+      }
     }
 
     // Set installMethod to 'local' to prevent npm permission warnings
@@ -130,10 +146,20 @@ export async function installOrUpdateClaudePackage(
       installMethod: 'local',
     }))
 
-    return 'success'
+    return { status: 'success' }
   } catch (error) {
     logError(error)
-    return 'install_failed'
+    return {
+      status: 'install_failed',
+      errorCategory: 'Unexpected error during local install',
+      suggestion:
+        'An unexpected error occurred.\n' +
+        'Try:\n' +
+        '  • Manually update: cd ~/.claude/local && npm update ' +
+        MACRO.PACKAGE_URL +
+        '\n' +
+        '  • Switch to native installation: csc install',
+    }
   }
 }
 

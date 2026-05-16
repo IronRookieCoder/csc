@@ -869,6 +869,28 @@ export function Config({
       },
     },
     {
+      id: 'showMemoryPid',
+      label: 'Show memory & PID in footer',
+      value: globalConfig.showMemoryPid ?? true,
+      type: 'boolean' as const,
+      onChange(enabled: boolean) {
+        saveGlobalConfig(current => {
+          if (current.showMemoryPid === enabled) return current;
+          return {
+            ...current,
+            showMemoryPid: enabled,
+          };
+        });
+        setGlobalConfig({
+          ...getGlobalConfig(),
+          showMemoryPid: enabled,
+        });
+        logEvent('tengu_show_memory_pid_setting_changed', {
+          enabled,
+        });
+      },
+    },
+    {
       id: 'model',
       label: 'Model',
       value: mainLoopModel === null ? 'Default (recommended)' : mainLoopModel,

@@ -11,6 +11,7 @@ import {
   type AutoUpdaterResult,
   getLatestVersion,
   getMaxVersion,
+  type InstallResult,
   type InstallStatus,
   installGlobalPackage,
   shouldSkipVersion,
@@ -122,19 +123,19 @@ export function AutoUpdater({
       }
 
       // Choose the appropriate update method based on what's actually running
-      let installStatus: InstallStatus;
+      let installResult: InstallResult;
       let updateMethod: 'local' | 'global';
 
       if (installationType === 'npm-local') {
         // Use local update for local installations
         logForDebugging('AutoUpdater: Using local update method');
         updateMethod = 'local';
-        installStatus = await installOrUpdateClaudePackage(channel);
+        installResult = await installOrUpdateClaudePackage(channel);
       } else if (installationType === 'npm-global') {
         // Use global update for global installations
         logForDebugging('AutoUpdater: Using global update method');
         updateMethod = 'global';
-        installStatus = await installGlobalPackage();
+        installResult = await installGlobalPackage();
       } else if (installationType === 'native') {
         // This shouldn't happen - native should use NativeAutoUpdater
         logForDebugging('AutoUpdater: Unexpected native installation in non-native updater');
@@ -147,11 +148,13 @@ export function AutoUpdater({
         updateMethod = isMigrated ? 'local' : 'global';
 
         if (isMigrated) {
-          installStatus = await installOrUpdateClaudePackage(channel);
+          installResult = await installOrUpdateClaudePackage(channel);
         } else {
-          installStatus = await installGlobalPackage();
+          installResult = await installGlobalPackage();
         }
       }
+
+      const installStatus: InstallStatus = installResult.status;
 
       onChangeIsUpdating(false);
 

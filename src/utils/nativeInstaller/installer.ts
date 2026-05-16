@@ -1456,22 +1456,33 @@ async function isNpmSymlink(executablePath: string): Promise<boolean> {
 
 /**
  * Remove the claude symlink from the executable directory
- * This is used when switching away from native installation
- * Will only remove if it's a native binary symlink, not npm-managed JS files
+ * This is used when switching away from native installation.
+ * Will only remove if it's a symlink pointing into our managed versions directory,
+ * ensuring we don't delete user-installed claude binaries from other sources.
  */
 export async function removeInstalledSymlink(): Promise<void> {
   const dirs = getBaseDirectories()
 
   try {
-    // Check if this is an npm-managed installation
-    if (await isNpmSymlink(dirs.executable)) {
+    const linkStats = await lstat(dirs.executable)
+    if (!linkStats.isSymbolicLink()) {
+      logForDebugging(`Skipping removal of ${dirs.executable} - not a symlink`)
+      return
+    }
+
+    // Resolve symlink target to absolute path
+    const rawTarget = await readlink(dirs.executable)
+    const targetPath = resolve(dirname(dirs.executable), rawTarget)
+
+    // Only remove if it points into our managed versions directory
+    // This prevents deleting a user-installed claude from Homebrew, manually, etc.
+    if (!targetPath.startsWith(dirs.versions)) {
       logForDebugging(
-        `Skipping removal of ${dirs.executable} - appears to be npm-managed`,
+        `Skipping removal of ${dirs.executable} - target ${targetPath} is not in ${dirs.versions}`,
       )
       return
     }
 
-    // It's a native binary symlink, safe to remove
     await unlink(dirs.executable)
     logForDebugging(`Removed claude symlink at ${dirs.executable}`)
   } catch (error) {
