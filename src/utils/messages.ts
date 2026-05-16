@@ -622,6 +622,75 @@ export function createProgressMessage<P extends Progress>({
   }
 }
 
+export type EphemeralProgressReplacementResult = {
+  messages: Message[]
+  replaced: boolean
+  scanned: number
+  stoppedBy: 'start' | 'scan-limit' | 'different-parent-match' | null
+}
+
+const EPHEMERAL_PROGRESS_REPLACE_SCAN_LIMIT = 200
+
+/**
+ * Replace high-frequency UI-only progress updates in place.
+ *
+ * Bash/PowerShell/MCP/Sleep can emit progress repeatedly while a tool is still
+ * running. The UI only needs the latest update for each parent tool + progress
+ * type. Scanning a bounded window instead of stopping at the first non-progress
+ * handles interleaved system/assistant messages without allowing an unbounded
+ * reverse scan on very large sessions.
+ */
+export function replaceEphemeralProgressMessage(
+  messages: Message[],
+  newMessage: ProgressMessage,
+  scanLimit = EPHEMERAL_PROGRESS_REPLACE_SCAN_LIMIT,
+): EphemeralProgressReplacementResult {
+  const newData = newMessage.data as Record<string, unknown>
+  const newType = newData.type
+  let scanned = 0
+  let sawSameTypeDifferentParent = false
+
+  for (let i = messages.length - 1; i >= 0 && scanned < scanLimit; i--) {
+    scanned++
+    const message = messages[i]
+    if (message?.type !== 'progress') {
+      continue
+    }
+
+    const data = message.data as Record<string, unknown> | undefined
+    if (data?.type !== newType) {
+      continue
+    }
+
+    if (message.parentToolUseID === newMessage.parentToolUseID) {
+      const copy = messages.slice()
+      copy[i] = newMessage
+      return {
+        messages: copy,
+        replaced: true,
+        scanned,
+        stoppedBy: null,
+      }
+    }
+
+    sawSameTypeDifferentParent = true
+  }
+
+  return {
+    messages: [...messages, newMessage],
+    replaced: false,
+    scanned,
+    stoppedBy:
+      scanned >= scanLimit && scanned < messages.length
+        ? 'scan-limit'
+        : sawSameTypeDifferentParent
+          ? 'different-parent-match'
+          : messages.length === 0 || scanned >= messages.length
+            ? 'start'
+            : null,
+  }
+}
+
 export function createToolResultStopMessage(
   toolUseID: string,
 ): ToolResultBlockParam {

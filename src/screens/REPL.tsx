@@ -242,6 +242,7 @@ import {
   createSystemMessage,
   createCommandInputMessage,
   formatCommandInputTags,
+  replaceEphemeralProgressMessage,
 } from '../utils/messages.js';
 import { generateSessionTitle } from '../utils/sessionTitle.js';
 import {
@@ -1461,6 +1462,8 @@ export function REPL({
 
   const [messages, rawSetMessages] = useState<MessageType[]>(initialMessages ?? []);
   const messagesRef = useRef(messages);
+  const oomProbeEnabledRef = useRef(isEnvTruthy(process.env.CSC_OOM_PROBE));
+  const oomProbeLastLogRef = useRef(0);
   // Stores the willowMode variant that was shown (or false if no hint shown).
   // Captured at hint_shown time so hint_converted telemetry reports the same
   // variant — the GrowthBook value shouldn't change mid-session, but reading
@@ -1496,6 +1499,33 @@ export function REPL({
         userMessagePendingRef.current = false;
       } else {
         userInputBaselineRef.current = next.length;
+      }
+    }
+    if (oomProbeEnabledRef.current) {
+      const now = Date.now();
+      const grew = next.length > prev.length;
+      if (grew || now - oomProbeLastLogRef.current > 10_000) {
+        oomProbeLastLogRef.current = now;
+        const progressTypes = new Map<string, number>();
+        let progressCount = 0;
+        for (const message of next) {
+          if (message.type !== 'progress') continue;
+          progressCount++;
+          const data = message.data as Record<string, unknown> | undefined;
+          const type = typeof data?.type === 'string' ? data.type : 'unknown';
+          progressTypes.set(type, (progressTypes.get(type) ?? 0) + 1);
+        }
+        const memory = process.memoryUsage();
+        const topProgressTypes = Array.from(progressTypes.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([type, count]) => `${type}:${count}`)
+          .join(',');
+        logForDebugging(
+          `[oom-probe] heap=${Math.round(memory.heapUsed / 1024 / 1024)}MB rss=${Math.round(
+            memory.rss / 1024 / 1024,
+          )}MB messages=${next.length} progress=${progressCount} progressTypes={${topProgressTypes}}`,
+        );
       }
     }
     rawSetMessages(next);
@@ -3132,22 +3162,17 @@ export function REPL({
             // history). Replacing those leaves the AgentTool UI stuck at
             // "Initializing…" because it renders the full progress trail.
             setMessages(oldMessages => {
-              const newData = newMessage.data as Record<string, unknown>;
-              // Scan backwards to find the last ephemeral progress with matching
-              // parentToolUseID and type. Previously only checked the last message,
-              // so interleaved non-ephemeral messages caused duplicate progress
-              // entries to accumulate (observed 13k+ entries in sleep-heavy sessions).
-              for (let i = oldMessages.length - 1; i >= 0; i--) {
-                const m = oldMessages[i]!;
-                if (m.type !== 'progress') break;
-                const mData = m.data as Record<string, unknown> | undefined;
-                if (m.parentToolUseID === newMessage.parentToolUseID && mData?.type === newData.type) {
-                  const copy = oldMessages.slice();
-                  copy[i] = newMessage;
-                  return copy;
-                }
+              const progressMessage = newMessage as ProgressMessage;
+              const result = replaceEphemeralProgressMessage(oldMessages, progressMessage);
+              if (oomProbeEnabledRef.current && !result.replaced) {
+                const data = progressMessage.data as Record<string, unknown> | undefined;
+                logForDebugging(
+                  `[oom-probe] appended_ephemeral_progress type=${String(data?.type ?? 'unknown')} parent=${
+                    progressMessage.parentToolUseID
+                  } scanned=${result.scanned} stoppedBy=${result.stoppedBy ?? 'none'} messages=${oldMessages.length}`,
+                );
               }
-              return [...oldMessages, newMessage];
+              return result.messages;
             });
           } else {
             setMessages(oldMessages => [...oldMessages, newMessage]);

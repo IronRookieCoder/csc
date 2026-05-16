@@ -1,0 +1,27 @@
+oom 大内存占用 退出时触发 触发后终端卡死，必须x掉重开
+
+[823080:0x25fb5000] 13477350 ms: Scavenge (interleaved) 3994.6 (4135.2) -> 3989.9 (4135.2) MB, pooled: 2 MB, 22.99 / 0.73 ms  (average mu = 0.978, current mu = 0.988) task; 
+[823080:0x25fb5000] 13477668 ms: Scavenge (interleaved) 3994.6 (4135.2) -> 3989.8 (4151.2) MB, pooled: 0 MB, 115.22 / 0.00 ms  (average mu = 0.978, current mu = 0.988) task; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0xe36068 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [csc]
+ 2: 0x1202550 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [csc]
+ 3: 0x1202827 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [csc]
+ 4: 0x1430105  [csc]
+ 5: 0x1449999 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [csc]
+ 6: 0x14920cd v8::internal::MinorGCJob::Task::RunInternal() [csc]
+ 7: 0x1015203  [csc]
+ 8: 0x1018b88 node::PerIsolatePlatformData::FlushForegroundTasksInternal() [csc]
+ 9: 0x1cef743  [csc]
+10: 0x1d063e4  [csc]
+11: 0x1cf04a7 uv_run [csc]
+12: 0xe81c86 node::SpinEventLoopInternal(node::Environment*) [csc]
+13: 0xfdd351 node::NodeMainInstance::Run() [csc]
+14: 0xf3883b node::Start(int, char**) [csc]
+15: 0x7f794e2be083 __libc_start_main [/lib/x86_64-linux-gnu/libc.so.6]
+16: 0xe7dc7e _start [csc]

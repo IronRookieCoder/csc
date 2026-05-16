@@ -16,6 +16,8 @@ import {
   createUserInterruptionMessage,
   prepareUserContent,
   createToolResultStopMessage,
+  createProgressMessage,
+  replaceEphemeralProgressMessage,
   extractTag,
   isNotEmptyMessage,
   deriveUUID,
@@ -31,6 +33,7 @@ import {
 import type {
   Message,
   AssistantMessage,
+  ProgressMessage,
   UserMessage,
 } from '../../types/message'
 
@@ -46,6 +49,18 @@ function makeAssistantMsg(
 
 function makeUserMsg(text: string): UserMessage {
   return createUserMessage({ content: text })
+}
+
+function makeProgress(
+  parentToolUseID: string,
+  type: string,
+  toolUseID = `${parentToolUseID}-${type}`,
+): ProgressMessage {
+  return createProgressMessage({
+    toolUseID,
+    parentToolUseID,
+    data: { type } as any,
+  })
 }
 
 // ─── deriveShortMessageId ───────────────────────────────────────────────
@@ -81,6 +96,52 @@ describe('message constants', () => {
 
   test('SYNTHETIC_MODEL is <synthetic>', () => {
     expect(SYNTHETIC_MODEL).toBe('<synthetic>')
+  })
+})
+
+describe('replaceEphemeralProgressMessage', () => {
+  test('replaces matching progress across interleaved non-progress messages', () => {
+    const existing = makeProgress('parent-1', 'bash_progress', 'progress-1')
+    const interleaved = makeAssistantMsg([{ type: 'text', text: 'working' }])
+    const next = makeProgress('parent-1', 'bash_progress', 'progress-2')
+
+    const result = replaceEphemeralProgressMessage(
+      [existing, interleaved],
+      next,
+    )
+
+    expect(result.replaced).toBe(true)
+    expect(result.messages).toHaveLength(2)
+    expect(result.messages[0]).toBe(next)
+    expect(result.messages[1]).toBe(interleaved)
+  })
+
+  test('does not replace same type for a different parent tool use', () => {
+    const existing = makeProgress('parent-1', 'bash_progress', 'progress-1')
+    const next = makeProgress('parent-2', 'bash_progress', 'progress-2')
+
+    const result = replaceEphemeralProgressMessage([existing], next)
+
+    expect(result.replaced).toBe(false)
+    expect(result.messages).toEqual([existing, next])
+  })
+
+  test('respects scan limit and appends when match is too far back', () => {
+    const existing = makeProgress('parent-1', 'sleep_progress', 'progress-1')
+    const filler = Array.from({ length: 3 }, (_, index) =>
+      makeAssistantMsg([{ type: 'text', text: `message ${index}` }]),
+    )
+    const next = makeProgress('parent-1', 'sleep_progress', 'progress-2')
+
+    const result = replaceEphemeralProgressMessage(
+      [existing, ...filler],
+      next,
+      2,
+    )
+
+    expect(result.replaced).toBe(false)
+    expect(result.stoppedBy).toBe('scan-limit')
+    expect(result.messages.at(-1)).toBe(next)
   })
 })
 
