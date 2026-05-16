@@ -194,6 +194,20 @@ function isWithheldMaxOutputTokens(
   return msg?.type === 'assistant' && msg.apiError === 'max_output_tokens'
 }
 
+function isMissingToolUseResponse(msg: Message | undefined): boolean {
+  if (msg?.type !== 'assistant') return false
+  if (msg.isApiErrorMessage) return false
+  const message = msg.message
+  if (!message) return false
+  if (message.stop_reason !== 'tool_use') return false
+  const content = message.content
+  if (!Array.isArray(content)) return false
+  return !content.some(block => block.type === 'tool_use')
+}
+
+const MISSING_TOOL_USE_RECOVERY_MESSAGE =
+  'Your previous response ended with stop_reason=tool_use but did not include a tool_use block. Continue by issuing the missing tool call now. If the user asked to update task state, call TaskUpdate with the appropriate taskId and status; do not just describe the action.'
+
 export type QueryParams = {
   messages: Message[]
   systemPrompt: SystemPrompt
@@ -1355,6 +1369,37 @@ async function* queryLoop(
       if (lastMessage?.isApiErrorMessage) {
         void executeStopFailureHooks(lastMessage, toolUseContext)
         return { reason: 'completed' }
+      }
+
+      if (
+        isMissingToolUseResponse(lastMessage) &&
+        state.transition?.reason !== 'missing_tool_use_recovery'
+      ) {
+        logEvent('tengu_missing_tool_use_recovery', {
+          queryChainId: queryChainIdForAnalytics,
+          queryDepth: queryTracking.depth,
+        })
+        const next: State = {
+          messages: [
+            ...messagesForQuery,
+            ...assistantMessages,
+            createUserMessage({
+              content: MISSING_TOOL_USE_RECOVERY_MESSAGE,
+              isMeta: true,
+            }),
+          ],
+          toolUseContext,
+          autoCompactTracking: tracking,
+          maxOutputTokensRecoveryCount: 0,
+          hasAttemptedReactiveCompact,
+          maxOutputTokensOverride: undefined,
+          pendingToolUseSummary: undefined,
+          stopHookActive: undefined,
+          turnCount,
+          transition: { reason: 'missing_tool_use_recovery' },
+        }
+        state = next
+        continue
       }
 
       const stopHookResult = yield* handleStopHooks(

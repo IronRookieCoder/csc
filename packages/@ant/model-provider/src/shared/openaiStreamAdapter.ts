@@ -44,7 +44,13 @@ export async function* adaptOpenAIStreamToAnthropic(
   // Track tool_use blocks: tool_calls index → { contentIndex, id, name, arguments }
   const toolBlocks = new Map<
     number,
-    { contentIndex: number; id: string; name: string; arguments: string }
+    {
+      contentIndex: number
+      id: string
+      name: string
+      arguments: string
+      idFromProvider: boolean
+    }
   >()
 
   // Track thinking block state
@@ -183,6 +189,25 @@ export async function* adaptOpenAIStreamToAnthropic(
       for (const tc of delta.tool_calls) {
         const tcIndex = tc.index
 
+        const existingBlock = toolBlocks.get(tcIndex)
+        const hasNewToolIdentity =
+          existingBlock &&
+          ((tc.id && existingBlock.idFromProvider && tc.id !== existingBlock.id) ||
+            (tc.function?.name &&
+              existingBlock.name &&
+              tc.function.name !== existingBlock.name))
+
+        if (hasNewToolIdentity) {
+          if (openBlockIndices.has(existingBlock.contentIndex)) {
+            yield {
+              type: 'content_block_stop',
+              index: existingBlock.contentIndex,
+            } as BetaRawMessageStreamEvent
+            openBlockIndices.delete(existingBlock.contentIndex)
+          }
+          toolBlocks.delete(tcIndex)
+        }
+
         if (!toolBlocks.has(tcIndex)) {
           // Close thinking block if open
           if (thinkingBlockOpen) {
@@ -215,6 +240,7 @@ export async function* adaptOpenAIStreamToAnthropic(
             id: toolId,
             name: toolName,
             arguments: '',
+            idFromProvider: Boolean(tc.id),
           })
           openBlockIndices.add(currentContentIndex)
 
@@ -233,13 +259,25 @@ export async function* adaptOpenAIStreamToAnthropic(
         // Stream argument fragments
         const argFragment = tc.function?.arguments
         if (argFragment) {
-          toolBlocks.get(tcIndex)!.arguments += argFragment
+          const block = toolBlocks.get(tcIndex)!
+          let deltaFragment = argFragment
+          if (
+            block.arguments &&
+            argFragment.startsWith(block.arguments)
+          ) {
+            deltaFragment = argFragment.slice(block.arguments.length)
+            block.arguments = argFragment
+          } else {
+            block.arguments += argFragment
+          }
+
+          if (!deltaFragment) continue
           yield {
             type: 'content_block_delta',
-            index: toolBlocks.get(tcIndex)!.contentIndex,
+            index: block.contentIndex,
             delta: {
               type: 'input_json_delta',
-              partial_json: argFragment,
+              partial_json: deltaFragment,
             },
           } as BetaRawMessageStreamEvent
         }
