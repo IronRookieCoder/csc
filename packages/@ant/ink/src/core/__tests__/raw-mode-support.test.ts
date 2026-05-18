@@ -18,11 +18,29 @@ describe('isWindowsRawModeUnsafe', () => {
     ).toBe(false);
   });
 
+  test('does not disable raw mode for Git Bash terminals', () => {
+    expect(
+      isWindowsRawModeUnsafe({
+        MSYSTEM: 'MINGW64',
+        TERM_PROGRAM: 'mintty',
+        SHELL: '/usr/bin/bash',
+      }, 'win32'),
+    ).toBe(false);
+    expect(
+      isWindowsRawModeUnsafe({
+        MSYSTEM: 'MINGW32',
+        TERM: 'xterm-256color',
+      }, 'win32'),
+    ).toBe(false);
+  });
+
   test('disables raw mode for MSYS2 and Cygwin terminals', () => {
     expect(isWindowsRawModeUnsafe({ MSYSTEM: 'UCRT64' }, 'win32')).toBe(true);
+    expect(isWindowsRawModeUnsafe({ MSYSTEM: 'CLANG64' }, 'win32')).toBe(true);
+    expect(isWindowsRawModeUnsafe({ MSYSTEM: 'MSYS' }, 'win32')).toBe(true);
     expect(isWindowsRawModeUnsafe({ TERM: 'cygwin' }, 'win32')).toBe(true);
     expect(isWindowsRawModeUnsafe({ TERM_PROGRAM: 'mintty' }, 'win32')).toBe(
-      true,
+      false,
     );
     expect(isWindowsRawModeUnsafe({ SHELL: '/usr/bin/bash' }, 'win32')).toBe(
       false,
