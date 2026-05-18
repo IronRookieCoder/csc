@@ -390,6 +390,80 @@ describe('adaptOpenAIStreamToAnthropic', () => {
     )
   })
 
+  test('keeps the initial tool name when later argument chunks omit it', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_task_update',
+                  type: 'function',
+                  function: { name: 'TaskUpdate', arguments: '' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: { arguments: '{"status": ' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: { arguments: 'in_progress' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      }),
+    ])
+
+    const blockStarts = events.filter(
+      e => e.type === 'content_block_start',
+    ) as any[]
+    expect(blockStarts).toHaveLength(1)
+    expect(blockStarts[0].content_block.name).toBe('TaskUpdate')
+
+    const jsonDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'input_json_delta',
+    ) as any[]
+    expect(jsonDeltas.map(e => e.delta.partial_json).join('')).toBe(
+      '{"status": in_progress',
+    )
+  })
+
   test('maps finish_reason stop to end_turn', async () => {
     const events = await collectEvents([
       makeChunk({

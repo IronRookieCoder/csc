@@ -206,87 +206,8 @@ describe('createToolResultStopMessage', () => {
   })
 })
 
-describe('normalizeContentFromAPI task tool input repair', () => {
-  test('repairs unquoted TaskUpdate status and preserves taskId', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input: '{"status": in_progresss", "taskId": "1"}',
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({
-      status: 'in_progress',
-      taskId: '1',
-    })
-  })
-
-  test('repairs misspelled completed TaskUpdate status', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input: '{"status": completedd", "taskId": "2"}',
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({
-      status: 'completed',
-      taskId: '2',
-    })
-  })
-
-  test('repairs common TaskUpdate aliases and loose scalar values', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input:
-            "{'status': done, 'task_id': 2, 'addBlockedBy': [1, '3'], 'active_form': 'Running checks'}",
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({
-      status: 'completed',
-      taskId: '2',
-      addBlockedBy: ['1', '3'],
-      activeForm: 'Running checks',
-    })
-  })
-
-  test('repairs unterminated TaskUpdate string values', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input: '{"taskId": "4", "subject": "Run final verification',
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({
-      taskId: '4',
-      subject: 'Run final verification',
-    })
-  })
-
-  test('does not repair malformed non-task tool input', () => {
+describe('normalizeContentFromAPI tool input validation', () => {
+  test('normalizes valid tool input objects', () => {
     const content = normalizeContentFromAPI(
       [
         {
@@ -298,67 +219,94 @@ describe('normalizeContentFromAPI task tool input repair', () => {
         {
           type: 'tool_use',
           id: 'toolu_2',
-          name: 'Bash',
-          input: '{"command": ls"}',
+          name: 'TaskUpdate',
+          input: '{"status":"completed","taskId":"1"}',
         } as any,
       ],
-      [TaskGetTool] as any,
+      [TaskGetTool, TaskUpdateTool] as any,
     )
 
     expect((content[0] as any).input).toEqual({ taskId: '1' })
-    expect((content[1] as any).input).toEqual({})
+    expect((content[1] as any).input).toEqual({
+      status: 'completed',
+      taskId: '1',
+    })
   })
 
-  test('does not repair task inputs missing required fields', () => {
+  test('rejects malformed JSON tool inputs', () => {
+    for (const input of [
+      '{"status": in_progresss", "taskId": "1"}',
+      '{"status": completedd", "taskId": "2"}',
+      'in_progress',
+      '',
+    ]) {
+      expect(() =>
+        normalizeContentFromAPI(
+          [
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'TaskUpdate',
+              input,
+            } as any,
+          ],
+          [TaskUpdateTool] as any,
+        ),
+      ).toThrow(
+        'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
+      )
+    }
+  })
+
+  test('rejects non-object JSON tool inputs', () => {
+    for (const input of ['null', '[]', '"in_progress"', '1']) {
+      expect(() =>
+        normalizeContentFromAPI(
+          [
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'TaskUpdate',
+              input,
+            } as any,
+          ],
+          [TaskUpdateTool] as any,
+        ),
+      ).toThrow(
+        'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
+      )
+    }
+  })
+
+  test('rejects tool calls without a final name', () => {
+    expect(() =>
+      normalizeContentFromAPI(
+        [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: '',
+            input: '{"taskId":"1"}',
+          } as any,
+        ],
+        [TaskGetTool] as any,
+      ),
+    ).toThrow(
+      'Model response error: invalid tool call without a tool name. The tool call was not executed.',
+    )
+  })
+
+  test('preserves valid empty object input', () => {
     const content = normalizeContentFromAPI(
       [
         {
           type: 'tool_use',
           id: 'toolu_1',
-          name: 'TaskCreate',
-          input: '{"subject": "missing description"',
-        } as any,
-        {
-          type: 'tool_use',
-          id: 'toolu_2',
-          name: 'TaskUpdate',
-          input: '{"status": completedd"}',
+          name: 'TaskList',
+          input: '{}',
         } as any,
       ],
       [] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({})
-    expect((content[1] as any).input).toEqual({})
-  })
-
-  test('does not repair TaskUpdate into a no-op when status is invalid', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input: '{"status": unknown_state", "taskId": "2"}',
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
-    )
-
-    expect((content[0] as any).input).toEqual({})
-  })
-
-  test('does not repair TaskUpdate with only taskId', () => {
-    const content = normalizeContentFromAPI(
-      [
-        {
-          type: 'tool_use',
-          id: 'toolu_1',
-          name: 'TaskUpdate',
-          input: '{"taskId": "2"',
-        } as any,
-      ],
-      [TaskUpdateTool] as any,
     )
 
     expect((content[0] as any).input).toEqual({})

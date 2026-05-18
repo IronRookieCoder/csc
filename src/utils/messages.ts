@@ -142,8 +142,6 @@ import {
 } from '@claude-code-best/builtin-tools/tools/FileReadTool/FileReadTool.js'
 import { SEND_MESSAGE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/SendMessageTool/constants.js'
 import { TASK_CREATE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskCreateTool/constants.js'
-import { TASK_GET_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskGetTool/constants.js'
-import { TASK_LIST_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskListTool/constants.js'
 import { TASK_OUTPUT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskOutputTool/constants.js'
 import { TASK_UPDATE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskUpdateTool/constants.js'
 import type { PermissionMode } from '../types/permissions.js'
@@ -180,153 +178,21 @@ const MEMORY_CORRECTION_HINT =
   "\n\nNote: The user's next message may contain a correction or preference. Pay close attention — if they explain what went wrong or how they'd prefer you to work, consider saving that to memory for future sessions."
 
 const TOOL_REFERENCE_TURN_BOUNDARY = 'Tool loaded.'
-const TASK_TOOL_NAMES = new Set([
-  TASK_CREATE_TOOL_NAME,
-  TASK_GET_TOOL_NAME,
-  TASK_LIST_TOOL_NAME,
-  TASK_UPDATE_TOOL_NAME,
-])
-const TASK_STATUS_VALUES = ['pending', 'in_progress', 'completed', 'deleted']
-
-function normalizeLooseTaskStatus(value: string): string {
-  const key = value.trim().toLowerCase().replace(/[\s-]+/g, '_')
-  if (key === 'open' || key === 'todo') return 'pending'
-  if (
-    key === 'started' ||
-    key === 'active' ||
-    key === 'inprogress' ||
-    key.startsWith('in_progress')
-  ) {
-    return 'in_progress'
+export class InvalidToolCallResponseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidToolCallResponseError'
   }
-  if (
-    key === 'complete' ||
-    key === 'done' ||
-    key === 'resolved' ||
-    key === 'closed' ||
-    key.startsWith('completed') ||
-    key.startsWith('complete')
-  ) {
-    return 'completed'
-  }
-  if (key === 'delete' || key === 'removed' || key.startsWith('deleted')) {
-    return 'deleted'
-  }
-  return value
 }
 
-function extractLooseTaskStringField(raw: string, key: string): string | null {
-  const quoted = new RegExp(`["']${key}["']\\s*:\\s*["']([^"']*)`).exec(raw)
-  if (quoted) return quoted[1] ?? ''
-
-  const bare = new RegExp(`["']${key}["']\\s*:\\s*([^,}\\n\\r]+)`).exec(raw)
-  if (!bare) return null
-
-  return (bare[1] ?? '')
-    .trim()
-    .replace(/^["']/, '')
-    .replace(/["']$/, '')
+function isPlainToolInput(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function extractLooseTaskStringArray(raw: string, key: string): string[] | null {
-  const match = new RegExp(`["']${key}["']\\s*:\\s*\\[([^\\]]*)\\]`).exec(raw)
-  if (!match) return null
-
-  return (match[1] ?? '')
-    .split(',')
-    .map(item =>
-      item
-        .trim()
-        .replace(/^["']/, '')
-        .replace(/["']$/, ''),
-    )
-    .filter(Boolean)
-}
-
-function repairTaskToolInput(toolName: string, rawInput: string): unknown {
-  if (!TASK_TOOL_NAMES.has(toolName)) return null
-
-  const repaired: Record<string, unknown> = {}
-
-  if (toolName === TASK_LIST_TOOL_NAME) {
-    return rawInput.trim() === '' || rawInput.trim() === '{' ? {} : null
-  }
-
-  for (const key of ['taskId', 'task_id', 'id']) {
-    const value = extractLooseTaskStringField(rawInput, key)
-    if (value !== null) {
-      repaired.taskId = value
-      break
-    }
-  }
-
-  if (toolName === TASK_UPDATE_TOOL_NAME) {
-    const status = extractLooseTaskStringField(rawInput, 'status')
-    if (status !== null) {
-      const normalizedStatus = normalizeLooseTaskStatus(status)
-      if (TASK_STATUS_VALUES.includes(normalizedStatus)) {
-        repaired.status = normalizedStatus
-      } else {
-        return null
-      }
-    }
-
-    for (const key of ['subject', 'description', 'activeForm', 'owner']) {
-      const value = extractLooseTaskStringField(rawInput, key)
-      if (value !== null) repaired[key] = value
-    }
-
-    const activeForm = extractLooseTaskStringField(rawInput, 'active_form')
-    if (activeForm !== null && repaired.activeForm === undefined) {
-      repaired.activeForm = activeForm
-    }
-
-    for (const [sourceKey, targetKey] of [
-      ['addBlocks', 'addBlocks'],
-      ['add_blocks', 'addBlocks'],
-      ['blocks', 'addBlocks'],
-      ['addBlockedBy', 'addBlockedBy'],
-      ['add_blocked_by', 'addBlockedBy'],
-      ['blockedBy', 'addBlockedBy'],
-      ['blocked_by', 'addBlockedBy'],
-    ] as const) {
-      const value = extractLooseTaskStringArray(rawInput, sourceKey)
-      if (value !== null && repaired[targetKey] === undefined) {
-        repaired[targetKey] = value
-      }
-    }
-  } else if (toolName === TASK_CREATE_TOOL_NAME) {
-    for (const key of ['subject', 'description', 'activeForm']) {
-      const value = extractLooseTaskStringField(rawInput, key)
-      if (value !== null) repaired[key] = value
-    }
-    const activeForm = extractLooseTaskStringField(rawInput, 'active_form')
-    if (activeForm !== null && repaired.activeForm === undefined) {
-      repaired.activeForm = activeForm
-    }
-  }
-
-  if (
-    (toolName === TASK_GET_TOOL_NAME || toolName === TASK_UPDATE_TOOL_NAME) &&
-    typeof repaired.taskId !== 'string'
-  ) {
-    return null
-  }
-  if (
-    toolName === TASK_UPDATE_TOOL_NAME &&
-    !Object.keys(repaired).some(key => key !== 'taskId')
-  ) {
-    return null
-  }
-  if (
-    toolName === TASK_CREATE_TOOL_NAME &&
-    (typeof repaired.subject !== 'string' ||
-      typeof repaired.description !== 'string')
-  ) {
-    return null
-  }
-
-  return Object.keys(repaired).length > 0 ? repaired : null
+function createInvalidToolArgumentsError(toolName: string): InvalidToolCallResponseError {
+  return new InvalidToolCallResponseError(
+    `Model response error: invalid tool call arguments for ${toolName}. The tool call was not executed.`,
+  )
 }
 
 /**
@@ -3118,6 +2984,12 @@ export function normalizeContentFromAPI(
   return contentBlocks.map(contentBlock => {
     switch (contentBlock.type) {
       case 'tool_use': {
+        if (typeof contentBlock.name !== 'string' || contentBlock.name === '') {
+          throw new InvalidToolCallResponseError(
+            'Model response error: invalid tool call without a tool name. The tool call was not executed.',
+          )
+        }
+
         if (
           typeof contentBlock.input !== 'string' &&
           !isObject(contentBlock.input)
@@ -3134,11 +3006,10 @@ export function normalizeContentFromAPI(
         let normalizedInput: unknown
         if (typeof contentBlock.input === 'string') {
           const parsed = safeParseJSON(contentBlock.input)
-          if (parsed === null && contentBlock.input.length > 0) {
+          if (parsed === null) {
             // TET/FC-v3 diagnostic: the streamed tool input JSON failed to
-            // parse. We fall back to {} which means downstream validation
-            // sees empty input. The raw prefix goes to debug log only — no
-            // PII-tagged proto column exists for it yet.
+            // parse. The raw prefix goes to debug log only — no PII-tagged
+            // proto column exists for it yet.
             logEvent('tengu_tool_input_json_parse_fail', {
               toolName: sanitizeToolNameForAnalytics(contentBlock.name),
               inputLen: contentBlock.input.length,
@@ -3149,12 +3020,16 @@ export function normalizeContentFromAPI(
                 { level: 'warn' },
               )
             }
+            throw createInvalidToolArgumentsError(contentBlock.name)
           }
-          normalizedInput =
-            parsed ??
-            repairTaskToolInput(contentBlock.name, contentBlock.input) ??
-            {}
+          if (!isPlainToolInput(parsed)) {
+            throw createInvalidToolArgumentsError(contentBlock.name)
+          }
+          normalizedInput = parsed
         } else {
+          if (!isPlainToolInput(contentBlock.input)) {
+            throw createInvalidToolArgumentsError(contentBlock.name)
+          }
           normalizedInput = contentBlock.input
         }
 
