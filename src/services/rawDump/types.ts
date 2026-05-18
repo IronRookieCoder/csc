@@ -87,4 +87,5 @@ export interface CommitPayload {
   files: string[]
   comment: string
   subject: string
+  parent_ids: string[]
 }

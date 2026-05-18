@@ -77,15 +77,17 @@ export function parseCommitLog(output: string): Array<{
   commit_time: string
   git_user_name: string
   git_user_email: string
+  parent_ids: string[]
   subject: string
 }> {
   if (!output.trim()) return []
   return output
     .split('\n')
     .map((line) => {
-      const [commit_id, commit_time, git_user_name, git_user_email, ...rest] = line.split('|')
+      const [commit_id, commit_time, git_user_name, git_user_email, parent_ids_str, ...rest] = line.split('|')
       if (!commit_id || !git_user_email) return null
-      return { commit_id, commit_time, git_user_name, git_user_email, subject: rest.join('|') }
+      const parent_ids = parent_ids_str ? parent_ids_str.trim().split(' ').filter(Boolean) : []
+      return { commit_id, commit_time, git_user_name, git_user_email, parent_ids, subject: rest.join('|') }
     })
     .filter((item): item is NonNullable<typeof item> => !!item)
 }
@@ -96,12 +98,12 @@ export async function getCommitLog(cwd: string, lastCommit?: string): Promise<st
 
   if (lastCommit) {
     return gitExec(
-      ['log', `${lastCommit}..HEAD`, '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
+      ['log', `${lastCommit}..HEAD`, '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%P|%s'],
       cwd,
     )
   }
   return gitExec(
-    ['log', '--since=1 day ago', '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%s'],
+    ['log', '--since=1 day ago', '--reverse', '--max-count=50', ...authorFilter, '--format=%H|%aI|%an|%ae|%P|%s'],
     cwd,
   )
 }

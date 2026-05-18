@@ -599,6 +599,7 @@ export async function uploadCommits(
       files: extractFilesFromDiff(diff),
       comment: toCommitComment(commit.subject),
       subject: commit.subject,
+      parent_ids: commit.parent_ids,
     }
     await postJson(authData.baseUrl, authData.headers, '/raw-store/commit', body as unknown as Record<string, unknown>)
     // 每成功一个 commit 立即更新 state，避免失败后全部重传
