@@ -7,7 +7,7 @@
  */
 
 export function parseYaml(input: string): unknown {
-  if (typeof Bun !== 'undefined') {
+  if (typeof Bun !== 'undefined' && Bun.YAML?.parse) {
     return Bun.YAML.parse(input)
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
