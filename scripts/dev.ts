@@ -6,7 +6,7 @@
  */
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getMacroDefines } from "./defines.ts";
+import { getMacroDefines, DEFAULT_BUILD_FEATURES as DEFAULT_FEATURES } from "./defines.ts";
 
 // Resolve project root from this script's location
 const __filename = fileURLToPath(import.meta.url);
@@ -22,37 +22,7 @@ const defineArgs = Object.entries(defines).flatMap(([k, v]) => [
 ]);
 
 // Bun --feature flags: enable feature() gates at runtime.
-// Default features enabled in dev mode.
-const DEFAULT_FEATURES = [
-  "BUDDY", "TRANSCRIPT_CLASSIFIER", "BRIDGE_MODE",
-  "AGENT_TRIGGERS_REMOTE", "CHICAGO_MCP", "VOICE_MODE",
-  "SHOT_STATS", "PROMPT_CACHE_BREAK_DETECTION", "TOKEN_BUDGET",
-  // P0: local features
-  "AGENT_TRIGGERS",
-  "ULTRATHINK",
-  "BUILTIN_EXPLORE_PLAN_AGENTS",
-  "LODESTONE",
-  // P1: API-dependent features
-  "EXTRACT_MEMORIES", "VERIFICATION_AGENT",
-  "KAIROS_BRIEF", "AWAY_SUMMARY", "ULTRAPLAN",
-  // P2: daemon + remote control server
-  "DAEMON",
-  // PR-package restored features
-  "WORKFLOW_SCRIPTS",
-  "HISTORY_SNIP",
-  // "CONTEXT_COLLAPSE", // 已禁用：实现是空壳 stub，启用后会抑制 auto compact 导致上下文管理完全失效
-  "MONITOR_TOOL",
-  "FORK_SUBAGENT",
-  "UDS_INBOX",
-  "KAIROS",
-  "COORDINATOR_MODE",
-  "LAN_PIPES",
-  // "REVIEW_ARTIFACT", // API 请求无响应，需进一步排查 schema 兼容性
-  // P3: poor mode (disable extract_memories + prompt_suggestion)
-  "POOR",
-  // P3: serve mode (HTTP API server)
-  "DIRECT_CONNECT",
-];
+// Default features imported from defines.ts (single source of truth).
 
 // Any env var matching FEATURE_<NAME>=1 will also enable that feature.
 // e.g. FEATURE_PROACTIVE=1 bun run dev
