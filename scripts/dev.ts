@@ -40,7 +40,7 @@ const DEFAULT_FEATURES = [
   // PR-package restored features
   "WORKFLOW_SCRIPTS",
   "HISTORY_SNIP",
-  "CONTEXT_COLLAPSE",
+  // "CONTEXT_COLLAPSE", // 已禁用：实现是空壳 stub，启用后会抑制 auto compact 导致上下文管理完全失效
   "MONITOR_TOOL",
   "FORK_SUBAGENT",
   "UDS_INBOX",
