@@ -15,18 +15,27 @@ export function isWindowsRawModeUnsafe(
   }
 
   const term = env.TERM?.toLowerCase() ?? '';
-  const termProgram = env.TERM_PROGRAM?.toLowerCase() ?? '';
   const msystem = env.MSYSTEM?.toLowerCase() ?? '';
   const shell = env.SHELL?.toLowerCase() ?? '';
 
+  // Git for Windows reports MSYSTEM=MINGW64/MINGW32 and often runs under
+  // mintty, but it needs raw mode for Ink key parsing. Disabling raw mode
+  // there makes Enter, arrows, and slash commands behave like cooked shell
+  // input. Keep the startup-crash workaround scoped to MSYS2/Cygwin-like
+  // environments and leave Git Bash on the normal raw-mode path.
+  const isGitForWindowsMingw =
+    msystem === 'mingw64' || msystem === 'mingw32';
+  if (isGitForWindowsMingw) {
+    return false;
+  }
+
   return (
     term === 'cygwin' ||
-    term.includes('mintty') ||
-    termProgram.includes('mintty') ||
-    msystem.length > 0 ||
+    msystem === 'msys' ||
+    msystem.startsWith('ucrt') ||
+    msystem.startsWith('clang') ||
     shell.includes('msys') ||
-    shell.includes('cygwin') ||
-    shell.includes('mingw')
+    shell.includes('cygwin')
   );
 }
 

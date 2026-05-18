@@ -31,18 +31,20 @@ function supportsEarlyInputRawMode(): boolean {
   }
 
   const term = process.env.TERM?.toLowerCase() ?? ''
-  const termProgram = process.env.TERM_PROGRAM?.toLowerCase() ?? ''
   const msystem = process.env.MSYSTEM?.toLowerCase() ?? ''
   const shell = process.env.SHELL?.toLowerCase() ?? ''
 
+  if (msystem === 'mingw64' || msystem === 'mingw32') {
+    return true
+  }
+
   return !(
     term === 'cygwin' ||
-    term.includes('mintty') ||
-    termProgram.includes('mintty') ||
-    msystem.length > 0 ||
+    msystem === 'msys' ||
+    msystem.startsWith('ucrt') ||
+    msystem.startsWith('clang') ||
     shell.includes('msys') ||
-    shell.includes('cygwin') ||
-    shell.includes('mingw')
+    shell.includes('cygwin')
   )
 }
 
