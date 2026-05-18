@@ -7,6 +7,8 @@ import {
   unloadFavoriteItem,
   type FavoriteItemWithStatus,
 } from '../../costrict/favorite/favorite.js';
+import { useSetAppState } from '../../state/AppState.js';
+import { getOriginalCwd } from '../../bootstrap/state.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 
 function CloudEnabledMenu({
@@ -14,6 +16,7 @@ function CloudEnabledMenu({
 }: {
   onDone: (result?: string, options?: { display?: 'skip' | 'system' | 'user' }) => void;
 }): React.ReactNode {
+  const setAppState = useSetAppState();
   const [items, setItems] = useState<FavoriteItemWithStatus[] | null>(null);
   const previousSlugs = useRef<Set<string>>(new Set());
   const isFirstChange = useRef(true);
@@ -27,7 +30,7 @@ function CloudEnabledMenu({
           onDone('No cloud favorites found', { display: 'system' });
         } else {
           setItems(data);
-          previousSlugs.current = new Set(data.map(item => item.slug));
+          previousSlugs.current = new Set(data.filter(item => item.status === 'Active').map(item => item.slug));
         }
       })
       .catch((error: unknown) => {
@@ -75,10 +78,41 @@ function CloudEnabledMenu({
 
     if (toLoad.length === 0 && toUnload.length === 0) return;
 
+    const hasMcpChanges = [...toLoad, ...toUnload].some(item => item.itemType === 'mcp');
+    const hasAgentChanges = [...toLoad, ...toUnload].some(item => item.itemType === 'agent');
+
     const results = await Promise.allSettled([
       ...toLoad.map(item => loadFavoriteItem(item.slug)),
       ...toUnload.map(item => unloadFavoriteItem(item.slug)),
     ]);
+
+    // Trigger MCP reconnection if any MCP servers were added or removed
+    if (hasMcpChanges) {
+      setAppState(prev => ({
+        ...prev,
+        mcp: {
+          ...prev.mcp,
+          pluginReconnectKey: prev.mcp.pluginReconnectKey + 1,
+        },
+      }));
+    }
+
+    // Refresh agent definitions if any agents were added or removed
+    if (hasAgentChanges) {
+      const { getAgentDefinitionsWithOverrides, getActiveAgentsFromList } = await import(
+        '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+      );
+      getAgentDefinitionsWithOverrides.cache?.clear?.();
+      const freshAgentDefs = await getAgentDefinitionsWithOverrides(getOriginalCwd());
+      setAppState(prev => ({
+        ...prev,
+        agentDefinitions: {
+          ...freshAgentDefs,
+          allAgents: freshAgentDefs.allAgents,
+          activeAgents: getActiveAgentsFromList(freshAgentDefs.allAgents),
+        },
+      }));
+    }
 
     const failures = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
     if (failures.length > 0) {
