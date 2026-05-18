@@ -99,7 +99,7 @@ describe('query missing tool_use recovery', () => {
         observedPrompts.push(messages)
         if (callCount === 1) {
           yield createAssistantMessage(
-            [{ type: 'text', text: '现在调用 TaskUpdate 标记完成。' }],
+            [{ type: 'text', text: '现在调用工具继续处理。' }],
             'tool_use',
           )
           return
@@ -139,6 +139,112 @@ describe('query missing tool_use recovery', () => {
     expect(callCount).toBe(2)
     expect(JSON.stringify(observedPrompts[1])).toContain(
       'Your previous response ended with stop_reason=tool_use',
+    )
+  })
+
+  test('surfaces an error immediately for missing task tool use', async () => {
+    const toolUseContext = createToolUseContext()
+
+    let callCount = 0
+    const yielded: unknown[] = []
+    const deps = {
+      uuid: () => 'query-chain-id',
+      microcompact: async (messages: unknown[]) => ({ messages }),
+      autocompact: async () => ({
+        compactionResult: undefined,
+        consecutiveFailures: 0,
+      }),
+      callModel: async function* () {
+        callCount += 1
+        yield createAssistantMessage(
+          [{ type: 'text', text: '让我查看任务列表确认状态更新成功：' }],
+          'tool_use',
+        )
+      },
+    }
+
+    const generator = query({
+      messages: [
+        createUserMessage({
+          content: '使用 TaskUpdate 更新任务状态',
+        }),
+      ],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool: async (_tool, input) => ({
+        behavior: 'allow',
+        updatedInput: input,
+      }),
+      toolUseContext,
+      querySource: 'sdk',
+      maxTurns: 3,
+      deps: deps as never,
+    })
+
+    let next = await generator.next()
+    while (!next.done) {
+      yielded.push(next.value)
+      next = await generator.next()
+    }
+
+    expect(next.value.reason).toBe('model_error')
+    expect(callCount).toBe(1)
+    expect(JSON.stringify(yielded)).toContain(
+      'Task tool call failed: the model ended with stop_reason=tool_use',
+    )
+  })
+
+  test('surfaces an error when generic missing tool_use recovery fails', async () => {
+    const toolUseContext = createToolUseContext()
+
+    let callCount = 0
+    const yielded: unknown[] = []
+    const deps = {
+      uuid: () => 'query-chain-id',
+      microcompact: async (messages: unknown[]) => ({ messages }),
+      autocompact: async () => ({
+        compactionResult: undefined,
+        consecutiveFailures: 0,
+      }),
+      callModel: async function* () {
+        callCount += 1
+        yield createAssistantMessage(
+          [{ type: 'text', text: '现在调用工具继续处理。' }],
+          'tool_use',
+        )
+      },
+    }
+
+    const generator = query({
+      messages: [
+        createUserMessage({
+          content: '使用工具继续处理',
+        }),
+      ],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool: async (_tool, input) => ({
+        behavior: 'allow',
+        updatedInput: input,
+      }),
+      toolUseContext,
+      querySource: 'sdk',
+      maxTurns: 3,
+      deps: deps as never,
+    })
+
+    let next = await generator.next()
+    while (!next.done) {
+      yielded.push(next.value)
+      next = await generator.next()
+    }
+
+    expect(next.value.reason).toBe('model_error')
+    expect(callCount).toBe(2)
+    expect(JSON.stringify(yielded)).toContain(
+      'Model response error: the model indicated it wanted to call a tool',
     )
   })
 })

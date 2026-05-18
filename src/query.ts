@@ -205,8 +205,26 @@ function isMissingToolUseResponse(msg: Message | undefined): boolean {
   return !content.some(block => block.type === 'tool_use')
 }
 
+function isTaskRelatedMissingToolUseResponse(
+  msg: Message | undefined,
+): boolean {
+  if (!isMissingToolUseResponse(msg)) return false
+  if (msg?.type !== 'assistant') return false
+  const content = msg.message?.content
+  if (!Array.isArray(content)) return false
+  const text = content
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+  return /Task(Create|Update|List|Get)|\btask(s)?\b|任务/.test(text)
+}
+
 const MISSING_TOOL_USE_RECOVERY_MESSAGE =
   'Your previous response ended with stop_reason=tool_use but did not include a tool_use block. Continue by issuing the missing tool call now. If the user asked to update task state, call TaskUpdate with the appropriate taskId and status; do not just describe the action.'
+const MISSING_TOOL_USE_FAILURE_MESSAGE =
+  'Model response error: the model indicated it wanted to call a tool, but no tool call was provided after retry. The requested action did not run.'
+const TASK_TOOL_USE_FAILURE_MESSAGE =
+  'Task tool call failed: the model ended with stop_reason=tool_use but did not provide the required task tool call. The requested task action did not run.'
 
 export type QueryParams = {
   messages: Message[]
@@ -1371,6 +1389,14 @@ async function* queryLoop(
         return { reason: 'completed' }
       }
 
+      if (isTaskRelatedMissingToolUseResponse(lastMessage)) {
+        const error = new Error(TASK_TOOL_USE_FAILURE_MESSAGE)
+        yield createAssistantAPIErrorMessage({
+          content: TASK_TOOL_USE_FAILURE_MESSAGE,
+        })
+        return { reason: 'model_error', error }
+      }
+
       if (
         isMissingToolUseResponse(lastMessage) &&
         state.transition?.reason !== 'missing_tool_use_recovery'
@@ -1400,6 +1426,16 @@ async function* queryLoop(
         }
         state = next
         continue
+      }
+      if (
+        isMissingToolUseResponse(lastMessage) &&
+        state.transition?.reason === 'missing_tool_use_recovery'
+      ) {
+        const error = new Error(MISSING_TOOL_USE_FAILURE_MESSAGE)
+        yield createAssistantAPIErrorMessage({
+          content: MISSING_TOOL_USE_FAILURE_MESSAGE,
+        })
+        return { reason: 'model_error', error }
       }
 
       const stopHookResult = yield* handleStopHooks(

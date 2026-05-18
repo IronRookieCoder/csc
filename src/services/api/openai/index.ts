@@ -54,6 +54,8 @@ import type { Options } from '../claude.js'
 import { randomUUID } from 'crypto'
 import {
   createAssistantAPIErrorMessage,
+  createAssistantMessage,
+  InvalidToolCallResponseError,
   createUserMessage,
   normalizeContentFromAPI,
 } from '../../../utils/messages.js'
@@ -166,23 +168,32 @@ function assembleFinalAssistantOutputs(params: {
     .filter(Boolean)
 
   if (allBlocks.length > 0) {
-    outputs.push({
-      message: {
-        ...partialMessage,
-        content: normalizeContentFromAPI(
-          allBlocks,
-          tools,
-          agentId as AgentId | undefined,
-        ),
-        usage,
-        stop_reason: stopReason,
-        stop_sequence: null,
-      },
-      requestId: undefined,
-      type: 'assistant',
-      uuid: randomUUID(),
-      timestamp: new Date().toISOString(),
-    } as AssistantMessage)
+    try {
+      outputs.push({
+        message: {
+          ...partialMessage,
+          content: normalizeContentFromAPI(
+            allBlocks,
+            tools,
+            agentId as AgentId | undefined,
+          ),
+          usage,
+          stop_reason: stopReason,
+          stop_sequence: null,
+        },
+        requestId: undefined,
+        type: 'assistant',
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+      } as AssistantMessage)
+    } catch (error) {
+      if (!(error instanceof InvalidToolCallResponseError)) throw error
+      outputs.push(
+        createAssistantMessage({
+          content: error.message,
+        }),
+      )
+    }
   }
 
   if (stopReason === 'max_tokens') {
