@@ -395,7 +395,7 @@ export const NO_RESPONSE_REQUESTED = 'No response requested.'
 // reject any payload containing it — placeholder satisfies pairing structurally
 // but the content is fake, which poisons training data if submitted.
 export const SYNTHETIC_TOOL_RESULT_PLACEHOLDER =
-  '[Tool result missing due to internal error]'
+  'Tool execution failed: the model requested a tool call, but no tool result was recorded. The requested task action did not complete successfully.'
 
 // Prefix used by UI to detect classifier denials and render them concisely
 const AUTO_MODE_REJECTION_PREFIX =
