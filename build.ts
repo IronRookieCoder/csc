@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, cp, unlink, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { getMacroDefines } from './scripts/defines.ts'
+import { getMacroDefines, DEFAULT_BUILD_FEATURES } from './scripts/defines.ts'
 
 const outdir = 'dist'
 
@@ -23,44 +23,8 @@ if (process.env.SKIP_REVIEW_BUILTIN) {
   }
 }
 
-// Default features that match the official CLI build.
+// Feature flags imported from defines.ts (single source of truth).
 // Additional features can be enabled via FEATURE_<NAME>=1 env vars.
-const DEFAULT_BUILD_FEATURES = [
-  'AGENT_TRIGGERS_REMOTE',
-  'CHICAGO_MCP',
-  'VOICE_MODE',
-  'SHOT_STATS',
-  'PROMPT_CACHE_BREAK_DETECTION',
-  'TOKEN_BUDGET',
-  // P0: local features
-  'AGENT_TRIGGERS',
-  'ULTRATHINK',
-  'BUILTIN_EXPLORE_PLAN_AGENTS',
-  'LODESTONE',
-  // P1: API-dependent features
-  'EXTRACT_MEMORIES',
-  'VERIFICATION_AGENT',
-  'KAIROS_BRIEF',
-  'AWAY_SUMMARY',
-  'ULTRAPLAN',
-  // P2: daemon + remote control server
-  'DAEMON',
-  // PR-package restored features
-  'WORKFLOW_SCRIPTS',
-  'HISTORY_SNIP',
-  'CONTEXT_COLLAPSE',
-  'MONITOR_TOOL',
-  'FORK_SUBAGENT',
-//   'UDS_INBOX',
-  'KAIROS',
-  'COORDINATOR_MODE',
-  'LAN_PIPES',
-  // 'REVIEW_ARTIFACT', // API 请求无响应，需进一步排查 schema 兼容性
-  // P3: poor mode (disable extract_memories + prompt_suggestion)
-  'POOR',
-  // P3: serve mode (HTTP API server)
-  'DIRECT_CONNECT',
-]
 
 // Collect FEATURE_* env vars → Bun.build features
 const envFeatures = Object.keys(process.env)
