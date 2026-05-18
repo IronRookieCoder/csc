@@ -16,6 +16,7 @@ import { skillChangeDetector } from '../../utils/skills/skillChangeDetector.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import { logForDebugging } from '../../utils/debug.js'
 import type { McpServerConfig } from '../../services/mcp/types.js'
+import { clearAgentDefinitionsCache } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 
 const FAVORITE_PAGE_SIZE = 20
 const FAVORITE_MAX_PAGES = 20
@@ -110,6 +111,14 @@ function favoriteStatePath() {
 
 function skillsDir() {
   return path.join(getClaudeConfigHomeDir(), 'skills')
+}
+
+function agentsDir() {
+  return path.join(getClaudeConfigHomeDir(), 'agents')
+}
+
+function commandsDir() {
+  return path.join(getClaudeConfigHomeDir(), 'commands')
 }
 
 async function readState(): Promise<FavoriteState> {
@@ -288,6 +297,16 @@ function deriveStatus(
   activeMcpNames: Set<string>,
 ): FavoriteStatus {
   if (!state) return 'Cloud'
+
+  // Prioritize favorite lifecycle over local config presence
+  switch (state.lifecycle) {
+    case 'active':
+      return 'Active'
+    case 'unloaded':
+      return 'Unloaded'
+  }
+
+  // For 'downloaded' state, fallback to checking local config
   switch (state.itemType) {
     case 'skill':
       if (activeSkillSlugs.has(state.slug)) return 'Active'
@@ -302,12 +321,8 @@ function deriveStatus(
       if (activeMcpNames.has(state.slug)) return 'Active'
       break
   }
-  switch (state.lifecycle) {
-    case 'unloaded':
-      return 'Unloaded'
-    default:
-      return 'Downloaded'
-  }
+
+  return 'Downloaded'
 }
 
 async function persistInstalledItem(item: FavoriteItem) {
@@ -528,6 +543,7 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
         content,
         mdPath,
       )
+      // Persist to global config for state tracking
       saveGlobalConfig(cfg => ({
         ...cfg,
         agents: {
@@ -538,6 +554,11 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
           },
         },
       }))
+      // Also copy to ~/.claude/agents/ so the file-based loader picks it up
+      const agentDestDir = agentsDir()
+      await mkdir(agentDestDir, { recursive: true })
+      await copyFile(mdPath, path.join(agentDestDir, `${item.slug}.md`))
+      clearAgentDefinitionsCache()
       break
     }
     case 'command': {
@@ -547,6 +568,7 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
         content,
         mdPath,
       )
+      // Persist to global config for state tracking
       saveGlobalConfig(cfg => ({
         ...cfg,
         commands: {
@@ -557,6 +579,12 @@ async function addItemToConfig(item: FavoriteItem, localPath: string) {
           },
         },
       }))
+      // Also copy to ~/.claude/commands/ so the file-based loader picks it up
+      const commandDestDir = commandsDir()
+      await mkdir(commandDestDir, { recursive: true })
+      await copyFile(mdPath, path.join(commandDestDir, `${item.slug}.md`))
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'mcp': {
@@ -603,6 +631,9 @@ async function removeItemFromConfig(
         delete agents[slug]
         return { ...cfg, agents }
       })
+      // Also remove from ~/.claude/agents/ so the file-based loader stops serving it
+      await rm(path.join(agentsDir(), `${slug}.md`), { force: true })
+      clearAgentDefinitionsCache()
       break
     }
     case 'command': {
@@ -611,6 +642,10 @@ async function removeItemFromConfig(
         delete commands[slug]
         return { ...cfg, commands }
       })
+      // Also remove from ~/.claude/commands/ so the file-based loader stops serving it
+      await rm(path.join(commandsDir(), `${slug}.md`), { force: true })
+      clearCommandsCache()
+      skillChangeDetector.notify()
       break
     }
     case 'mcp': {
@@ -799,13 +834,16 @@ export async function unloadFavoriteItem(slugOrId: string) {
 }
 
 /**
- * Auto-enable all cloud favorite items that are not already active.
- * Runs in the background so slow network or many items never blocks startup.
+ * Auto-enable cloud favorite items that are neither active nor explicitly
+ * unloaded. Items the user previously unloaded should stay disabled across
+ * restarts; only newly-downloaded or never-configured items are activated.
  */
 export async function autoEnableCloudFavorites(): Promise<void> {
   try {
     const items = await listFavoriteItems()
-    const toEnable = items.filter(item => item.status !== 'Active')
+    const toEnable = items.filter(
+      item => item.status !== 'Active' && item.status !== 'Unloaded',
+    )
     if (toEnable.length === 0) return
 
     await Promise.allSettled(toEnable.map(item => loadFavoriteItem(item.slug)))
