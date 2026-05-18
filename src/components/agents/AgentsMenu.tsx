@@ -14,6 +14,7 @@ import {
 } from '@claude-code-best/builtin-tools/tools/AgentTool/agentDisplay.js';
 import {
   type AgentDefinition,
+  type AgentDefinitionsResult,
   getActiveAgentsFromList,
   getAgentDefinitionsWithOverrides,
 } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js';
@@ -35,6 +36,22 @@ type Props = {
   onExit: (result?: string, options?: { display?: CommandResultDisplay }) => void;
 };
 
+export function mergeRefreshedAgentDefinitions(
+  current: AgentDefinitionsResult,
+  refreshed: AgentDefinitionsResult,
+): AgentDefinitionsResult {
+  const flagAgents = current.allAgents.filter(a => a.source === 'flagSettings');
+  const refreshedNonFlagAgents = refreshed.allAgents.filter(a => a.source !== 'flagSettings');
+  const allAgents = [...refreshedNonFlagAgents, ...flagAgents];
+
+  return {
+    ...refreshed,
+    allAgents,
+    activeAgents: getActiveAgentsFromList(allAgents),
+    ...(current.allowedAgentTypes ? { allowedAgentTypes: current.allowedAgentTypes } : {}),
+  };
+}
+
 export function AgentsMenu({ tools, onExit }: Props): React.ReactNode {
   const [modeState, setModeState] = useState<ModeState>({
     mode: 'list-agents',
@@ -53,8 +70,6 @@ export function AgentsMenu({ tools, onExit }: Props): React.ReactNode {
   useExitOnCtrlCDWithKeybindings();
 
   useEffect(() => {
-    if (allAgents.length > 0 || agents.length > 0) return;
-
     let cancelled = false;
     void getAgentDefinitionsWithOverrides(getCwd())
       .then(freshAgentDefinitions => {
@@ -62,7 +77,7 @@ export function AgentsMenu({ tools, onExit }: Props): React.ReactNode {
         if (freshAgentDefinitions.allAgents.length === 0 && freshAgentDefinitions.activeAgents.length === 0) return;
         setAppState(state => ({
           ...state,
-          agentDefinitions: freshAgentDefinitions,
+          agentDefinitions: mergeRefreshedAgentDefinitions(state.agentDefinitions, freshAgentDefinitions),
         }));
       })
       .catch(error => {
@@ -72,7 +87,7 @@ export function AgentsMenu({ tools, onExit }: Props): React.ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [allAgents.length, agents.length, setAppState]);
+  }, [setAppState]);
 
   const agentsBySource: Record<SettingSource | 'all' | 'built-in' | 'plugin', AgentDefinition[]> = useMemo(
     () => ({
