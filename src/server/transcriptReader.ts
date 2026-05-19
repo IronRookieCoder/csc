@@ -120,9 +120,11 @@ function contentToParts(
           callID: (b.id as string) ?? '',
           tool: normalizeToolName((b.name as string) ?? ''),
           state: {
-            status: 'running',
+            status: 'completed',
             input: (b.input as Record<string, unknown>) ?? {},
-            time: { start: Date.now() },
+            output: '',
+            title: (b.name as string) ?? '',
+            time: { start: Date.now(), end: Date.now() },
           },
         })
         break
