@@ -12,8 +12,6 @@ type SubagentToolState = {
   emittedToolCount: number
   assistantMessageID: string
   toolPartIDs: Map<number, string>
-  mainPartID: string
-  mainMessageID: string
   mainToolUseID: string
   progressLines: string[]
 }
@@ -702,8 +700,6 @@ function emitTaskStarted(msg: StdoutMessage, ctx: MessageRouterCtx): void {
     emittedToolCount: 0,
     assistantMessageID,
     toolPartIDs: new Map(),
-    mainPartID: '',
-    mainMessageID: '',
     mainToolUseID: toolUseIdForMain ?? '',
     progressLines: [],
   })
@@ -771,39 +767,33 @@ function emitTaskProgress(msg: StdoutMessage, ctx: MessageRouterCtx): void {
   const toolState = subagentToolState.get(agentId)
   if (!toolState) return
 
-  if (!toolState.mainPartID && toolState.mainToolUseID) {
-    const info = getCompletedToolInfo(ctx.sessionId, toolState.mainToolUseID)
-    if (info) {
-      toolState.mainPartID = info.partID
-      toolState.mainMessageID = info.messageID
-    }
-  }
-
-  if (description && toolState.mainPartID) {
+  if (description) {
     const lines = toolState.progressLines
     lines.push(description)
     if (lines.length > 3) lines.splice(0, lines.length - 3)
     toolState.progressLines = lines
 
-    const mainToolInfo = getCompletedToolInfo(ctx.sessionId, toolState.mainToolUseID)
-    ctx.emitOpencodeEvent('message.part.updated', {
-      sessionID: ctx.sessionId,
-      part: {
-        type: 'tool',
-        id: toolState.mainPartID,
-        callID: toolState.mainToolUseID,
-        tool: mainToolInfo?.toolName ? normalizeToolName(mainToolInfo.toolName) : 'task',
-        state: {
-          status: 'running',
-          input: mainToolInfo?.input ?? {},
-          title: mainToolInfo?.title ?? '',
-          time: { start: mainToolInfo?.startTime ?? Date.now() },
-          progress: toolState.progressLines,
-        },
-        messageID: toolState.mainMessageID,
+    if (toolState.mainToolUseID) {
+      const mainToolInfo = getCompletedToolInfo(ctx.sessionId, toolState.mainToolUseID)
+      ctx.emitOpencodeEvent('message.part.updated', {
         sessionID: ctx.sessionId,
-      },
-    })
+        part: {
+          type: 'tool',
+          id: randomUUID(),
+          callID: toolState.mainToolUseID,
+          tool: mainToolInfo?.toolName ? normalizeToolName(mainToolInfo.toolName) : 'task',
+          state: {
+            status: 'running',
+            input: mainToolInfo?.input ?? {},
+            title: mainToolInfo?.title ?? '',
+            time: { start: mainToolInfo?.startTime ?? Date.now() },
+            progress: toolState.progressLines,
+          },
+          messageID: mainToolInfo?.messageID ?? '',
+          sessionID: ctx.sessionId,
+        },
+      })
+    }
   }
 
   while (toolState.emittedToolCount < toolUses) {
