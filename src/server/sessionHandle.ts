@@ -13,6 +13,7 @@ import {
   routeMessage,
   type StdoutMessage,
   type MessageRouterCtx,
+  type SubagentInfo,
 } from './sessionMessageRouter.js'
 import type {
   SessionBusyStatus,
@@ -85,6 +86,16 @@ export class SessionHandle implements DisposableChildProcess {
   private _titleGenerationAttempted = false
   private _firstPromptContent?: string
   private _messageBuffer: SessionMessage[] = []
+  private _tombstonedUuids = new Set<string>()
+  private _activeSubagents = new Map<string, SubagentInfo>()
+
+  get tombstonedUuids(): ReadonlySet<string> {
+    return this._tombstonedUuids
+  }
+
+  get activeSubagents(): ReadonlyMap<string, SubagentInfo> {
+    return this._activeSubagents
+  }
 
   get status(): SessionState {
     return this._status
@@ -265,7 +276,8 @@ export class SessionHandle implements DisposableChildProcess {
         this._status = 'stopped'
         this._busyStatus = { type: 'idle' }
         this.emitBusyStatus()
-        this.emitEvent('deleted', {
+        this.emitOpencodeEvent('session.deleted', {
+          sessionID: this.sessionId,
           status: 'stopped',
           exit_code: code,
           signal: signal ?? null,
@@ -310,7 +322,8 @@ export class SessionHandle implements DisposableChildProcess {
         this.initResolve = null
         this.initReject = null
         this._status = 'stopped'
-        this.emitEvent('deleted', {
+        this.emitOpencodeEvent('session.deleted', {
+          sessionID: this.sessionId,
           status: 'stopped',
           reason: 'init_timeout',
         })
@@ -401,11 +414,8 @@ export class SessionHandle implements DisposableChildProcess {
     properties: Record<string, unknown>,
   ): void {
     if (this.opts.silent) return
-    if (properties.type === event && 'properties' in properties) {
-      this.eventBus.publish(event, properties as Record<string, unknown>)
-      return
-    }
     this.eventBus.publish(event, {
+      _native_opencode: true,
       session_id: properties.sessionID,
       ...properties,
     })
@@ -520,12 +530,22 @@ export class SessionHandle implements DisposableChildProcess {
       emitMessage: msg => this.emitMessage(msg),
       writeStdin: data => this.writeStdin(data),
       pushBufferMessage: msg => this.pushMessage(msg),
+      addTombstonedUuid: uuid => this._tombstonedUuids.add(uuid),
+      getActiveSubagents: () => this._activeSubagents,
+      registerSubagent: info => this._activeSubagents.set(info.agentId, info),
+      unregisterSubagent: agentId => this._activeSubagents.delete(agentId),
     }
   }
 
   setTitle(title: string): void {
     this._title = title
-    this.emitEvent('ready', this.getInfo())
+    this.emitOpencodeEvent('session.updated', {
+      sessionID: this.sessionId,
+      status: this._status,
+      model: this._model,
+      title: this._title,
+      providerID: this._providerId,
+    })
   }
 
   async sendControlRequest(
@@ -596,13 +616,16 @@ export class SessionHandle implements DisposableChildProcess {
       parent_tool_use_id: null,
     })
 
-    this.emitEvent('message', {
-      type: 'user',
-      content,
-      uuid,
-      session_id: this.sessionId,
-      model: this._model ?? '',
-      provider_id: this._providerId ?? '',
+    this.emitOpencodeEvent('message.updated', {
+      sessionID: this.sessionId,
+      info: {
+        id: uuid,
+        role: 'user',
+        modelID: this._model ?? '',
+        providerID: this._providerId ?? '',
+        time: { created: Date.now() },
+        parentID: null,
+      },
     })
 
     this.pushMessage({
@@ -644,6 +667,18 @@ export class SessionHandle implements DisposableChildProcess {
 
     this._busyStatus = { type: 'idle' }
     this.emitBusyStatus()
+
+    // Emit a result event with is_interrupted so the adapter layer can
+    // generate the full session.idle event chain that external clients
+    // expect. Without this, if the child is killed before it yields its
+    // own result, the adapter never calls adaptResultEvent and the
+    // client never receives session.idle.
+    this.emitOpencodeEvent('session.result', {
+      sessionID: this.sessionId,
+      subtype: 'error_during_execution',
+      is_error: true,
+      is_interrupted: true,
+    })
 
     if (!this.promptResolve) return
 
