@@ -3,7 +3,7 @@
  * 将 Anthropic 模型名映射到 CoStrict 模型名
  */
 
-import { getCachedCoStrictModels } from './models.js'
+import { getCachedCoStrictModels, getCheapestCoStrictModel } from './models.js'
 
 function getModelFamily(model: string): 'haiku' | 'sonnet' | 'opus' | null {
   if (/haiku/i.test(model)) return 'haiku'
@@ -34,6 +34,11 @@ export function resolveCoStrictModel(anthropicModel: string): string {
     const envVar = `COSTRICT_DEFAULT_${family.toUpperCase()}_MODEL`
     const override = process.env[envVar]
     if (override) return override
+    // haiku 族无 env var 时，自动选取 creditConsumption 最低的模型
+    if (family === 'haiku') {
+      const cheapest = getCheapestCoStrictModel()
+      if (cheapest) return cheapest
+    }
   }
 
   // 优先级 3: 直接透传原始模型名（用户手动配置的模型名优先于环境变量）

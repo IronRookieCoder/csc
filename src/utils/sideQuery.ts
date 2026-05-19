@@ -38,6 +38,7 @@ import { getOpenAIClient } from '../services/api/openai/client.js'
 import { resolveOpenAIModel } from '@ant/model-provider'
 import { createCoStrictFetch } from '../costrict/provider/fetch.js'
 import { resolveCoStrictModel } from '../costrict/provider/modelMapping.js'
+import { getCachedCoStrictModels } from '../costrict/provider/models.js'
 import { getCoStrictBaseURL } from '../costrict/provider/auth.js'
 import { loadCoStrictCredentials } from '../costrict/provider/credentials.js'
 import { getProxyFetchOptions } from './proxy.js'
@@ -157,7 +158,14 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
       fetch: createCoStrictFetch() as unknown as typeof fetch,
       defaultHeaders: { 'User-Agent': getUserAgent() },
     })
-    return sideQueryOpenAICompat(opts, client, resolveCoStrictModel(getMainLoopModel()), 'CoStrict')
+    const costrictModel = resolveCoStrictModel(opts.model)
+    const cachedModels = getCachedCoStrictModels()
+    const isKnown =
+      cachedModels.length === 0 || cachedModels.some(m => m.id === costrictModel)
+    const effectiveModel = isKnown
+      ? costrictModel
+      : resolveCoStrictModel(getMainLoopModel())
+    return sideQueryOpenAICompat(opts, client, effectiveModel, 'CoStrict')
   }
 
   const {

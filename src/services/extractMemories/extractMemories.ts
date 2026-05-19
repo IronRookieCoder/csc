@@ -55,6 +55,8 @@ import {
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { logEvent } from '../analytics/index.js'
 import { sanitizeToolNameForAnalytics } from '../analytics/metadata.js'
+import { getSmallFastModel } from '../../utils/model/model.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 import {
   buildExtractAutoOnlyPrompt,
   buildExtractCombinedPrompt,
@@ -367,6 +369,11 @@ export function initExtractMemories(): void {
 
     const canUseTool = createAutoMemCanUseTool(memoryDir)
     const cacheSafeParams = createCacheSafeParams(context)
+    const smallModel = getSmallFastModel()
+    const modelOverride =
+      getAPIProvider() === 'costrict'
+        ? { options: { ...cacheSafeParams.toolUseContext.options, mainLoopModel: smallModel, model: smallModel } }
+        : {}
 
     // Only run extraction every N eligible turns (tengu_bramble_lintel, default 1).
     // Trailing extractions (from stashed contexts) skip this check since they
@@ -415,12 +422,9 @@ export function initExtractMemories(): void {
         canUseTool,
         querySource: 'extract_memories',
         forkLabel: 'extract_memories',
-        // The extractMemories subagent does not need to record to transcript.
-        // Doing so can create race conditions with the main thread.
         skipTranscript: true,
-        // Well-behaved extractions complete in 2-4 turns (read → write).
-        // A hard cap prevents verification rabbit-holes from burning turns.
         maxTurns: 5,
+        overrides: modelOverride,
       })
 
       // Advance the cursor only after a successful run. If the agent errors
