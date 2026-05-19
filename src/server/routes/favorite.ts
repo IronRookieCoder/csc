@@ -3,6 +3,7 @@ import {
   listFavoriteItems,
   loadFavoriteItem,
   unloadFavoriteItem,
+  type FavoriteItemType,
 } from '../../costrict/favorite/favorite.js'
 import { notFound } from '../errors.js'
 
@@ -10,7 +11,8 @@ export function createFavoriteRoutes(): Hono {
   return new Hono()
     .get('/global/favorite/skills', async c => {
       try {
-        const items = await listFavoriteItems('skill')
+        const type = c.req.query('type') as FavoriteItemType | undefined
+        const items = await listFavoriteItems(type)
         return c.json({ success: true, items })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
