@@ -32,6 +32,18 @@ import { randomUUID } from 'crypto'
  *   OpenAI reports cached tokens in usage.prompt_tokens_details.cached_tokens.
  *   This is mapped to Anthropic's cache_read_input_tokens.
  */
+function extractReasoning(delta: any): string | undefined {
+  if (delta.reasoning_content != null) return delta.reasoning_content as string;
+  if (typeof delta.reasoning === 'string') return delta.reasoning;
+  if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
+    return (delta.reasoning_details as Array<{ type?: string; text?: string; format?: string; index?: number }>)
+      .filter(d => d != null && typeof d.text === 'string')
+      .map(d => d.text!)
+      .join('');
+  }
+  return undefined;
+}
+
 export async function* adaptOpenAIStreamToAnthropic(
   stream: AsyncIterable<ChatCompletionChunk>,
   model: string,
@@ -117,7 +129,7 @@ export async function* adaptOpenAIStreamToAnthropic(
     // returns reasoning_content: "" when the model answers directly. The
     // empty thinking block must round-trip back to the API in subsequent
     // requests, otherwise DeepSeek rejects with 400.
-    const reasoningContent = (delta as any).reasoning_content
+    const reasoningContent = extractReasoning(delta)
     if (reasoningContent != null) {
       if (!thinkingBlockOpen) {
         currentContentIndex++

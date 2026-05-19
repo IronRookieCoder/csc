@@ -807,6 +807,160 @@ describe('thinking support (reasoning_content)', () => {
     expect(thinkingDeltas.length).toBe(0)
   })
 
+  test('converts delta.reasoning string to thinking block', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning: 'Let me think...' },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning: ' more deeply.' },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const blockStart = events.find(e => e.type === 'content_block_start') as any
+    expect(blockStart.content_block.type).toBe('thinking')
+
+    const thinkingDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'thinking_delta',
+    ) as any[]
+    expect(thinkingDeltas.length).toBe(2)
+    expect(thinkingDeltas[0].delta.thinking).toBe('Let me think...')
+    expect(thinkingDeltas[1].delta.thinking).toBe(' more deeply.')
+  })
+
+  test('converts delta.reasoning_details array to thinking block', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              reasoning_details: [
+                { type: 'text', text: 'Step 1: ', format: 'markdown', index: 0 },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              reasoning_details: [
+                { type: 'text', text: 'analyze.', format: 'markdown', index: 1 },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const blockStart = events.find(e => e.type === 'content_block_start') as any
+    expect(blockStart.content_block.type).toBe('thinking')
+
+    const thinkingDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'thinking_delta',
+    ) as any[]
+    expect(thinkingDeltas.length).toBe(2)
+    expect(thinkingDeltas[0].delta.thinking).toBe('Step 1: ')
+    expect(thinkingDeltas[1].delta.thinking).toBe('analyze.')
+  })
+
+  test('opens thinking block on empty reasoning_details (DeepSeek-V4-Pro direct-answer)', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              reasoning_details: [
+                { type: 'text', text: '', format: 'markdown', index: 0 },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'Direct answer.' },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    // A thinking block IS opened
+    const blockStarts = events.filter(
+      e => e.type === 'content_block_start',
+    ) as any[]
+    expect(blockStarts.length).toBe(2)
+    expect(blockStarts[0].content_block.type).toBe('thinking')
+    expect(blockStarts[0].content_block.thinking).toBe('')
+
+    // NO thinking_delta is emitted (empty string conveyed by block's initial value)
+    const thinkingDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'thinking_delta',
+    )
+    expect(thinkingDeltas.length).toBe(0)
+  })
+
+  test('prefers reasoning_content over reasoning when both present', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              reasoning_content: 'standard field',
+              reasoning: 'bare field',
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const thinkingDeltas = events.filter(
+      e =>
+        e.type === 'content_block_delta' && e.delta.type === 'thinking_delta',
+    ) as any[]
+    expect(thinkingDeltas.length).toBe(1)
+    expect(thinkingDeltas[0].delta.thinking).toBe('standard field')
+  })
+
   test('thinking block index is 0, text block index is 1', async () => {
     const events = await collectEvents([
       makeChunk({
