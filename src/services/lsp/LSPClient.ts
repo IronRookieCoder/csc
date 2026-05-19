@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'child_process'
+import { platform } from 'os'
 import {
   createMessageConnection,
   type MessageConnection,
@@ -101,6 +102,11 @@ export function createLSPClient(
           cwd: options?.cwd,
           // Prevent visible console window on Windows (no-op on other platforms)
           windowsHide: true,
+          // On Windows, npm-installed packages produce .cmd wrapper scripts.
+          // spawn() without shell uses CreateProcess, which only handles PE
+          // executables (.exe/.com) — .cmd/.bat files cause ENOENT. Enabling
+          // the shell lets cmd.exe resolve the wrapper.
+          shell: platform() === 'win32',
         })
 
         if (!process.stdout || !process.stdin) {
