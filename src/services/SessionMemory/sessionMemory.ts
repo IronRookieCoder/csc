@@ -25,6 +25,8 @@ import {
   runForkedAgent,
 } from '../../utils/forkedAgent.js'
 import { getFsImplementation } from '../../utils/fsOperations.js'
+import { getSmallFastModel } from '../../utils/model/model.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 import {
   type REPLHookContext,
   registerPostSamplingHook,
@@ -322,13 +324,19 @@ const extractSessionMemory = sequential(async function (
   // Run session memory extraction using runForkedAgent for prompt caching
   // runForkedAgent creates an isolated context to prevent mutation of parent state
   // Pass setupContext.readFileState so the forked agent can edit the memory file
+  const cacheSafeParams = createCacheSafeParams(context)
+  const smallModel = getSmallFastModel()
+  const modelOverride =
+    getAPIProvider() === 'costrict'
+      ? { options: { ...cacheSafeParams.toolUseContext.options, mainLoopModel: smallModel, model: smallModel } }
+      : {}
   await runForkedAgent({
     promptMessages: [createUserMessage({ content: userPrompt })],
-    cacheSafeParams: createCacheSafeParams(context),
+    cacheSafeParams,
     canUseTool: createMemoryFileCanUseTool(memoryPath),
     querySource: 'session_memory',
     forkLabel: 'session_memory',
-    overrides: { readFileState: setupContext.readFileState },
+    overrides: { readFileState: setupContext.readFileState, ...modelOverride },
   })
 
   // Log extraction event for tracking frequency
@@ -424,6 +432,11 @@ export async function manuallyExtractSessionMemory(
     const systemPrompt = asSystemPrompt(rawSystemPrompt)
 
     // Run session memory extraction using runForkedAgent
+    const smallModelManual = getSmallFastModel()
+    const modelOverrideManual =
+      getAPIProvider() === 'costrict'
+        ? { options: { ...setupContext.options, mainLoopModel: smallModelManual, model: smallModelManual } }
+        : {}
     await runForkedAgent({
       promptMessages: [createUserMessage({ content: userPrompt })],
       cacheSafeParams: {
@@ -436,7 +449,7 @@ export async function manuallyExtractSessionMemory(
       canUseTool: createMemoryFileCanUseTool(memoryPath),
       querySource: 'session_memory',
       forkLabel: 'session_memory_manual',
-      overrides: { readFileState: setupContext.readFileState },
+      overrides: { readFileState: setupContext.readFileState, ...modelOverrideManual },
     })
 
     // Log manual extraction event

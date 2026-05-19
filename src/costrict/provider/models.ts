@@ -90,3 +90,17 @@ export function clearModelCache(): void {
 export function getCachedCoStrictModels(): CoStrictModel[] {
   return modelCache?.models ?? []
 }
+
+/**
+ * 从缓存模型列表中选取 creditConsumption 最低的模型，
+ * 作为 Anthropic Haiku 的等价物用于轻量级辅助请求。
+ * 缓存为空时返回 undefined（调用方应 fallback 到主模型）。
+ */
+export function getCheapestCoStrictModel(): string | undefined {
+  const cached = getCachedCoStrictModels()
+  if (cached.length === 0) return undefined
+  const sorted = [...cached].sort(
+    (a, b) => (a.creditConsumption ?? Infinity) - (b.creditConsumption ?? Infinity),
+  )
+  return sorted[0]?.id
+}

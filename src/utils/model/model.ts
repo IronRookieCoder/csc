@@ -36,8 +36,8 @@ export type ModelSetting = ModelName | ModelAlias | null
 
 export function getSmallFastModel(): ModelName {
   const provider = getAPIProvider()
-  // CoStrict has no haiku alias — use the main loop model to stay on the same provider
-  if (provider === 'costrict') return getMainLoopModel()
+  // CoStrict has no haiku alias — resolve to cheapest available model by creditConsumption
+  if (provider === 'costrict') return getDefaultHaikuModel()
   // Provider-specific small fast model
   if (provider === 'openai' && process.env.OPENAI_SMALL_FAST_MODEL) {
     return process.env.OPENAI_SMALL_FAST_MODEL

@@ -1,7 +1,8 @@
 import { feature } from 'bun:bundle'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
-import { getDefaultSonnetModel } from '../utils/model/model.js'
+import { getDefaultSonnetModel, getSmallFastModel } from '../utils/model/model.js'
+import { getAPIProvider } from '../utils/model/providers.js'
 import { sideQuery } from '../utils/sideQuery.js'
 import type { LangfuseSpan } from '../services/langfuse/index.js'
 import { jsonParse } from '../utils/slowOperations.js'
@@ -99,8 +100,10 @@ async function selectRelevantMemories(
       : ''
 
   try {
+    const selectionModel =
+      getAPIProvider() === 'costrict' ? getSmallFastModel() : getDefaultSonnetModel()
     const result = await sideQuery({
-      model: getDefaultSonnetModel(),
+      model: selectionModel,
       system: SELECT_MEMORIES_SYSTEM_PROMPT,
       skipSystemPromptPrefix: true,
       messages: [
