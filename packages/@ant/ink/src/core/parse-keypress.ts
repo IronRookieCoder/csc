@@ -697,12 +697,17 @@ function parseKeypress(s: string = ''): ParsedKey {
     return createNavKey(s, 'mouse', false)
   }
 
-  if (s === '\r' || s === '\r\n') {
+  if (s === '\r\n') {
+    key.raw = undefined
+    key.name = 'return'
+    key.ctrl = true
+  } else if (s === '\r') {
     key.raw = undefined
     key.name = 'return'
   } else if (s === '\n') {
     key.raw = undefined
     key.name = 'return'
+    key.ctrl = true
   } else if (s === '\t') {
     key.name = 'tab'
   } else if (s === '\b' || s === '\x1b\b') {

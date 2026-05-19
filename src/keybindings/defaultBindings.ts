@@ -71,6 +71,9 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       'meta+o': 'chat:fastMode',
       'meta+t': 'chat:thinkingToggle',
       enter: 'chat:submit',
+      // Ctrl+Enter inserts a newline (Kitty keyboard protocol terminals only;
+      // standard terminals cannot distinguish ctrl+enter from plain enter).
+      'ctrl+enter': 'chat:newline',
       up: 'history:previous',
       down: 'history:next',
       // Editing shortcuts (defined here, migration in progress)
