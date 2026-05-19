@@ -121,6 +121,69 @@ describe('anthropicMessagesToOpenAI', () => {
     ])
   })
 
+  test('converts image content nested in tool_result to follow-up user image', () => {
+    const result = anthropicMessagesToOpenAI(
+      [
+        makeAssistantMsg([
+          {
+            type: 'tool_use' as const,
+            id: 'toolu_img',
+            name: 'Read',
+            input: { file_path: '1.png' },
+          },
+        ]),
+        makeUserMsg([
+          {
+            type: 'tool_result' as const,
+            tool_use_id: 'toolu_img',
+            content: [
+              {
+                type: 'image' as const,
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'iVBORw0KGgo=',
+                },
+              },
+            ],
+          },
+        ]),
+      ],
+      [] as any,
+    )
+
+    expect(result).toEqual([
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'toolu_img',
+            type: 'function',
+            function: {
+              name: 'Read',
+              arguments: '{"file_path":"1.png"}',
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'toolu_img',
+        content: '[image]',
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' },
+          },
+        ],
+      },
+    ])
+  })
+
   test('preserves thinking blocks as reasoning_content', () => {
     const result = anthropicMessagesToOpenAI(
       [

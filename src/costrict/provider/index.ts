@@ -41,12 +41,46 @@ import {
   isOpenAIThinkingEnabled,
   resolveOpenAIMaxTokens,
 } from '../../services/api/openai/requestBody.js'
-import { fetchCoStrictModels } from './models.js'
+import { fetchCoStrictModels, type CoStrictModel } from './models.js'
 import {
   getMainThreadAgentType,
   getActiveSkillName,
 } from '../../bootstrap/state.js'
 import { getModelMaxOutputTokens } from '../../utils/context.js'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object'
+}
+
+function contentContainsImage(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+
+  return content.some(block => {
+    if (!isRecord(block)) return false
+    if (block.type === 'image') return true
+    if (block.type === 'tool_result') {
+      return contentContainsImage(block.content)
+    }
+    return false
+  })
+}
+
+function messagesContainImages(messages: Message[]): boolean {
+  return messages.some(message => {
+    if (message.type !== 'user') return false
+    if (!message.message) return false
+    return contentContainsImage(message.message.content)
+  })
+}
+
+function isNonMultimodalModelError(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes('not a multimodal model') ||
+    normalized.includes('does not support image') ||
+    normalized.includes('does not support images')
+  )
+}
 
 /**
  * CoStrict 查询路径
@@ -74,10 +108,11 @@ export async function* queryModelCoStrict(
     // 3. 从模型列表获取 maxTokens 相关参数
     let defaultMaxTokens = getModelMaxOutputTokens(costrictModel).upperLimit
     let maxTokensParamKey: string = 'max_tokens'
+    let modelInfo: CoStrictModel | undefined
     if (creds?.access_token) {
       try {
         const modelList = await fetchCoStrictModels(baseUrl, creds.access_token)
-        const modelInfo = modelList.find(m => m.id === costrictModel)
+        modelInfo = modelList.find(m => m.id === costrictModel)
         if (modelInfo) {
           maxTokensParamKey = modelInfo.maxTokensKey || 'max_tokens'
           if (modelInfo.maxTokens != null) {
@@ -95,6 +130,16 @@ export async function* queryModelCoStrict(
 
     // 4. 规范化消息
     const messagesForAPI = normalizeMessagesForAPI(messages, tools)
+    if (
+      modelInfo?.supportsImages === false &&
+      messagesContainImages(messagesForAPI)
+    ) {
+      yield createAssistantAPIErrorMessage({
+        content: `CoStrict API Error: Model ${costrictModel} does not support image input. Switch to a multimodal or vision-capable model and try again.`,
+        apiError: 'api_error',
+      })
+      return
+    }
 
     // 5. 构建工具 schema
     const toolSchemas = await Promise.all(
@@ -323,7 +368,9 @@ export async function* queryModelCoStrict(
     const errorMsg = error instanceof Error ? error.message : String(error)
     logForDebugging(`[CoStrict] Error: ${errorMsg}`, { level: 'error' })
     yield createAssistantAPIErrorMessage({
-      content: `CoStrict API Error: ${errorMsg}`,
+      content: isNonMultimodalModelError(errorMsg)
+        ? 'CoStrict API Error: The current model does not support image input. Switch to a multimodal or vision-capable model and try again.'
+        : `CoStrict API Error: ${errorMsg}`,
       apiError: 'api_error',
       error:
         error instanceof Error

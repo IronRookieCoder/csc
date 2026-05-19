@@ -106,7 +106,7 @@ function convertInternalUserMessage(
     // message with tool_calls. If we emit a user message first, the API will
     // reject the request with "insufficient tool messages following tool_calls".
     for (const tr of toolResults) {
-      result.push(convertToolResult(tr))
+      result.push(...convertToolResult(tr))
     }
 
     // 如果有图片，构建多模态 content 数组
@@ -136,8 +136,11 @@ function convertInternalUserMessage(
 
 function convertToolResult(
   block: BetaToolResultBlockParam,
-): ChatCompletionToolMessageParam {
+): ChatCompletionMessageParam[] {
   let content: string
+  const imageParts: Array<{ type: 'image_url'; image_url: { url: string } }> =
+    []
+
   if (typeof block.content === 'string') {
     content = block.content
   } else if (Array.isArray(block.content)) {
@@ -145,6 +148,15 @@ function convertToolResult(
       .map(c => {
         if (typeof c === 'string') return c
         if ('text' in c) return c.text
+        if ('type' in c && c.type === 'image') {
+          const imagePart = convertImageBlockToOpenAI(
+            c as unknown as Record<string, unknown>,
+          )
+          if (imagePart) {
+            imageParts.push(imagePart)
+          }
+          return ''
+        }
         return ''
       })
       .filter(Boolean)
@@ -153,11 +165,20 @@ function convertToolResult(
     content = ''
   }
 
-  return {
+  const result: ChatCompletionMessageParam[] = [{
     role: 'tool',
     tool_call_id: block.tool_use_id,
-    content,
-  } satisfies ChatCompletionToolMessageParam
+    content: content || (imageParts.length > 0 ? '[image]' : ''),
+  } satisfies ChatCompletionToolMessageParam]
+
+  if (imageParts.length > 0) {
+    result.push({
+      role: 'user',
+      content: imageParts,
+    } satisfies ChatCompletionUserMessageParam)
+  }
+
+  return result
 }
 
 function convertInternalAssistantMessage(
@@ -214,7 +235,7 @@ function convertInternalAssistantMessage(
       const thinkingText = (block as unknown as Record<string, unknown>)
         .thinking
       if (typeof thinkingText === 'string') {
-        reasoningParts.push(thinkingText)
+        reasoningParts.push(thinkingText.length > 0 ? thinkingText : ' ')
       }
     }
     // Skip redacted_thinking, server_tool_use, etc.
