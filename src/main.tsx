@@ -233,7 +233,6 @@ import { getGhAuthStatus } from "./utils/github/ghAuthStatus.js";
 import { safeParseJSON } from "./utils/json.js";
 import { logError } from "./utils/log.js";
 import { getModelDeprecationWarning } from "./utils/model/deprecation.js";
-import { shouldUseNonInteractiveSession } from "./utils/nonInteractiveSession.js";
 import {
 	getDefaultMainLoopModel,
 	getUserSpecifiedModelSetting,
@@ -1135,16 +1134,15 @@ export async function main() {
 		}
 	}
 
-	// Check for -p/--print and --init-only flags early to set isInteractiveSession before init()
-	// This is needed because telemetry initialization calls auth functions that need this flag
-	const cliArgs = process.argv.slice(2);
-	const forceInteractive = isEnvTruthy(process.env.CLAUDE_CODE_FORCE_INTERACTIVE);
-	const isNonInteractive = shouldUseNonInteractiveSession({
-		args: cliArgs,
-		forceInteractive,
-		stdinIsTTY: process.stdin.isTTY,
-		stdoutIsTTY: process.stdout.isTTY,
-	});
+		// Check for -p/--print and --init-only flags early to set isInteractiveSession before init()
+		// This is needed because telemetry initialization calls auth functions that need this flag
+		const cliArgs = process.argv.slice(2);
+		const hasPrintFlag = cliArgs.includes("-p") || cliArgs.includes("--print");
+		const hasInitOnlyFlag = cliArgs.includes("--init-only");
+		const hasSdkUrl = cliArgs.some((arg) => arg.startsWith("--sdk-url"));
+		const forceInteractive = isEnvTruthy(process.env.CLAUDE_CODE_FORCE_INTERACTIVE);
+		const isNonInteractive =
+			hasPrintFlag || hasInitOnlyFlag || hasSdkUrl || (!forceInteractive && !process.stdout.isTTY);
 
 	// Stop capturing early input for non-interactive modes
 	if (isNonInteractive) {
