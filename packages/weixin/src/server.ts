@@ -238,17 +238,16 @@ export async function runWeixinMcpServer(
   version: string,
   deps: WeixinServerDeps,
 ): Promise<void> {
-  deps.enableConfigs()
-  deps.initializeAnalyticsSink()
-
   const account = loadAccount()
   if (!account) {
     process.stderr.write(
       '[weixin] No account configured. Run `ccb weixin login` to connect your WeChat account.\n',
     )
-    await Promise.all([deps.shutdown1PEventLogging(), deps.shutdownDatadog()])
     process.exit(1)
   }
+
+  deps.enableConfigs()
+  deps.initializeAnalyticsSink()
 
   const server = createWeixinMcpServer(version)
   const transport = new StdioServerTransport()
