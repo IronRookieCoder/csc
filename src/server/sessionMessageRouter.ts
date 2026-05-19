@@ -147,6 +147,12 @@ export type MessageRouterCtx = {
   addTombstonedUuid(uuid: string): void
 }
 
+export function getSubagentProgress(agentId: string): { progressLines: string[]; mainToolUseID: string } | undefined {
+  const state = subagentToolState.get(agentId)
+  if (!state) return undefined
+  return { progressLines: state.progressLines, mainToolUseID: state.mainToolUseID }
+}
+
 export function routeMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
   if (
     ctx.getStatus() === 'starting' &&

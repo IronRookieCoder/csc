@@ -789,9 +789,10 @@ export class QueryEngine {
       }
 
       switch (message.type) {
-        case 'tombstone':
-          // Tombstone messages are control signals for removing messages, skip them
+        case 'tombstone': {
+          yield message as SDKMessage
           break
+        }
         case 'assistant': {
           // Capture stop_reason if already set (synthetic messages). For
           // streamed responses, this is null at content_block_stop time;

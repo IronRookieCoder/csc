@@ -528,7 +528,16 @@ export function createSessionRoutes(
     .post('/session/:sessionID/abort', async c => {
       const id = c.req.param('sessionID')
       const handle = sessionManager.getSession(id)
-      if (!handle) return c.json({ aborted: true })
+      if (!handle) {
+        // Even when no in-memory handle exists, emit idle status so that
+        // a prior prompt_async busy event (which fires before the handle
+        // is created) is not left dangling forever.
+        eventBus.publish('session.status', {
+          sessionID: id,
+          status: { type: 'idle' },
+        })
+        return c.json({ aborted: true })
+      }
       await handle.abort()
       return c.json({ aborted: true })
     })

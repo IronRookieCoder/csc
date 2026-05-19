@@ -12,6 +12,10 @@ type TaskStartedEvent = {
   task_type?: string
   workflow_name?: string
   prompt?: string
+  /** Explicit agent_id for virtual session mapping in serve mode.
+   * Same value as task_id but named for clarity. Enables the serve layer
+   * to construct virtual child sessions without guessing the relationship. */
+  agent_id?: string
 }
 
 type TaskProgressEvent = {
@@ -27,10 +31,9 @@ type TaskProgressEvent = {
   }
   last_tool_name?: string
   summary?: string
-  // Delta batch of workflow state changes. Clients upsert by
-  // `${type}:${index}` then group by phaseIndex to rebuild the phase tree,
-  // same fold as collectFromEvents + groupByPhase in PhaseProgress.tsx.
   workflow_progress?: SdkWorkflowProgress[]
+  /** Explicit agent_id for virtual session mapping in serve mode. */
+  agent_id?: string
 }
 
 // Emitted when a foreground agent completes without being backgrounded.
@@ -51,6 +54,8 @@ type TaskNotificationSdkEvent = {
     tool_uses: number
     duration_ms: number
   }
+  /** Explicit agent_id for virtual session mapping in serve mode. */
+  agent_id?: string
 }
 
 // SessionStateChangedEvent is now emitted directly by sessionState.ts's
@@ -122,5 +127,6 @@ export function emitTaskTerminatedSdk(
     output_file: opts?.outputFile ?? '',
     summary: opts?.summary ?? '',
     usage: opts?.usage,
+    agent_id: taskId,
   })
 }

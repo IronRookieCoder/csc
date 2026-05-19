@@ -269,6 +269,14 @@ export type AgentMetadata = {
    * resumed agent's notification can show the original description instead
    * of a placeholder. Optional — older metadata files lack this field. */
   description?: string
+  /** Parent session ID for virtual session hierarchy in serve mode.
+   * Enables the serve layer to reconstruct subagent → parent relationships
+   * on restart. Optional — older metadata files lack this field. */
+  parent_session_id?: string
+  /** Agent-specific prompt for the subagent. Persisted so the serve layer
+   * can construct a virtual session with the original prompt context.
+   * Optional — older metadata files lack this field. */
+  prompt?: string
 }
 
 /**

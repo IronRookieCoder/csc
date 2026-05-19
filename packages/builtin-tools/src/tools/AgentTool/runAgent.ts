@@ -747,6 +747,21 @@ export async function* runAgent({
     agentType: agentDefinition.agentType,
     ...(worktreePath && { worktreePath }),
     ...(description && { description }),
+    parent_session_id: getSessionId(),
+    prompt: promptMessages
+      .map((m: Message) => {
+        const content = (m as Record<string, unknown>).content
+        if (typeof content === 'string') return content
+        if (Array.isArray(content)) {
+          return content
+            .filter((b: Record<string, unknown>) => b.type === 'text')
+            .map((b: Record<string, unknown>) => b.text)
+            .join('')
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .slice(-1)[0] ?? undefined,
   }).catch(_err => logForDebugging(`Failed to write agent metadata: ${_err}`))
 
   // Track the last recorded message UUID for parent chain continuity
@@ -812,6 +827,7 @@ export async function* runAgent({
           )
           break
         }
+        message.agent_id = agentId
         yield message as Message
         continue
       }
@@ -828,6 +844,7 @@ export async function* runAgent({
         if (message.type !== 'progress') {
           lastRecordedUuid = message.uuid
         }
+        message.agent_id = agentId
         yield message
       }
     }
