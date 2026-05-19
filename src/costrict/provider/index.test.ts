@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import type {
-  AssistantMessage,
-  StreamEvent,
-} from '../../types/message.js'
+import type { AssistantMessage, StreamEvent } from '../../types/message.js'
 
 function makeMessageStart(
   overrides: Record<string, any> = {},
@@ -88,6 +85,8 @@ async function* eventStream(events: BetaRawMessageStreamEvent[]) {
 let _nextEvents: BetaRawMessageStreamEvent[] = []
 let _lastCreateArgs: Record<string, any> | null = null
 let _mockModelMaxTokens: number | undefined
+let _mockModelSupportsImages: boolean | undefined
+let _mockCreateError: Error | undefined
 
 mock.module('openai', () => ({
   default: class OpenAI {
@@ -95,6 +94,7 @@ mock.module('openai', () => ({
       completions: {
         create: async (args: Record<string, any>) => {
           _lastCreateArgs = args
+          if (_mockCreateError) throw _mockCreateError
           return { [Symbol.asyncIterator]: async function* () {} }
         },
       },
@@ -172,6 +172,7 @@ mock.module('./models.js', () => ({
       id: 'test-model',
       maxTokens: _mockModelMaxTokens,
       maxTokensKey: 'max_completion_tokens',
+      supportsImages: _mockModelSupportsImages,
     },
   ],
 }))
@@ -196,6 +197,7 @@ mock.module('../../utils/context.js', () => ({
 async function runQueryModel(
   events: BetaRawMessageStreamEvent[],
   optionsOverrides: Record<string, unknown> = {},
+  messages: any[] = [],
 ) {
   _nextEvents = events
   const { queryModelCoStrict } = await import('./index.js')
@@ -211,7 +213,7 @@ async function runQueryModel(
   }
 
   for await (const item of queryModelCoStrict(
-    [],
+    messages,
     { type: 'text', text: '' } as any,
     [],
     new AbortController().signal,
@@ -231,11 +233,15 @@ beforeEach(() => {
   _nextEvents = []
   _lastCreateArgs = null
   _mockModelMaxTokens = undefined
+  _mockModelSupportsImages = undefined
+  _mockCreateError = undefined
 })
 
 afterEach(() => {
   _nextEvents = []
   _mockModelMaxTokens = undefined
+  _mockModelSupportsImages = undefined
+  _mockCreateError = undefined
 })
 
 describe('queryModelCoStrict', () => {
@@ -257,9 +263,7 @@ describe('queryModelCoStrict', () => {
     expect(assistantMessages).toHaveLength(1)
     expect(assistantMessages[0]!.message.stop_reason).toBe('end_turn')
     expect(
-      (assistantMessages[0]!.message.content as any[]).map(
-        block => block.type,
-      ),
+      (assistantMessages[0]!.message.content as any[]).map(block => block.type),
     ).toEqual(['thinking', 'text'])
   })
 
@@ -271,5 +275,83 @@ describe('queryModelCoStrict', () => {
 
     expect(_lastCreateArgs).not.toBeNull()
     expect(_lastCreateArgs!.max_completion_tokens).toBe(2048)
+  })
+
+  test('returns a clear error before sending images to non-multimodal model', async () => {
+    _mockModelSupportsImages = false
+    const messages = [
+      {
+        type: 'user',
+        uuid: 'user-img',
+        timestamp: new Date().toISOString(),
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'toolu_img',
+              content: [
+                {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: 'image/png',
+                    data: 'iVBORw0KGgo=',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]
+
+    const { assistantMessages } = await runQueryModel([], {}, messages)
+
+    expect(_lastCreateArgs).toBeNull()
+    expect(assistantMessages).toHaveLength(1)
+    expect((assistantMessages[0]!.message.content as any[])[0].text).toContain(
+      'does not support image input',
+    )
+  })
+
+  test('allows images when model metadata declares multimodal support', async () => {
+    _mockModelSupportsImages = true
+    const events = [makeMessageStart(), makeMessageStop()]
+    const messages = [
+      {
+        type: 'user',
+        uuid: 'user-img',
+        timestamp: new Date().toISOString(),
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: 'iVBORw0KGgo=',
+              },
+            },
+          ],
+        },
+      },
+    ]
+
+    await runQueryModel(events, {}, messages)
+
+    expect(_lastCreateArgs).not.toBeNull()
+  })
+
+  test('normalizes backend non-multimodal model errors', async () => {
+    _mockCreateError = new Error('/mnt/model is not a multimodal model')
+
+    const { assistantMessages } = await runQueryModel([], {})
+
+    expect(assistantMessages).toHaveLength(1)
+    expect((assistantMessages[0]!.message.content as any[])[0].text).toBe(
+      'CoStrict API Error: The current model does not support image input. Switch to a multimodal or vision-capable model and try again.',
+    )
   })
 })
