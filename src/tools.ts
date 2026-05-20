@@ -93,6 +93,7 @@ import { TaskCreateTool } from '@claude-code-best/builtin-tools/tools/TaskCreate
 import { TaskGetTool } from '@claude-code-best/builtin-tools/tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from '@claude-code-best/builtin-tools/tools/TaskUpdateTool/TaskUpdateTool.js'
 import { TaskListTool } from '@claude-code-best/builtin-tools/tools/TaskListTool/TaskListTool.js'
+import { UpdateTodoListCompatTool } from '@claude-code-best/builtin-tools/tools/UpdateTodoListCompatTool/UpdateTodoListCompatTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isSearchExtraToolsEnabledOptimistic } from './utils/searchExtraTools.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
@@ -242,7 +243,13 @@ export function getAllBaseTools(): Tools {
     ...(SuggestBackgroundPRTool ? [SuggestBackgroundPRTool] : []),
     ...(WebBrowserTool ? [WebBrowserTool] : []),
     ...(isTodoV2Enabled()
-      ? [TaskCreateTool, TaskGetTool, TaskUpdateTool, TaskListTool]
+      ? [
+          UpdateTodoListCompatTool,
+          TaskCreateTool,
+          TaskGetTool,
+          TaskUpdateTool,
+          TaskListTool,
+        ]
       : []),
     ...(OverflowTestTool ? [OverflowTestTool] : []),
     ...(CtxInspectTool ? [CtxInspectTool] : []),

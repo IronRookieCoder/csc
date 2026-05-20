@@ -28,6 +28,7 @@ import {
   DONT_ASK_REJECT_MESSAGE,
   SYNTHETIC_MODEL,
   normalizeContentFromAPI,
+  getInvalidToolCallError,
 } from '../messages'
 import type {
   Message,
@@ -256,6 +257,65 @@ describe('normalizeContentFromAPI tool input validation', () => {
         'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
       )
     }
+  })
+
+  test('preserves invalid tool call metadata in CoStrict tolerant mode', () => {
+    const content = normalizeContentFromAPI(
+      [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: '{"status": in_progresss", "taskId": "1"}',
+        } as any,
+      ],
+      [TaskUpdateTool] as any,
+      undefined,
+      { preserveInvalidToolCall: true },
+    )
+
+    const toolUse = content[0] as any
+    expect(toolUse).toMatchObject({
+      type: 'tool_use',
+      id: 'toolu_1',
+      name: 'TaskUpdate',
+      input: {},
+    })
+    expect(getInvalidToolCallError(toolUse)).toBe(
+      'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
+    )
+  })
+
+  test('normalizeMessagesForAPI strips invalid tool call metadata from outbound payloads', () => {
+    const assistant = createAssistantMessage({
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_1',
+          name: 'TaskUpdate',
+          input: {},
+          invalidToolCallError:
+            'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
+        } as any,
+      ],
+    })
+    const user = createUserMessage({
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_1',
+          content: 'error',
+          is_error: true,
+        },
+      ],
+    })
+
+    const normalized = normalizeMessagesForAPI(
+      [assistant, user],
+      [TaskUpdateTool] as any,
+    )
+    const toolUse = (normalized[0]!.message.content as any[])[0]
+    expect(toolUse.invalidToolCallError).toBeUndefined()
   })
 
   test('rejects non-object JSON tool inputs', () => {

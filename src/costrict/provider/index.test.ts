@@ -40,6 +40,34 @@ function makeContentBlockStart(
   } as any
 }
 
+function makeToolUseStart(
+  index: number,
+  id: string,
+  name: string,
+): BetaRawMessageStreamEvent {
+  return {
+    type: 'content_block_start',
+    index,
+    content_block: {
+      type: 'tool_use',
+      id,
+      name,
+      input: {},
+    },
+  } as any
+}
+
+function makeInputJsonDelta(
+  index: number,
+  partialJson: string,
+): BetaRawMessageStreamEvent {
+  return {
+    type: 'content_block_delta',
+    index,
+    delta: { type: 'input_json_delta', partial_json: partialJson },
+  } as any
+}
+
 function makeTextDelta(index: number, text: string): BetaRawMessageStreamEvent {
   return {
     type: 'content_block_delta',
@@ -111,7 +139,32 @@ mock.module('@ant/model-provider', () => ({
 
 mock.module('../../utils/messages.js', () => ({
   normalizeMessagesForAPI: (msgs: any) => msgs,
-  normalizeContentFromAPI: (blocks: any[]) => blocks,
+  ensureToolResultPairing: (msgs: any) => msgs,
+  normalizeContentFromAPI: (
+    blocks: any[],
+    _tools: any,
+    _agentId: any,
+    opts?: any,
+  ) =>
+    blocks.map(block => {
+      if (
+        opts?.preserveInvalidToolCall &&
+        block.type === 'tool_use' &&
+        block.invalidToolCallError
+      ) {
+        return {
+          ...block,
+          input: {},
+        }
+      }
+      if (block.type === 'tool_use' && typeof block.input === 'string') {
+        return {
+          ...block,
+          input: JSON.parse(block.input),
+        }
+      }
+      return block
+    }),
   createAssistantAPIErrorMessage: (opts: any) => ({
     type: 'assistant',
     message: {
@@ -353,5 +406,84 @@ describe('queryModelCoStrict', () => {
     expect((assistantMessages[0]!.message.content as any[])[0].text).toBe(
       'CoStrict API Error: The current model does not support image input. Switch to a multimodal or vision-capable model and try again.',
     )
+  })
+
+  test('marks malformed final tool JSON as invalid while preserving id and name', async () => {
+    const events = [
+      makeMessageStart(),
+      makeToolUseStart(0, 'toolu_bad', 'TaskUpdate'),
+      makeInputJsonDelta(0, '{"status": '),
+      makeInputJsonDelta(0, 'in_progresss"'),
+      makeInputJsonDelta(0, ', "taskId": "1"}'),
+      makeContentBlockStop(0),
+      makeMessageDelta('tool_use', 5),
+      makeMessageStop(),
+    ]
+
+    const { assistantMessages } = await runQueryModel(events)
+
+    expect(assistantMessages).toHaveLength(1)
+    const toolUse = (assistantMessages[0]!.message.content as any[])[0]
+    expect(toolUse).toMatchObject({
+      type: 'tool_use',
+      id: 'toolu_bad',
+      name: 'TaskUpdate',
+      input: {},
+    })
+    expect(toolUse.invalidToolCallError).toContain(
+      'invalid tool call arguments for TaskUpdate',
+    )
+  })
+
+  test('does not execute partial-json result when final raw input is malformed', async () => {
+    const events = [
+      makeMessageStart(),
+      makeToolUseStart(0, 'toolu_partial_bad', 'TaskUpdate'),
+      makeInputJsonDelta(0, '{"status":"in_progress","taskId":"1"}'),
+      makeInputJsonDelta(0, ' trailing'),
+      makeContentBlockStop(0),
+      makeMessageDelta('tool_use', 5),
+      makeMessageStop(),
+    ]
+
+    const { assistantMessages, streamEvents } = await runQueryModel(events)
+
+    const parsedPartialEvent = streamEvents.find(
+      event =>
+        (event.event as any).type === 'content_block_delta' &&
+        (event.event as any).delta.parsed_tool_input !== undefined,
+    )
+    expect((parsedPartialEvent!.event as any).delta.parsed_tool_input).toEqual({
+      status: 'in_progress',
+      taskId: '1',
+    })
+
+    const toolUse = (assistantMessages[0]!.message.content as any[])[0]
+    expect(toolUse.input).toEqual({})
+    expect(toolUse.invalidToolCallError).toContain(
+      'invalid tool call arguments for TaskUpdate',
+    )
+  })
+
+  test('keeps valid TaskUpdate JSON executable', async () => {
+    const events = [
+      makeMessageStart(),
+      makeToolUseStart(0, 'toolu_good', 'TaskUpdate'),
+      makeInputJsonDelta(0, '{"status":"completed","taskId":"1"}'),
+      makeContentBlockStop(0),
+      makeMessageDelta('tool_use', 5),
+      makeMessageStop(),
+    ]
+
+    const { assistantMessages } = await runQueryModel(events)
+
+    const toolUse = (assistantMessages[0]!.message.content as any[])[0]
+    expect(toolUse).toMatchObject({
+      type: 'tool_use',
+      id: 'toolu_good',
+      name: 'TaskUpdate',
+      input: { status: 'completed', taskId: '1' },
+    })
+    expect(toolUse.invalidToolCallError).toBeUndefined()
   })
 })
