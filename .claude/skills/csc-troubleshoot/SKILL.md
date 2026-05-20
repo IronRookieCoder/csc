@@ -66,12 +66,22 @@ python3 --version
 > - 搜索 `-----BEGIN.*PRIVATE KEY-----` 的私钥块
 > - 搜索 `@` 前后的邮箱地址和 URL 凭证
 >
+> **Unix/macOS 命令：**
 > ```
 > ls -la ~/.claude/settings.json ~/.claude/settings.local.json
 > ls -la ~/.claude/projects/
 > ls -la ~/.claude/sessions/
-> cat ~/.claude/sessions/*.json    # 会话状态 — 包含 pid, cwd, version, status
-> cat ~/.claude/settings.json      # 配置文件 — 特别注意 env 中的 API keys
+> cat ~/.claude/sessions/*.json
+> cat ~/.claude/settings.json
+> ```
+>
+> **Windows (PowerShell) 命令：**
+> ```
+> Get-ChildItem -Path "$env:USERPROFILE\.claude\settings.json", "$env:USERPROFILE\.claude\settings.local.json"
+> Get-ChildItem -Path "$env:USERPROFILE\.claude\projects\" -Recurse
+> Get-ChildItem -Path "$env:USERPROFILE\.claude\sessions\" -Recurse
+> Get-Content "$env:USERPROFILE\.claude\sessions\*.json"
+> Get-Content "$env:USERPROFILE\.claude\settings.json"
 > ```
 
 ### 步骤 2：执行收集
@@ -109,19 +119,21 @@ python3 scripts/collect_bundle.py \
 | `--all-projects` | 否 | false | 跨所有项目扫描 |
 | `--no-open` | 否 | false | 不自动打开输出目录 |
 
-默认全量收集会话转录（rounds=0），识别到特定症状后按以下策略调整：
+默认全量收集会话转录（rounds=0），识别到特定症状后按 `references/symptom_routing.md` 中的策略调整 rounds、时间窗和额外开关。关键默认值：
 
 | 症状 | rounds | 额外开关 | 时间窗 |
 |------|--------|---------|--------|
-| `hang` | 10 | — | 默认 |
+| `hang` | 10 | — | 24h |
 | `hook_failure` | 30 | `--include-debug` | 48h |
-| `permission` | 20 | — | 默认 |
-| `api_error` | 15 | `--include-debug` | 默认 |
+| `permission` | 20 | — | 24h |
+| `api_error` | 15 | `--include-debug` | 24h |
 | `session_lost` | 30 | `--include-history` | 7d |
 | `startup_crash` | 5 | `--include-debug` | 48h |
-| `plugin` | 20 | `--include-debug` | 默认 |
-| `tool_error` | 25 | `--include-debug` | 默认 |
+| `plugin` | 20 | `--include-debug` | 24h |
+| `tool_error` | 25 | `--include-debug` | 24h |
 | `general` | 0（全量） | — | 24h |
+
+> 完整优先级数据源和扩展说明见 `references/symptom_routing.md`。
 
 ### 步骤 3：展示收集结果
 

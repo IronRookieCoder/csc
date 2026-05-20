@@ -78,7 +78,15 @@ PRIVATE_KEY_RE = re.compile(
 URL_CRED_RE = re.compile(r"(https?://)[^\s\"'<>:@]+:[^\s\"'<>@]+@")
 
 # Email (hash local part, keep domain)
-EMAIL_RE = re.compile(r"\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b")
+# Requirements:
+#   - domain part must not have consecutive dots
+#   - TLD must be at least 2 alpha chars
+#   - must not match IP-like addresses (e.g. user@192.168.1.1)
+EMAIL_RE = re.compile(
+    r"\b([a-zA-Z0-9._%+-]+)@"
+    r"(?![0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"  # not an IP address
+    r"([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,})\b"
+)
 
 # Home directory paths
 HOME_DIR = os.path.expanduser("~")
