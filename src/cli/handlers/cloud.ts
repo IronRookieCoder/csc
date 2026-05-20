@@ -231,18 +231,28 @@ function getCloudRawArgs(): string[] {
 
 async function runCsCloud(args: string[]): Promise<void> {
 	const bin = await ensureCsCloud()
+
+	// Optimize spawn call to match direct execution performance
 	const child = spawn(bin, args, {
-		stdio: "inherit",
+		stdio: ["ignore", "inherit", "inherit"],
 		windowsHide: false,
-		env: { ...process.env, CSC_CLOUD_INVOKER: "csc" },
+		env: process.env,
+		shell: false,
+		detached: false,
 	})
+
 	const code = await new Promise<number | null>((resolve) => {
 		child.on("error", (err) => {
 			console.error(`failed to run cs-cloud: ${err.message}`)
 			resolve(1)
 		})
 		child.on("exit", resolve)
+		child.on("disconnect", () => {
+			console.error(`cs-cloud disconnected unexpectedly`)
+			resolve(1)
+		})
 	})
+
 	process.exit(code ?? 1)
 }
 
@@ -253,6 +263,5 @@ export async function cloudHandler(rawArgs: string[]): Promise<void> {
 		process.exit(1)
 	}
 
-	await ensureCsCloud()
 	await runCsCloud(args)
 }
