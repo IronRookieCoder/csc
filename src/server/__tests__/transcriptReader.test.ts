@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach } from 'bun:test'
-import { readSessionMessages, readSessionTodos, clearPathCache } from '../transcriptReader.js'
+import { readSessionMessages, readSessionTodos, readSessionTasks, clearPathCache } from '../transcriptReader.js'
 
 describe('transcriptReader', () => {
   beforeEach(() => {
@@ -15,6 +15,13 @@ describe('transcriptReader', () => {
 
   test('readSessionTodos returns empty for non-existent session', async () => {
     const result = await readSessionTodos({
+      sessionId: 'nonexistent-session-id-12345',
+    })
+    expect(result).toEqual([])
+  })
+
+  test('readSessionTasks returns empty for non-existent session', async () => {
+    const result = await readSessionTasks({
       sessionId: 'nonexistent-session-id-12345',
     })
     expect(result).toEqual([])

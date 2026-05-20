@@ -1,5 +1,8 @@
 import { type ChildProcess, spawn } from 'child_process'
 import { createInterface } from 'readline'
+import { readdir, stat, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { join } from 'path'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
@@ -10,6 +13,7 @@ import {
 } from './childSpawn.js'
 import { ControlChannel } from './sessionControlChannel.js'
 import {
+  type SubagentInfo,
   routeMessage,
   type StdoutMessage,
   type MessageRouterCtx,
@@ -23,6 +27,7 @@ import type {
 } from './types.js'
 import type { DisposableChildProcess } from '../utils/killOnDrop.js'
 import type { SessionMessage } from './transcriptReader.js'
+import { getProjectDir, findProjectDir } from '../utils/sessionStoragePortable.js'
 
 export type { InitData, PendingPermission, PendingQuestion }
 export { getScriptArgsForChild }
@@ -85,6 +90,21 @@ export class SessionHandle implements DisposableChildProcess {
   private _titleGenerationAttempted = false
   private _firstPromptContent?: string
   private _messageBuffer: SessionMessage[] = []
+  private _tombstonedUuids = new Set<string>()
+  private _activeSubagents = new Map<string, SubagentInfo>()
+  private _subagentIndex = new Map<string, { transcriptPath: string; meta: Record<string, unknown> }>()
+
+  get subagentIndex(): ReadonlyMap<string, { transcriptPath: string; meta: Record<string, unknown> }> {
+    return this._subagentIndex
+  }
+
+  get tombstonedUuids(): ReadonlySet<string> {
+    return this._tombstonedUuids
+  }
+
+  get activeSubagents(): ReadonlyMap<string, SubagentInfo> {
+    return this._activeSubagents
+  }
 
   get status(): SessionState {
     return this._status
@@ -204,6 +224,28 @@ export class SessionHandle implements DisposableChildProcess {
     }
   }
 
+  async buildSubagentIndex(): Promise<void> {
+    const projectDir = getProjectDir(this.cwd)
+    const sessionDir = join(projectDir, this.sessionId, 'subagents')
+    if (!existsSync(sessionDir)) return
+
+    try {
+      const entries = await readdir(sessionDir)
+      for (const entry of entries) {
+        if (!entry.startsWith('agent-') || !entry.endsWith('.jsonl')) continue
+        const agentId = entry.slice('agent-'.length, -'.jsonl'.length)
+        const transcriptPath = join(sessionDir, entry)
+        const metaPath = transcriptPath.replace(/\.jsonl$/, '.meta.json')
+        let meta: Record<string, unknown> = {}
+        try {
+          const raw = await readFile(metaPath, 'utf-8')
+          meta = JSON.parse(raw)
+        } catch {}
+        this._subagentIndex.set(agentId, { transcriptPath, meta })
+      }
+    } catch {}
+  }
+
   spawn(): void {
     const printArgs = [
       '--print',
@@ -265,7 +307,8 @@ export class SessionHandle implements DisposableChildProcess {
         this._status = 'stopped'
         this._busyStatus = { type: 'idle' }
         this.emitBusyStatus()
-        this.emitEvent('deleted', {
+        this.emitOpencodeEvent('session.deleted', {
+          sessionID: this.sessionId,
           status: 'stopped',
           exit_code: code,
           signal: signal ?? null,
@@ -310,7 +353,8 @@ export class SessionHandle implements DisposableChildProcess {
         this.initResolve = null
         this.initReject = null
         this._status = 'stopped'
-        this.emitEvent('deleted', {
+        this.emitOpencodeEvent('session.deleted', {
+          sessionID: this.sessionId,
           status: 'stopped',
           reason: 'init_timeout',
         })
@@ -401,11 +445,8 @@ export class SessionHandle implements DisposableChildProcess {
     properties: Record<string, unknown>,
   ): void {
     if (this.opts.silent) return
-    if (properties.type === event && 'properties' in properties) {
-      this.eventBus.publish(event, properties as Record<string, unknown>)
-      return
-    }
     this.eventBus.publish(event, {
+      _native_opencode: true,
       session_id: properties.sessionID,
       ...properties,
     })
@@ -520,12 +561,22 @@ export class SessionHandle implements DisposableChildProcess {
       emitMessage: msg => this.emitMessage(msg),
       writeStdin: data => this.writeStdin(data),
       pushBufferMessage: msg => this.pushMessage(msg),
+      addTombstonedUuid: uuid => this._tombstonedUuids.add(uuid),
+      getActiveSubagents: () => this._activeSubagents,
+      registerSubagent: info => this._activeSubagents.set(info.agentId, info),
+      unregisterSubagent: agentId => this._activeSubagents.delete(agentId),
     }
   }
 
   setTitle(title: string): void {
     this._title = title
-    this.emitEvent('ready', this.getInfo())
+    this.emitOpencodeEvent('session.updated', {
+      sessionID: this.sessionId,
+      status: this._status,
+      model: this._model,
+      title: this._title,
+      providerID: this._providerId,
+    })
   }
 
   async sendControlRequest(
@@ -596,13 +647,16 @@ export class SessionHandle implements DisposableChildProcess {
       parent_tool_use_id: null,
     })
 
-    this.emitEvent('message', {
-      type: 'user',
-      content,
-      uuid,
-      session_id: this.sessionId,
-      model: this._model ?? '',
-      provider_id: this._providerId ?? '',
+    this.emitOpencodeEvent('message.updated', {
+      sessionID: this.sessionId,
+      info: {
+        id: uuid,
+        role: 'user',
+        modelID: this._model ?? '',
+        providerID: this._providerId ?? '',
+        time: { created: Date.now() },
+        parentID: null,
+      },
     })
 
     this.pushMessage({
@@ -644,6 +698,18 @@ export class SessionHandle implements DisposableChildProcess {
 
     this._busyStatus = { type: 'idle' }
     this.emitBusyStatus()
+
+    // Emit a result event with is_interrupted so the adapter layer can
+    // generate the full session.idle event chain that external clients
+    // expect. Without this, if the child is killed before it yields its
+    // own result, the adapter never calls adaptResultEvent and the
+    // client never receives session.idle.
+    this.emitOpencodeEvent('session.result', {
+      sessionID: this.sessionId,
+      subtype: 'error_during_execution',
+      is_error: true,
+      is_interrupted: true,
+    })
 
     if (!this.promptResolve) return
 

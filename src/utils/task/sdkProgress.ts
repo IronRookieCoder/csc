@@ -32,5 +32,6 @@ export function emitTaskProgress(params: {
     last_tool_name: params.lastToolName,
     summary: params.summary,
     workflow_progress: params.workflowProgress,
+    agent_id: params.taskId,
   })
 }

@@ -28,6 +28,25 @@ type TranscriptEntry = {
   [key: string]: unknown
 }
 
+export type MessagePart =
+  | { type: 'text'; id: string; text: string }
+  | { type: 'reasoning'; id: string; text: string; redacted?: boolean }
+  | {
+      type: 'tool'
+      id: string
+      callID: string
+      tool: string
+      state:
+        | { status: 'pending'; input: Record<string, unknown> }
+        | { status: 'running'; input: Record<string, unknown>; title?: string; time: { start: number } }
+        | { status: 'completed'; input: Record<string, unknown>; output: string; title: string; time: { start: number; end: number } }
+        | { status: 'error'; input: Record<string, unknown>; error: string; time: { start: number; end: number } }
+    }
+  | { type: 'tool-result'; id: string; toolUseID: string; content: unknown }
+  | { type: 'step-start'; id: string }
+  | { type: 'step-finish'; id: string; reason: string; cost: number; tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } } }
+  | { type: 'compaction'; id: string; auto: boolean }
+
 export type SessionMessage = {
   uuid: string
   type: string
@@ -36,6 +55,15 @@ export type SessionMessage = {
   timestamp: number
   parent_uuid: string | null
   usage?: { input_tokens: number; output_tokens: number }
+  parts?: MessagePart[]
+  error?: {
+    name: string
+    data: {
+      message: string
+      statusCode?: number
+      isRetryable?: boolean
+    }
+  }
 }
 
 export type TodoItem = {
@@ -43,6 +71,93 @@ export type TodoItem = {
   content: string
   status: string
   priority: string
+}
+
+const TOOL_NAME_MAP: Record<string, string> = {
+  Read: 'read',
+  Edit: 'edit',
+  Write: 'edit',
+  Glob: 'glob',
+  Grep: 'grep',
+  LS: 'list',
+  Bash: 'bash',
+  PowerShell: 'bash',
+  Agent: 'task',
+  WebFetch: 'webfetch',
+  WebSearch: 'websearch',
+  TodoRead: 'todoread',
+  TodoWrite: 'todowrite',
+}
+
+function normalizeToolName(name: string): string {
+  return TOOL_NAME_MAP[name] ?? name.toLowerCase()
+}
+
+function contentToParts(
+  content: unknown,
+  role: string,
+): MessagePart[] {
+  const parts: MessagePart[] = []
+  if (!Array.isArray(content)) return parts
+
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    switch (b.type) {
+      case 'text':
+        parts.push({ type: 'text', id: crypto.randomUUID(), text: (b.text as string) ?? '' })
+        break
+      case 'thinking':
+        parts.push({ type: 'reasoning', id: crypto.randomUUID(), text: (b.thinking as string) ?? '' })
+        break
+      case 'redacted_thinking':
+        parts.push({ type: 'reasoning', id: crypto.randomUUID(), text: '', redacted: true })
+        break
+      case 'tool_use':
+        parts.push({
+          type: 'tool',
+          id: crypto.randomUUID(),
+          callID: (b.id as string) ?? '',
+          tool: normalizeToolName((b.name as string) ?? ''),
+          state: {
+            status: 'completed',
+            input: (b.input as Record<string, unknown>) ?? {},
+            output: '',
+            title: (b.name as string) ?? '',
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        break
+      case 'tool_result': {
+        parts.push({
+          type: 'tool-result',
+          id: crypto.randomUUID(),
+          toolUseID: (b.tool_use_id as string) ?? '',
+          content: b.content,
+        })
+        break
+      }
+    }
+  }
+  return parts
+}
+
+export function decomposeMessageToParts(msg: SessionMessage): SessionMessage {
+  if (msg.parts && msg.parts.length > 0) return msg
+  const content = msg.content
+  const role = msg.role
+  if (!content || !role) return msg
+
+  if (role === 'assistant' || role === 'user') {
+    const parts = contentToParts(content, role)
+    const filtered = msg.error
+      ? parts.filter(p => p.type !== 'text')
+      : parts
+    if (filtered.length > 0) {
+      return { ...msg, parts: filtered }
+    }
+  }
+  return msg
 }
 
 const MESSAGE_TYPES = new Set(['user', 'assistant'])
@@ -60,6 +175,23 @@ const SKIP_TYPES = new Set([
 ])
 
 const pathCache = new Map<string, string | null>()
+const subagentPathCache = new Map<string, string | null>()
+
+type AgentMeta = {
+  parent_session_id?: string
+  agentType?: string
+  description?: string
+  prompt?: string
+}
+
+async function readAgentMeta(metaPath: string): Promise<AgentMeta | null> {
+  try {
+    const raw = await readFile(metaPath, 'utf-8')
+    return JSON.parse(raw) as AgentMeta
+  } catch {
+    return null
+  }
+}
 
 async function resolveTranscriptPath(
   sessionId: string,
@@ -128,20 +260,30 @@ function entryToSessionMessage(
 
   const role = entry.role ?? entry.message?.role ?? entry.type
   const content = entry.message?.content ?? entry.content ?? ''
+
+  if (role === 'user' && isTaskNotificationContent(content)) return null
+
   const timestamp = entry.timestamp
     ? new Date(entry.timestamp).getTime()
     : 0
+
+  const errorRaw = extractApiErrorText(content)
+  const detail = errorRaw ? parseApiErrorDetail(errorRaw) : undefined
+  const error = detail
+    ? { name: 'APIError', data: detail }
+    : undefined
 
   return {
     uuid: entry.uuid,
     type: entry.type,
     role: role ?? entry.type,
-    content,
+    content: error ? [] : content,
     timestamp,
     parent_uuid: entry.parentUuid ?? null,
     usage: entry.usage as
       | { input_tokens: number; output_tokens: number }
       | undefined,
+    error,
   }
 }
 
@@ -149,11 +291,23 @@ function readMessagesFromLines(
   lines: string[],
   includeSystem: boolean,
 ): SessionMessage[] {
+  const tombstoned = new Set<string>()
+  for (const line of lines) {
+    if (!line) continue
+    const entry = parseEntry(line)
+    if (!entry) continue
+    if (entry.type === 'tombstone') {
+      const targetUuid = (entry.message as Record<string, unknown> | undefined)?.uuid
+      if (typeof targetUuid === 'string') tombstoned.add(targetUuid)
+    }
+  }
+
   const messages: SessionMessage[] = []
   for (const line of lines) {
     if (!line) continue
     const entry = parseEntry(line)
     if (!entry) continue
+    if (entry.uuid && tombstoned.has(entry.uuid)) continue
     const msg = entryToSessionMessage(entry, includeSystem)
     if (msg) messages.push(msg)
   }
@@ -171,9 +325,39 @@ async function findSubagentTranscriptPath(
   agentId: string,
   cwd?: string,
 ): Promise<string | null> {
+  const cacheKey = `${agentId}:${cwd ?? ''}`
+  const cached = subagentPathCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  const result = await findSubagentTranscriptPathUncached(agentId, cwd)
+  if (result) subagentPathCache.set(cacheKey, result)
+  return result
+}
+
+async function findSubagentTranscriptPathUncached(
+  agentId: string,
+  cwd?: string,
+): Promise<string | null> {
   const fileName = `agent-${agentId}.jsonl`
+  const metaFileName = `agent-${agentId}.meta.json`
+
+  const tryDirect = async (projectDir: string): Promise<string | null> => {
+    const metaPath = join(projectDir, metaFileName)
+    const meta = await readAgentMeta(metaPath)
+    if (meta?.parent_session_id) {
+      const direct = join(projectDir, meta.parent_session_id, 'subagents', fileName)
+      if (existsSync(direct)) {
+        const s = await stat(direct)
+        if (s.isFile() && s.size > 0) return direct
+      }
+    }
+    return null
+  }
 
   const searchProject = async (projectDir: string): Promise<string | null> => {
+    const directHit = await tryDirect(projectDir)
+    if (directHit) return directHit
+
     let sessionDirs: string[]
     try {
       sessionDirs = await readdir(projectDir)
@@ -185,8 +369,7 @@ async function findSubagentTranscriptPath(
       try {
         const s = await stat(direct)
         if (s.isFile() && s.size > 0) return direct
-      } catch {
-      }
+      } catch {}
       const nestedSubagentsDir = join(projectDir, sessionDir, 'subagents')
       let subdirs: string[]
       try {
@@ -199,8 +382,7 @@ async function findSubagentTranscriptPath(
         try {
           const s = await stat(candidate)
           if (s.isFile() && s.size > 0) return candidate
-        } catch {
-        }
+        } catch {}
       }
     }
     return null
@@ -425,6 +607,148 @@ export async function readSessionDiff(opts: {
   }
 }
 
+export type TaskInfo = {
+  taskID: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  description: string
+  taskType?: string
+  summary?: string
+  usage?: { total_tokens: number; tool_uses: number; duration_ms: number }
+  toolUseID?: string
+  startTime: number
+  endTime?: number
+}
+
+const TASK_NOTIFICATION_RE = /^<task-notification>[\s\S]*<\/task-notification>\s*$/
+const TASK_ID_RE = /<task-id>([^<]+)<\/task-id>/
+const API_ERROR_RE = /^API Error:\s*/
+const COSTRICT_API_ERROR_RE = /^CoStrict API Error:\s*/
+
+function extractApiErrorText(content: unknown): string | null {
+  if (typeof content === 'string') {
+    if (API_ERROR_RE.test(content)) return content.replace(API_ERROR_RE, '')
+    if (COSTRICT_API_ERROR_RE.test(content)) return content.replace(COSTRICT_API_ERROR_RE, '')
+  }
+  if (!Array.isArray(content)) return null
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    if (b.type === 'text' && typeof b.text === 'string') {
+      const text = b.text as string
+      if (API_ERROR_RE.test(text)) return text.replace(API_ERROR_RE, '')
+      if (COSTRICT_API_ERROR_RE.test(text)) return text.replace(COSTRICT_API_ERROR_RE, '')
+    }
+  }
+  return null
+}
+
+function parseApiErrorDetail(raw: string): {
+  message: string
+  statusCode?: number
+  isRetryable?: boolean
+} {
+  const statusMatch = raw.match(/^(\d{3})\s+/)
+  const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : undefined
+  const isRetryable = statusCode === 429 || statusCode === 503 || statusCode === 529
+  let message = raw
+  try {
+    const jsonStart = raw.indexOf('{')
+    if (jsonStart !== -1) {
+      const parsed = JSON.parse(raw.slice(jsonStart))
+      if (parsed?.error?.message) {
+        message = parsed.error.message
+      } else if (typeof parsed?.message === 'string') {
+        message = parsed.message
+      }
+    }
+  } catch {}
+  return { message, statusCode, isRetryable }
+}
+const TOOL_USE_ID_RE = /<tool-use-id>([^<]+)<\/tool-use-id>/
+const TASK_STATUS_RE = /<status>([^<]+)<\/status>/
+const TASK_SUMMARY_RE = /<summary>([^<]*)<\/summary>/
+
+function isTaskNotificationContent(content: unknown): boolean {
+  return typeof content === 'string' && TASK_NOTIFICATION_RE.test(content)
+}
+
+function parseTaskNotificationXml(xml: string): {
+  taskID: string
+  toolUseID?: string
+  status: 'completed' | 'failed' | 'stopped'
+  summary?: string
+} | null {
+  const taskID = TASK_ID_RE.exec(xml)?.[1]
+  if (!taskID) return null
+  const rawStatus = TASK_STATUS_RE.exec(xml)?.[1] ?? 'completed'
+  const status: 'completed' | 'failed' | 'stopped' =
+    rawStatus === 'completed' || rawStatus === 'failed' || rawStatus === 'stopped'
+      ? rawStatus
+      : 'completed'
+  const toolUseID = TOOL_USE_ID_RE.exec(xml)?.[1]
+  const summary = TASK_SUMMARY_RE.exec(xml)?.[1]
+  return { taskID, toolUseID, status, summary }
+}
+
+export async function readSessionTasks(opts: {
+  sessionId: string
+  cwd?: string
+}): Promise<TaskInfo[]> {
+  const path = await resolveTranscriptPath(opts.sessionId, opts.cwd)
+  if (!path || !existsSync(path)) return []
+
+  const raw = await readFile(path, 'utf-8')
+  const lines = raw.split('\n').filter(Boolean)
+
+  const tasks = new Map<string, TaskInfo>()
+  const descriptions = new Map<string, string>()
+
+  for (const line of lines) {
+    const entry = parseEntry(line)
+    if (!entry) continue
+
+    if (entry.type === 'assistant' && entry.message?.content) {
+      const content = entry.message.content
+      if (!Array.isArray(content)) continue
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue
+        const b = block as Record<string, unknown>
+        if (b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'LocalMainSessionTask')) {
+          const input = b.input as Record<string, unknown> | undefined
+          const callID = b.id as string | undefined
+          if (input?.description && callID) {
+            descriptions.set(callID, input.description as string)
+          }
+        }
+      }
+    }
+
+    if (entry.type === 'user' && entry.message?.content) {
+      const content = entry.message.content
+      if (!isTaskNotificationContent(content)) continue
+      const parsed = parseTaskNotificationXml(content as string)
+      if (!parsed) continue
+
+      const existing = tasks.get(parsed.taskID)
+      const endTime = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now()
+      const desc = existing?.description ?? descriptions.get(parsed.toolUseID ?? '') ?? ''
+      tasks.set(parsed.taskID, {
+        taskID: parsed.taskID,
+        status: parsed.status,
+        description: desc,
+        toolUseID: parsed.toolUseID ?? existing?.toolUseID,
+        summary: parsed.summary ?? existing?.summary,
+        usage: existing?.usage,
+        startTime: existing?.startTime ?? endTime,
+        endTime,
+      })
+    }
+  }
+
+  return [...tasks.values()]
+}
+
 export function clearPathCache(): void {
   pathCache.clear()
+  subagentPathCache.clear()
 }

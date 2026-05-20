@@ -248,6 +248,7 @@ export class SessionManager {
 
     try {
       handle.spawn()
+      handle.buildSubagentIndex().catch(() => {})
     } catch (err) {
       this.sessions.delete(sessionId)
       this.eventBus.unregisterSessionCwd(sessionId)
