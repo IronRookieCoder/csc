@@ -76,6 +76,7 @@ import {
   createStopHookSummaryMessage,
   createToolResultStopMessage,
   createUserMessage,
+  getInvalidToolCallError,
   withMemoryCorrectionHint,
 } from '../../utils/messages.js'
 import type {
@@ -370,6 +371,26 @@ export async function* runToolUse(
   toolUseContext: ToolUseContext,
 ): AsyncGenerator<MessageUpdateLazy, void> {
   const toolName = toolUse.name
+  const invalidToolCallError = getInvalidToolCallError(toolUse)
+  if (invalidToolCallError) {
+    logForDebugging(`Invalid tool call ${toolName}: ${toolUse.id}`)
+    yield {
+      message: createUserMessage({
+        content: [
+          {
+            type: 'tool_result',
+            content: `<tool_use_error>${invalidToolCallError}</tool_use_error>`,
+            is_error: true,
+            tool_use_id: toolUse.id,
+          },
+        ],
+        toolUseResult: invalidToolCallError,
+        sourceToolAssistantUUID: assistantMessage.uuid,
+      }),
+    }
+    return
+  }
+
   // First try to find in the available tools (what the model sees)
   let tool = findToolByName(toolUseContext.options.tools, toolName)
 

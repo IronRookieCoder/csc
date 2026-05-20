@@ -30,9 +30,11 @@ import { addToTotalSessionCost } from '../../cost-tracker.js'
 import { calculateUSDCost } from '../../utils/modelCost.js'
 import {
   createAssistantAPIErrorMessage,
+  ensureToolResultPairing,
   normalizeContentFromAPI,
 } from '../../utils/messages.js'
 import { randomUUID } from 'crypto'
+import { parse as parsePartialJSON } from 'partial-json'
 import { createCoStrictFetch } from './fetch.js'
 import { resolveCoStrictModel } from './modelMapping.js'
 import { getCoStrictBaseURL } from './auth.js'
@@ -49,7 +51,35 @@ import {
 import { getModelMaxOutputTokens } from '../../utils/context.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object'
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value)
+}
+
+function tryParsePartialToolInput(
+  rawInput: string,
+): Record<string, unknown> | undefined {
+  try {
+    const parsed = parsePartialJSON(rawInput)
+    return isPlainRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getInvalidToolInputMessage(toolName: string): string {
+  return `Model response error: invalid tool call arguments for ${toolName}. The tool call was not executed.`
+}
+
+type ToolCallStreamState = {
+  index: number
+  id: string
+  name: string
+  rawInput: string
+  partialInput?: Record<string, unknown>
+  finalParseError?: string
 }
 
 function contentContainsImage(content: unknown): boolean {
@@ -129,7 +159,9 @@ export async function* queryModelCoStrict(
     )
 
     // 4. 规范化消息
-    const messagesForAPI = normalizeMessagesForAPI(messages, tools)
+    const messagesForAPI = ensureToolResultPairing(
+      normalizeMessagesForAPI(messages, tools),
+    )
     if (
       modelInfo?.supportsImages === false &&
       messagesContainImages(messagesForAPI)
@@ -227,6 +259,7 @@ export async function* queryModelCoStrict(
     const adaptedStream = adaptOpenAIStreamToAnthropic(stream, costrictModel)
 
     const contentBlocks: Record<number, any> = {}
+    const toolCallStates = new Map<number, ToolCallStreamState>()
     let partialMessage: any
     let stopReason: string | null = null
     let usage = {
@@ -237,6 +270,18 @@ export async function* queryModelCoStrict(
     }
     let ttftMs = 0
     const start = Date.now()
+    const finalizeToolCallStates = () => {
+      for (const state of toolCallStates.values()) {
+        try {
+          const parsed = JSON.parse(state.rawInput)
+          if (!isPlainRecord(parsed)) {
+            state.finalParseError = getInvalidToolInputMessage(state.name)
+          }
+        } catch {
+          state.finalParseError = getInvalidToolInputMessage(state.name)
+        }
+      }
+    }
     const assembleFinalAssistantOutputs = (): (
       | AssistantMessage
       | SystemAPIErrorMessage
@@ -244,16 +289,32 @@ export async function* queryModelCoStrict(
       const outputs: (AssistantMessage | SystemAPIErrorMessage)[] = []
       if (!partialMessage) return outputs
 
-      const allBlocks = Object.keys(contentBlocks)
+      const allBlocksWithIndices = Object.keys(contentBlocks)
         .sort((a, b) => Number(a) - Number(b))
-        .map(k => contentBlocks[Number(k)])
-        .filter(Boolean)
+        .map(k => ({ index: Number(k), block: contentBlocks[Number(k)] }))
+        .filter(entry => Boolean(entry.block))
+      const allBlocks = allBlocksWithIndices.map(entry => entry.block)
 
       if (allBlocks.length > 0) {
+        for (const { index, block } of allBlocksWithIndices) {
+          if (block?.type !== 'tool_use') continue
+          const state = toolCallStates.get(index)
+          if (!state) continue
+          block.input = state.rawInput
+          if (state.finalParseError) {
+            block.invalidToolCallError = state.finalParseError
+          }
+        }
+
         outputs.push({
           message: {
             ...partialMessage,
-            content: normalizeContentFromAPI(allBlocks, tools, options.agentId),
+            content: normalizeContentFromAPI(
+              allBlocks,
+              tools,
+              options.agentId,
+              { preserveInvalidToolCall: true },
+            ),
             usage,
             stop_reason: stopReason,
             stop_sequence: null,
@@ -295,6 +356,12 @@ export async function* queryModelCoStrict(
           const cb = (event as any).content_block
           if (cb.type === 'tool_use') {
             contentBlocks[idx] = { ...cb, input: '' }
+            toolCallStates.set(idx, {
+              index: idx,
+              id: String(cb.id ?? ''),
+              name: typeof cb.name === 'string' ? cb.name : '',
+              rawInput: '',
+            })
           } else if (cb.type === 'text') {
             contentBlocks[idx] = { ...cb, text: '' }
           } else if (cb.type === 'thinking') {
@@ -312,7 +379,18 @@ export async function* queryModelCoStrict(
           if (delta.type === 'text_delta') {
             block.text = (block.text || '') + delta.text
           } else if (delta.type === 'input_json_delta') {
-            block.input = (block.input || '') + delta.partial_json
+            const fragment = String(delta.partial_json ?? '')
+            block.input = (block.input || '') + fragment
+            const state = toolCallStates.get(idx)
+            if (state) {
+              state.rawInput += fragment
+              const partialInput = tryParsePartialToolInput(state.rawInput)
+              if (partialInput) {
+                state.partialInput = partialInput
+                ;(delta as Record<string, unknown>).parsed_tool_input =
+                  partialInput
+              }
+            }
           } else if (delta.type === 'thinking_delta') {
             block.thinking = (block.thinking || '') + delta.thinking
           } else if (delta.type === 'signature_delta') {
@@ -335,10 +413,12 @@ export async function* queryModelCoStrict(
         }
         case 'message_stop': {
           if (partialMessage) {
+            finalizeToolCallStates()
             for (const output of assembleFinalAssistantOutputs()) {
               yield output
             }
             partialMessage = null
+            toolCallStates.clear()
           }
           break
         }
@@ -360,6 +440,7 @@ export async function* queryModelCoStrict(
     }
 
     if (partialMessage) {
+      finalizeToolCallStates()
       for (const output of assembleFinalAssistantOutputs()) {
         yield output
       }

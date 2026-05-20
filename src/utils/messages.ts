@@ -185,8 +185,29 @@ export class InvalidToolCallResponseError extends Error {
   }
 }
 
+export type InvalidToolCallToolUseBlock = ToolUseBlock & {
+  invalidToolCallError?: string
+}
+
+export type NormalizeContentFromAPIOptions = {
+  preserveInvalidToolCall?: boolean
+}
+
 function isPlainToolInput(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function getInvalidToolCallError(toolUse: unknown): string | undefined {
+  if (!isPlainToolInput(toolUse)) return undefined
+  const error = toolUse.invalidToolCallError
+  return typeof error === 'string' && error.length > 0 ? error : undefined
+}
+
+export function stripInternalToolUseFields<T extends Record<string, unknown>>(
+  block: T,
+): Omit<T, 'invalidToolCallError'> {
+  const { invalidToolCallError: _invalidToolCallError, ...rest } = block
+  return rest
 }
 
 function createInvalidToolArgumentsError(toolName: string): InvalidToolCallResponseError {
@@ -2527,21 +2548,26 @@ export function normalizeMessagesForAPI(
                       )
                     : toolUseBlk.input
                   const canonicalName = tool?.name ?? toolUseBlk.name
+                  const toolUseWithoutInternal = stripInternalToolUseFields(
+                    block as ToolUseBlock & Record<string, unknown>,
+                  )
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (searchExtraToolsEnabled) {
                     return {
-                      ...block,
+                      ...toolUseWithoutInternal,
+                      type: 'tool_use' as const,
+                      id: toolUseBlk.id,
                       name: canonicalName,
                       input: normalizedInput,
-                    }
+                    } as ToolUseBlockParam
                   }
 
                   // When tool search is NOT enabled, strip tool-search-only fields
                   // like 'caller', but preserve other provider metadata attached to
                   // the block (for example Gemini thought signatures on tool_use).
                   const { caller: _caller, ...toolUseRest } =
-                    block as ToolUseBlock &
+                    toolUseWithoutInternal as ToolUseBlock &
                       Record<string, unknown> & { caller?: unknown }
                   return {
                     ...toolUseRest,
@@ -2549,7 +2575,7 @@ export function normalizeMessagesForAPI(
                     id: toolUseBlk.id,
                     name: canonicalName,
                     input: normalizedInput,
-                  }
+                  } as ToolUseBlockParam
                 }
                 return block
               }),
@@ -2977,6 +3003,7 @@ export function normalizeContentFromAPI(
   contentBlocks: BetaMessage['content'],
   tools: Tools,
   agentId?: AgentId,
+  options: NormalizeContentFromAPIOptions = {},
 ): BetaMessage['content'] {
   if (!contentBlocks) {
     return []
@@ -3004,33 +3031,47 @@ export function normalizeContentFromAPI(
         // an empty string, this should become an empty object (nested values should be empty string).
         // TODO: This needs patching as recursive fields can still be stringified
         let normalizedInput: unknown
-        if (typeof contentBlock.input === 'string') {
-          const parsed = safeParseJSON(contentBlock.input)
-          if (parsed === null) {
-            // TET/FC-v3 diagnostic: the streamed tool input JSON failed to
-            // parse. The raw prefix goes to debug log only — no PII-tagged
-            // proto column exists for it yet.
-            logEvent('tengu_tool_input_json_parse_fail', {
-              toolName: sanitizeToolNameForAnalytics(contentBlock.name),
-              inputLen: contentBlock.input.length,
-            })
-            if (process.env.USER_TYPE === 'ant') {
-              logForDebugging(
-                `tool input JSON parse fail: ${contentBlock.input.slice(0, 200)}`,
-                { level: 'warn' },
-              )
+        try {
+          if (typeof contentBlock.input === 'string') {
+            const parsed = safeParseJSON(contentBlock.input)
+            if (parsed === null) {
+              // TET/FC-v3 diagnostic: the streamed tool input JSON failed to
+              // parse. The raw prefix goes to debug log only — no PII-tagged
+              // proto column exists for it yet.
+              logEvent('tengu_tool_input_json_parse_fail', {
+                toolName: sanitizeToolNameForAnalytics(contentBlock.name),
+                inputLen: contentBlock.input.length,
+              })
+              if (process.env.USER_TYPE === 'ant') {
+                logForDebugging(
+                  `tool input JSON parse fail: ${contentBlock.input.slice(0, 200)}`,
+                  { level: 'warn' },
+                )
+              }
+              throw createInvalidToolArgumentsError(contentBlock.name)
             }
-            throw createInvalidToolArgumentsError(contentBlock.name)
+            if (!isPlainToolInput(parsed)) {
+              throw createInvalidToolArgumentsError(contentBlock.name)
+            }
+            normalizedInput = parsed
+          } else {
+            if (!isPlainToolInput(contentBlock.input)) {
+              throw createInvalidToolArgumentsError(contentBlock.name)
+            }
+            normalizedInput = contentBlock.input
           }
-          if (!isPlainToolInput(parsed)) {
-            throw createInvalidToolArgumentsError(contentBlock.name)
+        } catch (error) {
+          if (
+            options.preserveInvalidToolCall &&
+            error instanceof InvalidToolCallResponseError
+          ) {
+            return {
+              ...contentBlock,
+              input: {},
+              invalidToolCallError: error.message,
+            } as InvalidToolCallToolUseBlock
           }
-          normalizedInput = parsed
-        } else {
-          if (!isPlainToolInput(contentBlock.input)) {
-            throw createInvalidToolArgumentsError(contentBlock.name)
-          }
-          normalizedInput = contentBlock.input
+          throw error
         }
 
         // Then apply tool-specific corrections
@@ -3276,6 +3317,7 @@ export type StreamingToolUse = {
   index: number
   contentBlock: BetaToolUseBlock
   unparsedToolInput: string
+  parsedToolInput?: Record<string, unknown>
 }
 
 export type StreamingThinking = {
@@ -3449,6 +3491,9 @@ export function handleMessageFromStream(
         case 'input_json_delta': {
           const delta = streamMsg.event.delta.partial_json
           const index = streamMsg.event.index
+          const parsedToolInput = (
+            streamMsg.event.delta as { parsed_tool_input?: unknown }
+          ).parsed_tool_input
           onUpdateLength(delta)
           onStreamingToolUses(_ => {
             const element = _.find(_ => _.index === index)
@@ -3460,6 +3505,9 @@ export function handleMessageFromStream(
               {
                 ...element,
                 unparsedToolInput: element.unparsedToolInput + delta,
+                ...(isPlainToolInput(parsedToolInput)
+                  ? { parsedToolInput }
+                  : undefined),
               },
             ]
           })

@@ -122,6 +122,11 @@ import {
 } from './services/langfuse/index.js'
 import { getAPIProvider } from './utils/model/providers.js'
 import { uploadSessionTurn } from './utils/sessionDataUploader.js'
+import { UPDATE_TODO_LIST_COMPAT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/UpdateTodoListCompatTool/constants.js'
+import { TASK_CREATE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskCreateTool/constants.js'
+import { TASK_UPDATE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskUpdateTool/constants.js'
+import { TASK_LIST_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskListTool/constants.js'
+import { TASK_GET_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/TaskGetTool/constants.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const snipModule = feature('HISTORY_SNIP')
@@ -207,24 +212,77 @@ function isMissingToolUseResponse(msg: Message | undefined): boolean {
 
 function isTaskRelatedMissingToolUseResponse(
   msg: Message | undefined,
+  messages: readonly Message[] = [],
 ): boolean {
   if (!isMissingToolUseResponse(msg)) return false
-  if (msg?.type !== 'assistant') return false
-  const content = msg.message?.content
-  if (!Array.isArray(content)) return false
-  const text = content
-    .filter(block => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
-  return /Task(Create|Update|List|Get)|\btask(s)?\b|任务/.test(text)
+  return hasRecentTaskToolUse(messages)
 }
 
 const MISSING_TOOL_USE_RECOVERY_MESSAGE =
   'Your previous response ended with stop_reason=tool_use but did not include a tool_use block. Continue by issuing the missing tool call now. If the user asked to update task state, call TaskUpdate with the appropriate taskId and status; do not just describe the action.'
+const COSTRICT_TASK_TOOL_USE_RECOVERY_MESSAGE =
+  'Your previous response ended with stop_reason=tool_use but did not include a tool_use block. Continue by issuing the missing tool call now. For task checklist updates in CoStrict, call update_todo_list with the complete markdown checklist using [ ], [-], and [x] markers; do not just describe the action.'
 const MISSING_TOOL_USE_FAILURE_MESSAGE =
   'Model response error: the model indicated it wanted to call a tool, but no tool call was provided after retry. The requested action did not run.'
 const TASK_TOOL_USE_FAILURE_MESSAGE =
   'Task tool call failed: the model ended with stop_reason=tool_use but did not provide the required task tool call. The requested task action did not run.'
+const COSTRICT_TASK_TOOL_USE_FAILURE_MESSAGE =
+  'Task checklist update failed: the model ended with stop_reason=tool_use but did not call update_todo_list. The requested task action did not run.'
+
+function hasUpdateTodoListCompatTool(
+  toolUseContext: ToolUseContext,
+): boolean {
+  return Boolean(
+    findToolByName(
+      toolUseContext.options.tools,
+      UPDATE_TODO_LIST_COMPAT_TOOL_NAME,
+    ),
+  )
+}
+
+const TASK_TOOL_NAMES = new Set([
+  TASK_CREATE_TOOL_NAME,
+  TASK_UPDATE_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  UPDATE_TODO_LIST_COMPAT_TOOL_NAME,
+])
+
+function hasRecentTaskToolUse(messages: readonly Message[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (!message) continue
+    if (message.type === 'user') {
+      if (!isToolResultUserMessage(message)) break
+      continue
+    }
+    if (message.type !== 'assistant') continue
+
+    const content = message.message?.content
+    if (!Array.isArray(content)) continue
+    if (
+      content.some(
+        block =>
+          block.type === 'tool_use' &&
+          typeof block.name === 'string' &&
+          TASK_TOOL_NAMES.has(block.name),
+      )
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function isToolResultUserMessage(message: Message): boolean {
+  if (message.type !== 'user') return false
+  const content = message.message?.content
+  return (
+    Array.isArray(content) &&
+    content.length > 0 &&
+    content.every(block => block.type === 'tool_result')
+  )
+}
 
 export type QueryParams = {
   messages: Message[]
@@ -1389,18 +1447,23 @@ async function* queryLoop(
         return { reason: 'completed' }
       }
 
-      if (isTaskRelatedMissingToolUseResponse(lastMessage)) {
-        const error = new Error(TASK_TOOL_USE_FAILURE_MESSAGE)
-        yield createAssistantAPIErrorMessage({
-          content: TASK_TOOL_USE_FAILURE_MESSAGE,
-        })
-        return { reason: 'model_error', error }
-      }
-
       if (
         isMissingToolUseResponse(lastMessage) &&
         state.transition?.reason !== 'missing_tool_use_recovery'
       ) {
+        const shouldPreferChecklistTool =
+          isTaskRelatedMissingToolUseResponse(lastMessage, messagesForQuery) &&
+          (getAPIProvider() === 'costrict' ||
+            hasUpdateTodoListCompatTool(toolUseContext))
+        const recoveryKind = shouldPreferChecklistTool
+          ? 'costrict_task'
+          : isTaskRelatedMissingToolUseResponse(lastMessage, messagesForQuery)
+            ? 'task'
+            : 'generic'
+        const recoveryMessage =
+          recoveryKind === 'costrict_task'
+            ? COSTRICT_TASK_TOOL_USE_RECOVERY_MESSAGE
+            : MISSING_TOOL_USE_RECOVERY_MESSAGE
         logEvent('tengu_missing_tool_use_recovery', {
           queryChainId: queryChainIdForAnalytics,
           queryDepth: queryTracking.depth,
@@ -1410,7 +1473,7 @@ async function* queryLoop(
             ...messagesForQuery,
             ...assistantMessages,
             createUserMessage({
-              content: MISSING_TOOL_USE_RECOVERY_MESSAGE,
+              content: recoveryMessage,
               isMeta: true,
             }),
           ],
@@ -1422,7 +1485,10 @@ async function* queryLoop(
           pendingToolUseSummary: undefined,
           stopHookActive: undefined,
           turnCount,
-          transition: { reason: 'missing_tool_use_recovery' },
+          transition: {
+            reason: 'missing_tool_use_recovery',
+            kind: recoveryKind,
+          },
         }
         state = next
         continue
@@ -1431,9 +1497,19 @@ async function* queryLoop(
         isMissingToolUseResponse(lastMessage) &&
         state.transition?.reason === 'missing_tool_use_recovery'
       ) {
-        const error = new Error(MISSING_TOOL_USE_FAILURE_MESSAGE)
+        const failureMessage =
+          state.transition.kind === 'costrict_task'
+            ? COSTRICT_TASK_TOOL_USE_FAILURE_MESSAGE
+            : state.transition.kind === 'task' ||
+                isTaskRelatedMissingToolUseResponse(
+                  lastMessage,
+                  messagesForQuery,
+                )
+              ? TASK_TOOL_USE_FAILURE_MESSAGE
+              : MISSING_TOOL_USE_FAILURE_MESSAGE
+        const error = new Error(failureMessage)
         yield createAssistantAPIErrorMessage({
-          content: MISSING_TOOL_USE_FAILURE_MESSAGE,
+          content: failureMessage,
         })
         return { reason: 'model_error', error }
       }

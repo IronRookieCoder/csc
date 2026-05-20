@@ -1,6 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import { StreamingToolExecutor } from '../StreamingToolExecutor.js'
 import type { ToolUseContext } from '../../../Tool.js'
+import type { AssistantMessage } from '../../../types/message.js'
+import { createAssistantMessage } from '../../../utils/messages.js'
+
+function makeAssistantMessage(): AssistantMessage {
+  return createAssistantMessage({
+    content: [
+      {
+        type: 'tool_use',
+        id: 'toolu_parent',
+        name: 'TaskUpdate',
+        input: {},
+      } as any,
+    ],
+  })
+}
 
 function makeMinimalContext(): ToolUseContext {
   const abortController = new AbortController()
@@ -125,5 +140,52 @@ describe('StreamingToolExecutor.discard()', () => {
     expect(internals.tools).toHaveLength(0)
     expect(internals.progressAvailableResolve).toBeUndefined()
     expect(internals.turnSpan).toBeNull()
+  })
+})
+
+describe('StreamingToolExecutor invalid tool calls', () => {
+  test('returns an error result without executing known tools', () => {
+    const ctx = makeMinimalContext()
+    let executed = false
+    const tool: any = {
+      name: 'TaskUpdate',
+      inputSchema: {
+        safeParse: () => ({ success: true, data: {} }),
+      },
+      isConcurrencySafe: () => {
+        executed = true
+        return true
+      },
+    }
+    const executor = new StreamingToolExecutor(
+      [tool],
+      () => true as any,
+      ctx,
+    )
+
+    executor.addTool(
+      {
+        type: 'tool_use',
+        id: 'toolu_bad',
+        name: 'TaskUpdate',
+        input: {},
+        invalidToolCallError:
+          'Model response error: invalid tool call arguments for TaskUpdate. The tool call was not executed.',
+      } as any,
+      makeAssistantMessage(),
+    )
+
+    const results = [...executor.getCompletedResults()]
+    expect(executed).toBe(false)
+    expect(results).toHaveLength(1)
+    const content = (results[0]!.message as any).message.content
+    expect(content[0]).toMatchObject({
+      type: 'tool_result',
+      tool_use_id: 'toolu_bad',
+      is_error: true,
+    })
+    expect(content[0].content).toContain(
+      'invalid tool call arguments for TaskUpdate',
+    )
   })
 })

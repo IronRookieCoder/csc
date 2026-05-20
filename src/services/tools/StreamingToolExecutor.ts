@@ -1,6 +1,7 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import {
   createUserMessage,
+  getInvalidToolCallError,
   REJECT_MESSAGE,
   withMemoryCorrectionHint,
 } from 'src/utils/messages.js'
@@ -102,6 +103,32 @@ export class StreamingToolExecutor {
       }
     }
     const toolDefinition = findToolByName(this.toolDefinitions, block.name)
+    const invalidToolCallError = getInvalidToolCallError(block)
+    if (invalidToolCallError) {
+      this.tools.push({
+        id: block.id,
+        block,
+        assistantMessage,
+        status: 'completed',
+        isConcurrencySafe: true,
+        pendingProgress: [],
+        results: [
+          createUserMessage({
+            content: [
+              {
+                type: 'tool_result',
+                content: `<tool_use_error>${invalidToolCallError}</tool_use_error>`,
+                is_error: true,
+                tool_use_id: block.id,
+              },
+            ],
+            toolUseResult: invalidToolCallError,
+            sourceToolAssistantUUID: assistantMessage.uuid,
+          }),
+        ],
+      })
+      return
+    }
     if (!toolDefinition) {
       this.tools.push({
         id: block.id,
