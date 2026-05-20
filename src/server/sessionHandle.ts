@@ -1,5 +1,8 @@
 import { type ChildProcess, spawn } from 'child_process'
 import { createInterface } from 'readline'
+import { readdir, stat, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { join } from 'path'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import { logError } from '../utils/log.js'
 import type { EventBus } from './eventBus.js'
@@ -10,10 +13,10 @@ import {
 } from './childSpawn.js'
 import { ControlChannel } from './sessionControlChannel.js'
 import {
+  type SubagentInfo,
   routeMessage,
   type StdoutMessage,
   type MessageRouterCtx,
-  type SubagentInfo,
 } from './sessionMessageRouter.js'
 import type {
   SessionBusyStatus,
@@ -24,6 +27,7 @@ import type {
 } from './types.js'
 import type { DisposableChildProcess } from '../utils/killOnDrop.js'
 import type { SessionMessage } from './transcriptReader.js'
+import { getProjectDir, findProjectDir } from '../utils/sessionStoragePortable.js'
 
 export type { InitData, PendingPermission, PendingQuestion }
 export { getScriptArgsForChild }
@@ -88,6 +92,11 @@ export class SessionHandle implements DisposableChildProcess {
   private _messageBuffer: SessionMessage[] = []
   private _tombstonedUuids = new Set<string>()
   private _activeSubagents = new Map<string, SubagentInfo>()
+  private _subagentIndex = new Map<string, { transcriptPath: string; meta: Record<string, unknown> }>()
+
+  get subagentIndex(): ReadonlyMap<string, { transcriptPath: string; meta: Record<string, unknown> }> {
+    return this._subagentIndex
+  }
 
   get tombstonedUuids(): ReadonlySet<string> {
     return this._tombstonedUuids
@@ -213,6 +222,28 @@ export class SessionHandle implements DisposableChildProcess {
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  async buildSubagentIndex(): Promise<void> {
+    const projectDir = getProjectDir(this.cwd)
+    const sessionDir = join(projectDir, this.sessionId, 'subagents')
+    if (!existsSync(sessionDir)) return
+
+    try {
+      const entries = await readdir(sessionDir)
+      for (const entry of entries) {
+        if (!entry.startsWith('agent-') || !entry.endsWith('.jsonl')) continue
+        const agentId = entry.slice('agent-'.length, -'.jsonl'.length)
+        const transcriptPath = join(sessionDir, entry)
+        const metaPath = transcriptPath.replace(/\.jsonl$/, '.meta.json')
+        let meta: Record<string, unknown> = {}
+        try {
+          const raw = await readFile(metaPath, 'utf-8')
+          meta = JSON.parse(raw)
+        } catch {}
+        this._subagentIndex.set(agentId, { transcriptPath, meta })
+      }
+    } catch {}
   }
 
   spawn(): void {

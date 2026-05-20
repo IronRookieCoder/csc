@@ -15,6 +15,9 @@ import { getSubagentProgress } from '../sessionMessageRouter.js'
 
 function findParentCwd(sessionManager: SessionManager, id: string): string | undefined {
   for (const handle of sessionManager.getAllSessions()) {
+    if (handle.subagentIndex.has(id)) {
+      return handle.spawnCwd ?? handle.cwd
+    }
     if (handle.activeSubagents.has(id)) {
       return handle.spawnCwd ?? handle.cwd
     }

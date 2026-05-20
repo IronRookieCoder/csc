@@ -175,6 +175,23 @@ const SKIP_TYPES = new Set([
 ])
 
 const pathCache = new Map<string, string | null>()
+const subagentPathCache = new Map<string, string | null>()
+
+type AgentMeta = {
+  parent_session_id?: string
+  agentType?: string
+  description?: string
+  prompt?: string
+}
+
+async function readAgentMeta(metaPath: string): Promise<AgentMeta | null> {
+  try {
+    const raw = await readFile(metaPath, 'utf-8')
+    return JSON.parse(raw) as AgentMeta
+  } catch {
+    return null
+  }
+}
 
 async function resolveTranscriptPath(
   sessionId: string,
@@ -308,9 +325,39 @@ async function findSubagentTranscriptPath(
   agentId: string,
   cwd?: string,
 ): Promise<string | null> {
+  const cacheKey = `${agentId}:${cwd ?? ''}`
+  const cached = subagentPathCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  const result = await findSubagentTranscriptPathUncached(agentId, cwd)
+  if (result) subagentPathCache.set(cacheKey, result)
+  return result
+}
+
+async function findSubagentTranscriptPathUncached(
+  agentId: string,
+  cwd?: string,
+): Promise<string | null> {
   const fileName = `agent-${agentId}.jsonl`
+  const metaFileName = `agent-${agentId}.meta.json`
+
+  const tryDirect = async (projectDir: string): Promise<string | null> => {
+    const metaPath = join(projectDir, metaFileName)
+    const meta = await readAgentMeta(metaPath)
+    if (meta?.parent_session_id) {
+      const direct = join(projectDir, meta.parent_session_id, 'subagents', fileName)
+      if (existsSync(direct)) {
+        const s = await stat(direct)
+        if (s.isFile() && s.size > 0) return direct
+      }
+    }
+    return null
+  }
 
   const searchProject = async (projectDir: string): Promise<string | null> => {
+    const directHit = await tryDirect(projectDir)
+    if (directHit) return directHit
+
     let sessionDirs: string[]
     try {
       sessionDirs = await readdir(projectDir)
@@ -322,8 +369,7 @@ async function findSubagentTranscriptPath(
       try {
         const s = await stat(direct)
         if (s.isFile() && s.size > 0) return direct
-      } catch {
-      }
+      } catch {}
       const nestedSubagentsDir = join(projectDir, sessionDir, 'subagents')
       let subdirs: string[]
       try {
@@ -336,8 +382,7 @@ async function findSubagentTranscriptPath(
         try {
           const s = await stat(candidate)
           if (s.isFile() && s.size > 0) return candidate
-        } catch {
-        }
+        } catch {}
       }
     }
     return null
@@ -705,4 +750,5 @@ export async function readSessionTasks(opts: {
 
 export function clearPathCache(): void {
   pathCache.clear()
+  subagentPathCache.clear()
 }
