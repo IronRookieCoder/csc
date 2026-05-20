@@ -232,14 +232,12 @@ function getCloudRawArgs(): string[] {
 async function runCsCloud(args: string[]): Promise<void> {
 	const bin = await ensureCsCloud()
 
-	// Log the command being executed for transparency
-	console.log(`Executing: ${bin} ${args.join(" ")}`)
-
-	// Close stdin to prevent blocking, inherit stdout/stderr
+	// Optimize spawn call to match direct execution performance
 	const child = spawn(bin, args, {
 		stdio: ["ignore", "inherit", "inherit"],
 		windowsHide: false,
-		env: { ...process.env, CSC_CLOUD_INVOKER: "csc" },
+		env: process.env,
+		shell: false,
 		detached: false,
 	})
 
