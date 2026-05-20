@@ -232,6 +232,9 @@ function getCloudRawArgs(): string[] {
 async function runCsCloud(args: string[]): Promise<void> {
 	const bin = await ensureCsCloud()
 
+	// Print the exact command being executed for debugging
+	console.error(`[DEBUG] Executing: ${bin} ${args.join(" ")}`)
+
 	// Close stdin to prevent blocking, inherit stdout/stderr
 	const child = spawn(bin, args, {
 		stdio: ["ignore", "inherit", "inherit"],
