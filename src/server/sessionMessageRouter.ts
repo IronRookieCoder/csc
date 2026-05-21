@@ -280,7 +280,7 @@ function handleAssistantMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void
             id: toolInfo?.partID ?? randomUUID(),
             callID: toolUseID,
             tool: toolInfo?.toolName ? normalizeToolName(toolInfo.toolName) : '',
-            messageID: ctx.getLastMessageUuid() ?? '',
+            messageID: toolInfo?.messageID ?? ctx.getLastMessageUuid() ?? '',
             sessionID: emitSessionID,
             state: {
               status: isError ? 'error' : 'completed',
