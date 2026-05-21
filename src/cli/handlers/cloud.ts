@@ -232,9 +232,10 @@ function getCloudRawArgs(): string[] {
 async function runCsCloud(args: string[]): Promise<void> {
 	const bin = await ensureCsCloud()
 
-	// Optimize spawn call to match direct execution performance
+	// Use inherit for all stdio to ensure stdin works correctly
+	// Parent process doesn't grab stdin (cloud is a fast-path in cli.tsx)
 	const child = spawn(bin, args, {
-		stdio: ["ignore", "inherit", "inherit"],
+		stdio: ["inherit", "inherit", "inherit"],
 		windowsHide: false,
 		env: process.env,
 		shell: false,

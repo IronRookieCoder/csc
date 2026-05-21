@@ -397,6 +397,13 @@ async function main(): Promise<void> {
     process.env.CLAUDE_CODE_SIMPLE = '1'
   }
 
+  // Fast path: cloud command - bypass early input capture to avoid stdin issues
+  if (args[0] === 'cloud') {
+    const { cloudHandler } = await import('../cli/handlers/cloud.js')
+    await cloudHandler(args.slice(1))
+    return
+  }
+
   // No special flags detected, load and run the full CLI
   const { startCapturingEarlyInput } = await import('../utils/earlyInput.js')
   startCapturingEarlyInput()
