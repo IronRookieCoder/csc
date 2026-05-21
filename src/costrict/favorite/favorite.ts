@@ -56,6 +56,7 @@ export type FavoriteItem = {
   category?: string
   version?: string
   favoriteCount?: number
+  score?: number
   favorited?: boolean
   createdBy?: string
   createdAt?: string
@@ -203,6 +204,10 @@ function parseFavoriteListItem(
       ? data.favorited
       : data.favorited === 'true' || data.favorited === 1
 
+  logForDebugging(
+    `[favorite] name=${data.name} score=${data.score} experienceScore=${data.experienceScore} favoriteCount=${data.favoriteCount} createdBy=${data.createdBy} fields=[${Object.keys(data).join(',')}]`,
+  )
+
   return {
     id: String(data.id),
     slug: String(data.slug ?? data.id),
@@ -214,6 +219,18 @@ function parseFavoriteListItem(
     version: typeof data.version === 'string' ? data.version : undefined,
     favoriteCount:
       typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
+    score:
+      typeof data.experienceScore === 'number'
+        ? data.experienceScore
+        : typeof data.experienceScore === 'string'
+          ? Number(data.experienceScore) || undefined
+          : typeof data.score === 'number'
+            ? data.score
+            : typeof data.score === 'string'
+              ? Number(data.score) || undefined
+              : typeof data.favoriteCount === 'number'
+                ? data.favoriteCount
+                : undefined,
     favorited,
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
@@ -251,6 +268,18 @@ async function getRemoteItem(id: string): Promise<FavoriteItem> {
     version: typeof data.version === 'string' ? data.version : undefined,
     favoriteCount:
       typeof data.favoriteCount === 'number' ? data.favoriteCount : undefined,
+    score:
+      typeof data.experienceScore === 'number'
+        ? data.experienceScore
+        : typeof data.experienceScore === 'string'
+          ? Number(data.experienceScore) || undefined
+          : typeof data.score === 'number'
+            ? data.score
+            : typeof data.score === 'string'
+              ? Number(data.score) || undefined
+              : typeof data.favoriteCount === 'number'
+                ? data.favoriteCount
+                : undefined,
     favorited: typeof data.favorited === 'boolean' ? data.favorited : undefined,
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
