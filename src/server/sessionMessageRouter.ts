@@ -562,7 +562,7 @@ function handleControlRequest(msg: StdoutMessage, ctx: MessageRouterCtx): void {
         id: requestId,
         permission: toPermissionKey(toolName),
         patterns: extractPatterns(perm.input),
-        metadata: { input: perm.input },
+        metadata: { input: normalizeToolInput(perm.input) },
         always: [] as string[],
         tool: {
           messageID: '',
