@@ -29,7 +29,7 @@ IMPORTANT: ExecuteExtraTool is always available in your tool list. After this se
 
 Query forms:
 - "select:CronCreate,Snip" — fetch these exact tools by name
-- "discover:schedule cron job" — pure discovery, returns tool info (name, description) without loading. Use when you want to understand available tools before deciding which to invoke.
+- "discover:schedule cron job" — pure discovery, returns tool info (name, description, input schema) without loading. Use when you need to understand a tool's parameters before invoking it, then call ExecuteExtraTool with the discovered tool name and params.
 - "notebook jupyter" — keyword search, up to max_results best matches
 - "+slack send" — require "slack" in the name, rank by remaining terms`
 
