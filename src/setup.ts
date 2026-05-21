@@ -363,6 +363,9 @@ export async function setup(
         m.startTeamMemoryWatcher(),
       ) // Start team memory sync watcher
     }
+    void import('./costrict/services/memoryCloudSync/watcher.js').then(m =>
+      m.startMemoryCloudWatcher(),
+    ) // Start memory cloud sync watcher (disabled via DISABLE_MEMORY_CLOUD_SYNC=1)
   }
   initSinks() // Attach error log + analytics sinks and drain queued events
 
