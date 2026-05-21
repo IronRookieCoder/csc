@@ -101,7 +101,7 @@ function makeContext(tools: unknown[] = []) {
 }
 
 describe('SearchExtraToolsTool search enhancements', () => {
-  test('discover: prefix triggers TF-IDF search and returns matches', async () => {
+  test('discover: prefix triggers TF-IDF search and returns matches with details', async () => {
     const mockTool = makeDeferredTool('CronCreate', 'Schedule cron jobs')
     mockGetToolIndex.mockResolvedValueOnce([])
     mockSearchTools.mockReturnValueOnce([
@@ -112,11 +112,11 @@ describe('SearchExtraToolsTool search enhancements', () => {
         score: 0.85,
         isMcp: false,
         isDeferred: true,
-        inputSchema: undefined,
+        inputSchema: { interval: { type: 'string' } },
       },
     ])
 
-    const result: { data: { matches: string[] } } = await (
+    const result: { data: { matches: string[]; details?: Array<{ name: string; description: string; score: number; inputSchema?: Record<string, unknown> }> } } = await (
       SearchExtraToolsTool as any
     ).call(
       { query: 'discover:schedule cron job', max_results: 5 },
@@ -127,6 +127,11 @@ describe('SearchExtraToolsTool search enhancements', () => {
     )
 
     expect(result.data.matches).toContain('CronCreate')
+    expect(result.data.details).toBeDefined()
+    expect(result.data.details!.length).toBe(1)
+    expect(result.data.details![0]!.name).toBe('CronCreate')
+    expect(result.data.details![0]!.description).toBe('Schedule cron jobs')
+    expect(result.data.details![0]!.inputSchema).toEqual({ interval: { type: 'string' } })
   })
 
   test('keyword + TF-IDF parallel search merges results', async () => {
@@ -231,5 +236,30 @@ describe('SearchExtraToolsTool search enhancements', () => {
     )
 
     expect(blockParam.content).toContain('No matching deferred tools found')
+  })
+
+  test('discover mode renders details with description and schema', async () => {
+    const blockParam = SearchExtraToolsTool.mapToolResultToToolResultBlockParam(
+      {
+        matches: ['CronCreate'],
+        query: 'discover:schedule',
+        total_deferred_tools: 5,
+        details: [
+          {
+            name: 'CronCreate',
+            description: 'Schedule cron jobs',
+            score: 0.85,
+            inputSchema: { interval: { type: 'string' } },
+          },
+        ],
+      },
+      'tool-use-123',
+    )
+
+    expect(typeof blockParam.content).toBe('string')
+    expect(blockParam.content as string).toContain('CronCreate')
+    expect(blockParam.content as string).toContain('Schedule cron jobs')
+    expect(blockParam.content as string).toContain('Schema')
+    expect(blockParam.content as string).toContain('"interval"')
   })
 })

@@ -58,6 +58,17 @@ export const outputSchema = lazySchema(() =>
     pending_mcp_servers: z.array(z.string()).optional(),
     /** Matches that are already loaded (core tools) and can be called directly. */
     already_loaded: z.array(z.string()).optional(),
+    /** Tool details (name, description, schema) for discover mode. */
+    details: z
+      .array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          score: z.number(),
+          inputSchema: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .optional(),
   }),
 )
 type OutputSchema = ReturnType<typeof outputSchema>
@@ -131,6 +142,7 @@ function buildSearchResult(
   totalDeferredTools: number,
   pendingMcpServers?: string[],
   alreadyLoaded?: string[],
+  details?: Output['details'],
 ): { data: Output } {
   return {
     data: {
@@ -143,6 +155,7 @@ function buildSearchResult(
       ...(alreadyLoaded && alreadyLoaded.length > 0
         ? { already_loaded: alreadyLoaded }
         : {}),
+      ...(details && details.length > 0 ? { details } : {}),
     },
   }
 }
@@ -446,17 +459,12 @@ export const SearchExtraToolsTool = buildTool({
       const discoverQuery = discoverMatch[1]!.trim()
       const index = await getToolIndex(deferredTools)
       const tfIdfResults = searchTools(discoverQuery, index, max_results)
-      const textResults = tfIdfResults.map(r => {
-        let line = `**${r.name}** (score: ${r.score.toFixed(2)})\n${r.description}`
-        if (r.inputSchema) {
-          line += `\nSchema: ${JSON.stringify(r.inputSchema)}`
-        }
-        return line
-      })
-      const text =
-        textResults.length > 0
-          ? `Found ${textResults.length} tools:\n${textResults.join('\n\n')}`
-          : 'No matching deferred tools found'
+      const details = tfIdfResults.map(r => ({
+        name: r.name,
+        description: r.description,
+        score: r.score,
+        ...(r.inputSchema ? { inputSchema: r.inputSchema as Record<string, unknown> } : {}),
+      }))
       logSearchOutcome(
         tfIdfResults.map(r => r.name),
         'keyword',
@@ -465,6 +473,9 @@ export const SearchExtraToolsTool = buildTool({
         tfIdfResults.map(r => r.name),
         query,
         deferredTools.length,
+        undefined,
+        undefined,
+        details,
       )
     }
 
@@ -552,6 +563,26 @@ export const SearchExtraToolsTool = buildTool({
       ) {
         text += `. Some MCP servers are still connecting: ${content.pending_mcp_servers.join(', ')}. Their tools will become available shortly — try searching again.`
       }
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUseID,
+        content: text,
+      }
+    }
+
+    // Discover mode: render tool details with name, description, and input schema.
+    // This lets the model inspect parameters before selecting and invoking a tool.
+    if (content.details && content.details.length > 0) {
+      const lines = content.details.map(d => {
+        let line = `**${d.name}** (score: ${d.score.toFixed(2)})\n${d.description}`
+        if (d.inputSchema) {
+          line += `\nSchema: ${JSON.stringify(d.inputSchema)}`
+        }
+        return line
+      })
+      const text =
+        `Found ${lines.length} tool(s) matching your query:\n\n` +
+        lines.join('\n\n')
       return {
         type: 'tool_result',
         tool_use_id: toolUseID,
