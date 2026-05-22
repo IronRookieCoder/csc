@@ -17,6 +17,7 @@ import type { Options } from '../../services/api/claude.js'
 import OpenAI from 'openai'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
 import { getUserAgent } from '../../utils/http.js'
+import { getSessionId } from '../../bootstrap/state.js'
 import {
   anthropicMessagesToOpenAI,
   anthropicToolsToOpenAI,
@@ -219,7 +220,7 @@ export async function* queryModelCoStrict(
         forAnthropicAPI: false,
       }) as any,
       fetch: costrictFetch as any,
-      defaultHeaders: { 'User-Agent': getUserAgent() },
+      defaultHeaders: { 'User-Agent': getUserAgent(), 'X-Session-Id': getSessionId() },
     })
 
     logForDebugging(
