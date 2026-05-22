@@ -115,7 +115,7 @@ describe('processStreamEvent', () => {
     expect(events[0].properties).toMatchObject({ field: 'text', delta: 'Let me think...' })
   })
 
-  test('content_block_delta (input_json_delta) accumulates and emits', () => {
+  test('content_block_delta (input_json_delta) accumulates internally without emitting delta event', () => {
     processStreamEvent(sessionID, {
       type: 'content_block_start',
       index: 0,
@@ -127,14 +127,14 @@ describe('processStreamEvent', () => {
       index: 0,
       delta: { type: 'input_json_delta', partial_json: '{"command":"ls' },
     })
-    expect(events1[0].properties.delta).toBe('{"command":"ls')
+    expect(events1.length).toBe(0)
 
     const events2 = processStreamEvent(sessionID, {
       type: 'content_block_delta',
       index: 0,
       delta: { type: 'input_json_delta', partial_json: '"}' },
     })
-    expect(events2[0].properties.delta).toBe('"}')
+    expect(events2.length).toBe(0)
   })
 
   test('content_block_stop (tool_use) emits running state with parsed input', () => {

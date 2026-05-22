@@ -307,12 +307,6 @@ export class SessionHandle implements DisposableChildProcess {
         this._status = 'stopped'
         this._busyStatus = { type: 'idle' }
         this.emitBusyStatus()
-        this.emitOpencodeEvent('session.deleted', {
-          sessionID: this.sessionId,
-          status: 'stopped',
-          exit_code: code,
-          signal: signal ?? null,
-        })
       }
       if (this.initReject) {
         const reject = this.initReject
@@ -353,11 +347,6 @@ export class SessionHandle implements DisposableChildProcess {
         this.initResolve = null
         this.initReject = null
         this._status = 'stopped'
-        this.emitOpencodeEvent('session.deleted', {
-          sessionID: this.sessionId,
-          status: 'stopped',
-          reason: 'init_timeout',
-        })
         reject(new Error(`Session ${this.sessionId} init timed out`))
       }
     }, INIT_TIMEOUT_MS)

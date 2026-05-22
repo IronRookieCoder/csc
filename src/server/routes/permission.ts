@@ -45,7 +45,7 @@ function formatPermission(perm: {
     sessionID: perm.sessionId,
     permission: toPermissionKey(perm.toolName),
     patterns: extractPatterns(perm.input),
-    metadata: { input: perm.input },
+    metadata: { input: normalizeToolInput(perm.input) },
     always: [] as string[],
     tool: {
       messageID: '',

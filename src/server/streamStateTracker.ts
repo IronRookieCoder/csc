@@ -244,16 +244,6 @@ export function processStreamEvent(
         })
       } else if (delta.type === 'input_json_delta') {
         blockState.inputJson += (delta.partial_json as string) ?? ''
-        results.push({
-          type: 'message.part.delta',
-          properties: {
-            sessionID,
-            messageID: state.messageID,
-            partID: blockState.partID,
-            field: 'input',
-            delta: delta.partial_json,
-          },
-        })
       }
       break
     }
