@@ -1023,6 +1023,18 @@ function PromptInput({
         }
       }
 
+      // In bash mode, strip the '!' prefix from characters that arrive
+      // after the initial mode-switch in raw-mode (character-by-character)
+      // input. Cooked mode doesn't need this — the multi-char branch above
+      // handles line-buffered input. Without this guard, "!ls" reaches the
+      // shell as a literal "!ls" command.
+      if (mode !== 'prompt' && !insertedAtStart) {
+        const stripped = getValueFromInput(value).replaceAll('\t', '    ');
+        pushToBuffer(input, cursorOffset, pastedContents);
+        trackAndSetInput(stripped);
+        return;
+      }
+
       const processedValue = value.replaceAll('\t', '    ');
 
       // Push current state to buffer before making changes
@@ -1226,7 +1238,7 @@ function PromptInput({
         suggestionsState.suggestions.length > 0 &&
         suggestionsState.suggestions.every(s => s.description === 'directory');
 
-      if (suggestionsState.suggestions.length > 0 && !isSubmittingSlashCommand && !hasDirectorySuggestions) {
+      if (suggestionsState.suggestions.length > 0 && !isSubmittingSlashCommand && !hasDirectorySuggestions && mode !== 'bash') {
         logForDebugging(`[onSubmit] early return: suggestions showing (count=${suggestionsState.suggestions.length})`);
         return; // Don't submit, user needs to clear suggestions first
       }
@@ -1275,6 +1287,7 @@ function PromptInput({
       markAccepted,
       pastedContents,
       removeNotification,
+      mode,
     ],
   );
 
