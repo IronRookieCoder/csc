@@ -106,10 +106,6 @@ export class SessionManager {
           now - info.last_active_at > this.idleTimeoutMs!
         ) {
           handle.kill()
-          this.eventBus.publishSessionEvent(id, 'deleted', {
-            status: 'stopped',
-            reason: 'idle_timeout',
-          })
           this.sessions.delete(id)
           this.eventBus.unregisterSessionCwd(id)
           this.scheduleIndexSave()
@@ -133,10 +129,6 @@ export class SessionManager {
     if (!oldestId) return null
     const handle = this.sessions.get(oldestId)!
     handle.kill()
-    this.eventBus.publishSessionEvent(oldestId, 'deleted', {
-      status: 'stopped',
-      reason: 'evicted',
-    })
     this.sessions.delete(oldestId)
     this.eventBus.unregisterSessionCwd(oldestId)
     this.scheduleIndexSave()

@@ -445,7 +445,7 @@ event: session.status_changed
 data: {"session_id":"uuid-1","status":"idle"}
 
 event: session.deleted
-data: {"session_id":"uuid-1"}
+data: {"session_id":"uuid-1","status":"stopped"}
 
 event: heartbeat
 data: {"type":"server.heartbeat","ts":1713001234567}
