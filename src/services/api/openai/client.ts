@@ -4,6 +4,7 @@ import { updateProviderBuckets } from 'src/services/providerUsage/store.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import { isEnvTruthy } from 'src/utils/envUtils.js'
 import { getUserAgent } from 'src/utils/http.js'
+import { getSessionId } from 'src/bootstrap/state.js'
 
 /**
  * Environment variables:
@@ -61,7 +62,7 @@ export function getOpenAIClient(options?: {
     ...(process.env.OPENAI_PROJECT_ID && { project: process.env.OPENAI_PROJECT_ID }),
     fetchOptions: getProxyFetchOptions({ forAnthropicAPI: false }),
     fetch: wrappedFetch,
-    defaultHeaders: { 'User-Agent': getUserAgent() },
+    defaultHeaders: { 'User-Agent': getUserAgent(), 'X-Session-Id': getSessionId() },
   })
 
   if (!options?.fetchOverride) {
