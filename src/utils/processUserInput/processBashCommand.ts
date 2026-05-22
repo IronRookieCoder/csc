@@ -7,6 +7,7 @@ import { BashTool } from '@claude-code-best/builtin-tools/tools/BashTool/BashToo
 import type { AttachmentMessage, SystemMessage, UserMessage } from 'src/types/message.js';
 import type { ShellProgress } from 'src/types/tools.js';
 import { logEvent } from '../../services/analytics/index.js';
+import { logForDebugging } from '../debug.js';
 import { errorMessage, ShellError } from '../errors.js';
 import {
   createSyntheticUserCaveatMessage,
@@ -45,6 +46,7 @@ export async function processBashCommand(
   const usePowerShell = isPowerShellToolEnabled() && resolveDefaultShell() === 'powershell';
 
   logEvent('tengu_input_bash', { powershell: usePowerShell });
+  logForDebugging(`processBashCommand: command="${command}" usePowerShell=${usePowerShell}`);
 
   const userMessage = createUserMessage({
     content: prepareUserContent({
@@ -58,7 +60,11 @@ export async function processBashCommand(
 
   // Just show initial UI
   setToolJSX({
-    jsx: <BashModeProgress input={command} progress={null} verbose={context.options.verbose} />,
+    jsx: React.createElement(BashModeProgress, {
+      input: command,
+      progress: null,
+      verbose: context.options.verbose,
+    }),
     shouldHidePromptInput: false,
   });
 
@@ -74,11 +80,13 @@ export async function processBashCommand(
     // Progress UI — shared across both shell backends (both emit ShellProgress)
     const onProgress = (progress: { data: ShellProgress }) => {
       setToolJSX({
-        jsx: (
-          <>
-            <BashModeProgress input={command} progress={progress.data} verbose={context.options.verbose} />
-            {jsx}
-          </>
+        jsx: React.createElement(React.Fragment, null,
+          React.createElement(BashModeProgress, {
+            input: command,
+            progress: progress.data,
+            verbose: context.options.verbose,
+          }),
+          jsx,
         ),
         shouldHidePromptInput: false,
         showSpinner: false,
