@@ -7,6 +7,7 @@ import { BashTool } from '@claude-code-best/builtin-tools/tools/BashTool/BashToo
 import type { AttachmentMessage, SystemMessage, UserMessage } from 'src/types/message.js';
 import type { ShellProgress } from 'src/types/tools.js';
 import { logEvent } from '../../services/analytics/index.js';
+import { logForDebugging } from '../debug.js';
 import { errorMessage, ShellError } from '../errors.js';
 import {
   createSyntheticUserCaveatMessage,
@@ -18,6 +19,7 @@ import { resolveDefaultShell } from '../shell/resolveDefaultShell.js';
 import { isPowerShellToolEnabled } from '../shell/shellToolUtils.js';
 import { processToolResultBlock } from '../toolResultStorage.js';
 import { escapeXml } from '../xml.js';
+import { getValueFromInput } from '../../components/PromptInput/inputModes.js';
 import type { ProcessUserInputContext } from './processUserInput.js';
 
 export async function processBashCommand(
@@ -30,6 +32,12 @@ export async function processBashCommand(
   messages: (UserMessage | AttachmentMessage | SystemMessage)[];
   shouldQuery: boolean;
 }> {
+  // Strip the leading `!` mode prefix so the shell receives the raw command.
+  // Under raw-mode input (character-by-character), PromptInput may pass the
+  // prefix through; cooked mode (line-buffered) strips it in onChange. This
+  // is a defense-in-depth guard so `!ls` always reaches the shell as `ls`.
+  const command = getValueFromInput(inputString);
+
   // Shell routing (docs/design/ps-shell-selection.md §5.2): consult
   // defaultShell, fall back to bash. isPowerShellToolEnabled() applies the
   // same platform + env-var gate as tools.ts so input-box routing matches
@@ -38,10 +46,11 @@ export async function processBashCommand(
   const usePowerShell = isPowerShellToolEnabled() && resolveDefaultShell() === 'powershell';
 
   logEvent('tengu_input_bash', { powershell: usePowerShell });
+  logForDebugging(`processBashCommand: command="${command}" usePowerShell=${usePowerShell}`);
 
   const userMessage = createUserMessage({
     content: prepareUserContent({
-      inputString: `<bash-input>${inputString}</bash-input>`,
+      inputString: `<bash-input>${command}</bash-input>`,
       precedingInputBlocks,
     }),
   });
@@ -51,7 +60,11 @@ export async function processBashCommand(
 
   // Just show initial UI
   setToolJSX({
-    jsx: <BashModeProgress input={inputString} progress={null} verbose={context.options.verbose} />,
+    jsx: React.createElement(BashModeProgress, {
+      input: command,
+      progress: null,
+      verbose: context.options.verbose,
+    }),
     shouldHidePromptInput: false,
   });
 
@@ -67,11 +80,13 @@ export async function processBashCommand(
     // Progress UI — shared across both shell backends (both emit ShellProgress)
     const onProgress = (progress: { data: ShellProgress }) => {
       setToolJSX({
-        jsx: (
-          <>
-            <BashModeProgress input={inputString!} progress={progress.data} verbose={context.options.verbose} />
-            {jsx}
-          </>
+        jsx: React.createElement(React.Fragment, null,
+          React.createElement(BashModeProgress, {
+            input: command,
+            progress: progress.data,
+            verbose: context.options.verbose,
+          }),
+          jsx,
         ),
         shouldHidePromptInput: false,
         showSpinner: false,
@@ -96,7 +111,7 @@ export async function processBashCommand(
 
     const response = PowerShellTool
       ? await PowerShellTool.call(
-          { command: inputString, dangerouslyDisableSandbox: true },
+          { command: command, dangerouslyDisableSandbox: true },
           bashModeContext,
           undefined,
           undefined,
@@ -104,7 +119,7 @@ export async function processBashCommand(
         )
       : await BashTool.call(
           {
-            command: inputString,
+            command: command,
             dangerouslyDisableSandbox: true,
           },
           bashModeContext,
