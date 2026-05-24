@@ -1,0 +1,264 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+// ── Mutable test state that the module mocks delegate to ──────────────────────
+let tempHome = ''
+let listItems: Array<Record<string, unknown>> = []
+let detailById: Record<string, Record<string, unknown>> = {}
+let installedPlugins: Record<string, unknown[]> = {}
+let enabledPlugins: Record<string, unknown> = {}
+let installResult: { success: boolean; message: string } = {
+  success: true,
+  message: 'ok',
+}
+const marketplaceCalls: string[] = []
+const installCalls: string[] = []
+
+function installEnvelope(
+  pluginName: string,
+  marketplaceName: string,
+  marketplaceRepo: string,
+) {
+  return {
+    install: {
+      method: 'plugin_marketplace',
+      plugin_name: pluginName,
+      marketplace_name: marketplaceName,
+      marketplace_repo: marketplaceRepo,
+    },
+  }
+}
+
+function makeItem(
+  id: string,
+  pluginName: string,
+  marketplaceName: string,
+  marketplaceRepo: string,
+): Record<string, unknown> {
+  return {
+    id,
+    slug: pluginName,
+    name: pluginName,
+    itemType: 'plugin',
+    favorited: true,
+    metadata: installEnvelope(pluginName, marketplaceName, marketplaceRepo),
+  }
+}
+
+// ── Module mocks (registered before importing the module under test).
+// Specifiers are resolved relative to THIS test file, so they must land on the
+// same absolute paths that reconcileCloudPlugins.ts imports.
+mock.module('../../../utils/envUtils.js', () => ({
+  getClaudeConfigHomeDir: () => tempHome,
+}))
+mock.module('../../../utils/debug.js', () => ({
+  logForDebugging: () => {},
+}))
+mock.module('../../provider/auth.js', () => ({
+  getCoStrictBaseURL: () => 'http://test.local',
+}))
+mock.module('../../provider/fetch.js', () => ({
+  createCoStrictFetch: () => async (url: string | URL) => {
+    const u = String(url)
+    if (u.includes('/api/items?')) {
+      return new Response(JSON.stringify({ items: listItems, hasMore: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    const id = u.split('/api/items/')[1] ?? ''
+    const detail = detailById[id]
+    return new Response(JSON.stringify(detail ?? {}), {
+      status: detail ? 200 : 404,
+      headers: { 'content-type': 'application/json' },
+    })
+  },
+}))
+mock.module('../../../services/plugins/pluginOperations.js', () => ({
+  installPluginOp: async (plugin: string) => {
+    installCalls.push(plugin)
+    return installResult
+  },
+}))
+mock.module('../../../utils/plugins/marketplaceManager.js', () => ({
+  addMarketplaceSource: async (source: { repo?: string }) => {
+    marketplaceCalls.push(source.repo ?? JSON.stringify(source))
+    return { name: 'mkt', alreadyMaterialized: false, resolvedSource: source }
+  },
+}))
+mock.module('../../../utils/plugins/installedPluginsManager.js', () => ({
+  loadInstalledPluginsV2: () => ({ version: 2, plugins: installedPlugins }),
+}))
+mock.module('../../../utils/plugins/parseMarketplaceInput.js', () => ({
+  parseMarketplaceInput: async (repo: string) => ({ source: 'github', repo }),
+}))
+mock.module('../../../utils/settings/settings.js', () => ({
+  getSettingsForSource: () => ({ enabledPlugins }),
+}))
+
+const { reconcileCloudPlugins } = await import('../reconcileCloudPlugins.js')
+
+function ledgerPath() {
+  return path.join(tempHome, 'favorites', 'plugins.json')
+}
+
+function readLedger(): { plugins: Record<string, any> } {
+  if (!existsSync(ledgerPath())) return { plugins: {} }
+  return JSON.parse(readFileSync(ledgerPath(), 'utf-8'))
+}
+
+function seedLedger(plugins: Record<string, unknown>) {
+  mkdirSync(path.join(tempHome, 'favorites'), { recursive: true })
+  writeFileSync(ledgerPath(), JSON.stringify({ plugins }, null, 2))
+}
+
+describe('reconcileCloudPlugins', () => {
+  beforeEach(() => {
+    tempHome = mkdtempSync(path.join(tmpdir(), 'csc-plugin-reconcile-'))
+    listItems = []
+    detailById = {}
+    installedPlugins = {}
+    enabledPlugins = {}
+    installResult = { success: true, message: 'ok' }
+    marketplaceCalls.length = 0
+    installCalls.length = 0
+  })
+
+  afterEach(() => {
+    // temp dirs live under the OS temp dir; cheap and auto-reaped by the OS
+  })
+
+  test('first-time favorite: ensures marketplace, installs, records active', async () => {
+    listItems = [
+      makeItem('1', 'claude-api', 'anthropic-agent-skills', 'anthropics/skills'),
+    ]
+
+    await reconcileCloudPlugins()
+
+    expect(marketplaceCalls).toEqual(['anthropics/skills'])
+    expect(installCalls).toEqual(['claude-api@anthropic-agent-skills'])
+    expect(
+      readLedger().plugins['claude-api@anthropic-agent-skills'].lifecycle,
+    ).toBe('active')
+  })
+
+  test('falls back to detail fetch when the list omits install metadata', async () => {
+    // List response carries no metadata; the per-item detail endpoint does.
+    listItems = [{ id: '9', itemType: 'plugin', favorited: true }]
+    detailById = {
+      '9': {
+        id: '9',
+        itemType: 'plugin',
+        metadata: installEnvelope('foo', 'mkt-name', 'owner/repo'),
+      },
+    }
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual(['foo@mkt-name'])
+  })
+
+  test('respects user disable: ledger active but now disabled becomes unloaded', async () => {
+    const key = 'claude-api@anthropic-agent-skills'
+    listItems = [
+      makeItem('1', 'claude-api', 'anthropic-agent-skills', 'anthropics/skills'),
+    ]
+    installedPlugins = { [key]: [{ scope: 'user' }] }
+    enabledPlugins = { [key]: false }
+    seedLedger({
+      [key]: {
+        key,
+        pluginName: 'claude-api',
+        marketplaceName: 'anthropic-agent-skills',
+        marketplaceRepo: 'anthropics/skills',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual([]) // never re-enabled
+    expect(readLedger().plugins[key].lifecycle).toBe('unloaded')
+  })
+
+  test('respects prior unloaded: stays unloaded, no install', async () => {
+    const key = 'p@m'
+    listItems = [makeItem('1', 'p', 'm', 'o/r')]
+    installedPlugins = { [key]: [{ scope: 'user' }] }
+    enabledPlugins = { [key]: false }
+    seedLedger({
+      [key]: {
+        key,
+        pluginName: 'p',
+        marketplaceName: 'm',
+        marketplaceRepo: 'o/r',
+        lifecycle: 'unloaded',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual([])
+    expect(readLedger().plugins[key].lifecycle).toBe('unloaded')
+  })
+
+  test("never touches a user's manual install (installed but absent from ledger)", async () => {
+    const key = 'manual@m'
+    listItems = [makeItem('1', 'manual', 'm', 'o/r')]
+    installedPlugins = { [key]: [{ scope: 'user' }] }
+    enabledPlugins = { [key]: false }
+    // no ledger seed → key absent from ledger
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual([])
+    expect(marketplaceCalls).toEqual([])
+    expect(readLedger().plugins[key]).toBeUndefined()
+  })
+
+  test('install failure is recorded as install_failed and does not throw', async () => {
+    listItems = [makeItem('1', 'p', 'm', 'o/r')]
+    installResult = { success: false, message: 'SSH dependency missing' }
+
+    await reconcileCloudPlugins()
+
+    const rec = readLedger().plugins['p@m']
+    expect(rec.lifecycle).toBe('install_failed')
+    expect(rec.lastError).toBe('SSH dependency missing')
+  })
+
+  test('unfavorite is a no-op: ledger keys absent from desired set are untouched', async () => {
+    const key = 'gone@m'
+    listItems = [] // nothing favorited remotely
+    installedPlugins = { [key]: [{ scope: 'user' }] }
+    enabledPlugins = { [key]: true }
+    seedLedger({
+      [key]: {
+        key,
+        pluginName: 'gone',
+        marketplaceName: 'm',
+        marketplaceRepo: 'o/r',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual([])
+    expect(readLedger().plugins[key].lifecycle).toBe('active')
+  })
+})
