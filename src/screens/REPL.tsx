@@ -277,6 +277,7 @@ import { useManagePlugins } from '../hooks/useManagePlugins.js';
 import { Messages } from '../components/Messages.js';
 import { TaskListV2 } from '../components/TaskListV2.js';
 import { TeammateViewHeader } from '../components/TeammateViewHeader.js';
+import { ActivityRailLayout } from '../components/activity-rail/ActivityRailLayout.js';
 import { getPipeIpc } from '../utils/pipeTransport.js';
 import { useTasksV2WithCollapseEffect } from '../hooks/useTasksV2.js';
 import { maybeMarkProjectOnboardingComplete } from '../projectOnboardingState.js';
@@ -503,6 +504,7 @@ import {
 import { setClipboard } from '@anthropic/ink';
 import type { ScrollBoxHandle } from '@anthropic/ink';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
+import { deriveActivityRailState } from '../utils/activityRail.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -5649,6 +5651,17 @@ export function REPL({
     return transcriptReturn;
   }
 
+  const activityRail = useMemo(
+    () =>
+      deriveActivityRailState({
+        messages: displayedMessages,
+        inProgressToolUseIDs: viewedTeammateTask
+          ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set<string>())
+          : inProgressToolUseIDs,
+      }),
+    [displayedMessages, viewedTeammateTask, inProgressToolUseIDs],
+  );
+
   // Show the placeholder until the real user message appears in
   // displayedMessages. userInputOnProcessing stays set for the whole turn
   // (cleared in resetLoadingState); this length check hides it once
@@ -5764,10 +5777,14 @@ export function REPL({
             jumpToNew(scrollRef.current);
           }}
           scrollable={
-            <>
+            <ActivityRailLayout
+              columns={transcriptCols}
+              railState={activityRail.railState}
+              narrowSummary={activityRail.narrowSummary}
+            >
               <TeammateViewHeader />
               <Messages
-                messages={displayedMessages}
+                messages={activityRail.chatMessages}
                 tools={tools}
                 commands={commands}
                 verbose={verbose}
@@ -5835,7 +5852,7 @@ export function REPL({
                 isBriefOnly &&
                 !viewedAgentTask && <BriefIdleStatus />}
               {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-            </>
+            </ActivityRailLayout>
           }
           bottom={
             <Box
