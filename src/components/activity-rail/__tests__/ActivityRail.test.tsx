@@ -48,4 +48,41 @@ describe('ActivityRail', () => {
     expect(out).toContain('No file changes')
     expect(out).toContain('No gates')
   })
+
+  test('truncates long rail text within a narrow width', async () => {
+    const out = await renderToString(
+      <ActivityRail
+        width={34}
+        state={{
+          activity: [
+            {
+              id: 'long',
+              title: '读取一个非常非常非常非常非常非常非常非常长的上下文标题',
+              detail: 'src/some/deeply/nested/path/with/a/very/very/very/long/file-name.ts',
+              status: 'running',
+            },
+          ],
+          changes: [
+            {
+              filePath: 'src/some/deeply/nested/path/with/a/very/very/very/long/file-name.ts',
+              diffStat: 'modified-with-a-very-long-status-description',
+              status: 'running',
+            },
+          ],
+          quality: [
+            {
+              id: 'verification',
+              label: '测试验证结果需要展示一个非常非常非常非常长的说明',
+              status: '待执行',
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(out).toContain('Activity')
+    expect(out).toContain('Change Set')
+    expect(out).toContain('Quality Gate')
+    expect(out.split('\n').length).toBeLessThanOrEqual(12)
+  })
 })

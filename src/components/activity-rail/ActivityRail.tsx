@@ -36,6 +36,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function ActivityRail({ state, width }: Props): React.ReactNode {
+  const contentWidth = Math.max(1, width - 2)
+
   return (
     <Box flexDirection="column" width={width}>
       <Section title="Activity">
@@ -44,15 +46,21 @@ export function ActivityRail({ state, width }: Props): React.ReactNode {
         ) : (
           state.activity.map(item => (
             <Box key={item.id} flexDirection="column">
-              <Text>
+              <Box>
                 <Text color={statusColor(item.status)}>{statusSymbol(item.status)} </Text>
-                {item.title}
-              </Text>
+                <Box width={contentWidth}>
+                  <Text wrap="truncate-end">{item.title}</Text>
+                </Box>
+              </Box>
               {item.detail !== undefined && (
-                <Text dimColor>
-                  {'  '}
-                  {item.detail}
-                </Text>
+                <Box>
+                  <Text dimColor>  </Text>
+                  <Box width={contentWidth}>
+                    <Text dimColor wrap="truncate-end">
+                      {item.detail}
+                    </Text>
+                  </Box>
+                </Box>
               )}
             </Box>
           ))
@@ -64,11 +72,18 @@ export function ActivityRail({ state, width }: Props): React.ReactNode {
           <Text dimColor>No file changes</Text>
         ) : (
           state.changes.map(item => (
-            <Text key={item.filePath}>
+            <Box key={item.filePath}>
               <Text color={statusColor(item.status)}>{statusSymbol(item.status)} </Text>
-              {item.filePath}
-              <Text dimColor> {item.diffStat}</Text>
-            </Text>
+              <Box width={contentWidth}>
+                <Text wrap="truncate-end">{item.filePath}</Text>
+              </Box>
+              <Box width={contentWidth}>
+                <Text dimColor wrap="truncate-end">
+                  {' '}
+                  {item.diffStat}
+                </Text>
+              </Box>
+            </Box>
           ))
         )}
       </Section>
@@ -78,11 +93,18 @@ export function ActivityRail({ state, width }: Props): React.ReactNode {
           <Text dimColor>No gates</Text>
         ) : (
           state.quality.map(item => (
-            <Text key={item.id}>
+            <Box key={item.id}>
               <Text color={statusColor(item.status)}>{statusSymbol(item.status)} </Text>
-              {item.label}
-              <Text dimColor> {item.status}</Text>
-            </Text>
+              <Box width={contentWidth}>
+                <Text wrap="truncate-end">{item.label}</Text>
+              </Box>
+              <Box width={contentWidth}>
+                <Text dimColor wrap="truncate-end">
+                  {' '}
+                  {item.status}
+                </Text>
+              </Box>
+            </Box>
           ))
         )}
       </Section>
