@@ -210,6 +210,33 @@ describe('deriveActivityRailState', () => {
     ])
   })
 
+  test('narrowSummary reports done, running, changed files, and pending tests', () => {
+    const messages = [
+      toolUse('a1', 'toolu_read', 'Read', { file_path: 'src/login.ts' }),
+      toolResult('u1', 'toolu_read'),
+      toolUse('a2', 'toolu_edit', 'Edit', { file_path: 'src/login.ts' }),
+    ]
+
+    const result = derive({
+      messages,
+      inProgressToolUseIDs: new Set(['toolu_edit']),
+    })
+
+    expect(result.narrowSummary).toBe('Tools: 1 done, 1 running | 1 file changed | tests pending')
+  })
+
+  test('keeps assistant messages that include visible text even when other turns use tools', () => {
+    const messages = [
+      toolUse('a1', 'toolu_read', 'Read', { file_path: 'src/login.ts' }),
+      toolResult('u1', 'toolu_read'),
+      assistantText('a2', '读取完成，下一步修改。'),
+    ]
+
+    const result = derive({ messages })
+
+    expect(result.chatMessages.map(message => String(message.uuid))).toEqual(['a2'])
+  })
+
   test('failed verification command marks quality gate as attention', () => {
     const messages = [
       toolUse('a1', 'toolu_test', 'Bash', { command: 'bun run typecheck' }),

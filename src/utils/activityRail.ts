@@ -205,8 +205,20 @@ function narrowSummaryFromState(railState: ActivityRailState): string {
   const verification = railState.quality.find(item => item.id === 'verification')
   const tests =
     verification?.status === '通过' ? 'passed' : verification?.status === '需关注' ? 'attention' : 'pending'
+  const doneCount = railState.activity.filter(item => item.status === 'done').length
+  const runningCount = railState.activity.filter(item => item.status === 'running').length
+  const pendingCount = railState.activity.filter(item => item.status === 'pending').length
+  const attentionCount = railState.activity.filter(item => item.status === 'attention').length
+  const toolParts = [
+    doneCount > 0 ? `${doneCount} done` : undefined,
+    runningCount > 0 ? `${runningCount} running` : undefined,
+    pendingCount > 0 ? `${pendingCount} pending` : undefined,
+    attentionCount > 0 ? `${attentionCount} attention` : undefined,
+  ].filter(part => part !== undefined)
+  const toolSummary = toolParts.length > 0 ? toolParts.join(', ') : 'idle'
+  const fileLabel = railState.changes.length === 1 ? 'file' : 'files'
 
-  return `Tools: ${railState.activity.length} | ${railState.changes.length} files changed | tests ${tests}`
+  return `Tools: ${toolSummary} | ${railState.changes.length} ${fileLabel} changed | tests ${tests}`
 }
 
 export function deriveActivityRailState(input: ActivityRailInput): ActivityRailDerivedState {
