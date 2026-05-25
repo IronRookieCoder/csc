@@ -70,17 +70,33 @@ function contentBlocks(message: Message): ContentBlock[] {
   return content.map(toContentBlock).filter(block => block !== undefined)
 }
 
-function isToolUseMessage(message: Message): boolean {
-  return message.type === 'assistant' && contentBlocks(message).some(block => block.type === 'tool_use')
+function isToolActivityBlock(block: ContentBlock): boolean {
+  return block.type === 'tool_use' || block.type === 'tool_result'
 }
 
-function isToolResultMessage(message: Message): boolean {
-  return message.type === 'user' && contentBlocks(message).some(block => block.type === 'tool_result')
+function messageWithFilteredContent(message: Message, content: ContentBlock[]): Message | undefined {
+  const visibleContent = content.filter(block => !isToolActivityBlock(block))
+  if (visibleContent.length === 0) return undefined
+  return {
+    ...message,
+    message: {
+      ...message.message,
+      content: visibleContent,
+    },
+  } as Message
 }
 
-function shouldKeepInDefaultChat(message: Message): boolean {
-  if (isToolUseMessage(message) || isToolResultMessage(message)) return false
-  return true
+function defaultChatMessage(message: Message): Message | undefined {
+  if (message.type !== 'assistant' && message.type !== 'user') {
+    return message
+  }
+
+  const content = contentBlocks(message)
+  if (!content.some(isToolActivityBlock)) {
+    return message
+  }
+
+  return messageWithFilteredContent(message, content)
 }
 
 function emptyQuality(): QualityGateItem[] {
@@ -222,7 +238,7 @@ function narrowSummaryFromState(railState: ActivityRailState): string {
 }
 
 export function deriveActivityRailState(input: ActivityRailInput): ActivityRailDerivedState {
-  const chatMessages = input.messages.filter(shouldKeepInDefaultChat)
+  const chatMessages = input.messages.map(defaultChatMessage).filter(message => message !== undefined)
   const toolUses = input.messages.flatMap(toolUsesFromMessage)
   const resultsByToolUseID = new Map<string, ToolResultBlock>()
   for (const result of input.messages.flatMap(toolResultsFromMessage)) {

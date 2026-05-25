@@ -102,7 +102,7 @@ describe('deriveActivityRailState', () => {
     expect(result.chatMessages.map(message => String(message.uuid))).toEqual(['a1', 's1'])
   })
 
-  test('chatMessages hides assistant messages when tool_use is after text content', () => {
+  test('chatMessages keeps assistant text blocks and removes tool_use blocks from mixed messages', () => {
     const message: any = {
       ...assistantText('a1', '先说明一下'),
       message: {
@@ -116,10 +116,12 @@ describe('deriveActivityRailState', () => {
 
     const result = derive({ messages: [message, assistantText('a2', '后续说明')] })
 
-    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a2'])
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a1', 'a2'])
+    expect((result.chatMessages[0] as any).message.content).toEqual([{ type: 'text', text: '先说明一下' }])
+    expect(message.message.content).toHaveLength(2)
   })
 
-  test('chatMessages hides user messages when tool_result is after text content', () => {
+  test('chatMessages keeps user text blocks and removes tool_result blocks from mixed messages', () => {
     const message: any = {
       ...userText('u1', '先说明一下'),
       message: {
@@ -132,10 +134,12 @@ describe('deriveActivityRailState', () => {
 
     const result = derive({ messages: [message, userText('u2', '继续')] })
 
-    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['u2'])
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['u1', 'u2'])
+    expect((result.chatMessages[0] as any).message.content).toEqual([{ type: 'text', text: '先说明一下' }])
+    expect(message.message.content).toHaveLength(2)
   })
 
-  test('chatMessages hides assistant messages when any content block is tool_use', () => {
+  test('chatMessages preserves all visible assistant text blocks in mixed messages', () => {
     const message: any = {
       type: 'assistant',
       uuid: 'a1',
@@ -153,7 +157,13 @@ describe('deriveActivityRailState', () => {
 
     const result = derive({ messages: [assistantText('a0', '保留'), message] })
 
-    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a0'])
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a0', 'a1'])
+    expect((result.chatMessages[1] as any).message.content).toEqual([
+      { type: 'text', text: '准备读取' },
+      { type: 'text', text: '第二段说明' },
+      { type: 'text', text: '工具调用之后的内容' },
+    ])
+    expect(message.message.content).toHaveLength(4)
   })
 
   test('maps read, edit, and verification tools into rail sections', () => {
