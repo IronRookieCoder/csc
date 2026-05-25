@@ -38,13 +38,24 @@ const PLUGIN_PAGE_SIZE = 20
 const PLUGIN_MAX_PAGES = 20
 const FETCH_TIMEOUT_MS = 15000
 
+// All cloud-favorited plugins install from the single aggregated
+// "costrict-plugins" marketplace (mirrors the ~700 verified plugins behind one
+// endpoint, for both public-internet and air-gapped/internal-git users) — NOT
+// from each plugin's original upstream marketplace_repo. This matches the
+// `<plugin>@costrict-plugins` install commands the web renders. Air-gapped /
+// internal mirrors override the source via COSTRICT_PLUGIN_MARKETPLACE_URL.
+const AGGREGATED_MARKETPLACE_NAME = 'costrict-plugins'
+const AGGREGATED_MARKETPLACE_SOURCE =
+  process.env.COSTRICT_PLUGIN_MARKETPLACE_URL ??
+  'https://github.com/costrict-plugins-repo/marketplace.git'
+
 type LedgerLifecycle = 'active' | 'unloaded' | 'install_failed'
 
 type LedgerRecord = {
   key: string
   pluginName: string
   marketplaceName: string
-  marketplaceRepo: string
+  originRepo: string
   lifecycle: LedgerLifecycle
   installedAt: string
   updatedAt: string
@@ -96,8 +107,8 @@ function makeRecord(
   return {
     key,
     pluginName: plugin.pluginName,
-    marketplaceName: plugin.marketplaceName,
-    marketplaceRepo: plugin.marketplaceRepo,
+    marketplaceName: AGGREGATED_MARKETPLACE_NAME,
+    originRepo: plugin.marketplaceRepo,
     lifecycle,
     installedAt: prev?.installedAt ?? now(),
     updatedAt: now(),
@@ -239,16 +250,19 @@ function isEnabled(value: unknown): boolean {
 }
 
 /**
- * Materialize a marketplace by `owner/repo`. Idempotent: addMarketplaceSource
- * skips the clone when the source is already materialized. Throws on policy /
- * network / invalid-source failures (caught per-plugin by the caller).
+ * Materialize the single aggregated `costrict-plugins` marketplace. All plugins
+ * install from here, so this is called once per reconcile (before the loop).
+ * Idempotent: addMarketplaceSource skips the clone when already materialized.
+ * Throws on policy / network / invalid-source failures.
  */
-async function ensureMarketplace(repo: string): Promise<void> {
-  const source = await parseMarketplaceInput(repo)
+async function ensureAggregatedMarketplace(): Promise<void> {
+  const source = await parseMarketplaceInput(AGGREGATED_MARKETPLACE_SOURCE)
   if (!source || 'error' in source) {
     const reason =
       source && 'error' in source ? source.error : 'unrecognized source'
-    throw new Error(`invalid marketplace repo "${repo}": ${reason}`)
+    throw new Error(
+      `invalid costrict-plugins marketplace source "${AGGREGATED_MARKETPLACE_SOURCE}": ${reason}`,
+    )
   }
   await addMarketplaceSource(source)
 }
@@ -257,6 +271,18 @@ export async function reconcileCloudPlugins(): Promise<void> {
   try {
     const desired = await listFavoritedPlugins()
     if (desired.length === 0) return
+
+    // All plugins live in the one aggregated marketplace — materialize it once.
+    // If it can't be reached, nothing can install; bail and retry next startup.
+    try {
+      await ensureAggregatedMarketplace()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logForDebugging(
+        `[plugin-reconcile] cannot materialize ${AGGREGATED_MARKETPLACE_NAME} marketplace, skipping: ${message}`,
+      )
+      return
+    }
 
     const ledger = await readLedger()
     // Snapshots taken once up front: they reflect the on-disk / settings state
@@ -268,14 +294,13 @@ export async function reconcileCloudPlugins(): Promise<void> {
     let mutated = false
 
     for (const plugin of desired) {
-      const key = `${plugin.pluginName}@${plugin.marketplaceName}`
+      const key = `${plugin.pluginName}@${AGGREGATED_MARKETPLACE_NAME}`
       const prev = ledger.plugins[key]
       try {
         const installedHere = Boolean(installed.plugins[key])
 
         // ── Case A: not installed → first-time favorite ──
         if (!installedHere) {
-          await ensureMarketplace(plugin.marketplaceRepo)
           const result = await installPluginOp(key, 'user')
           if (!result.success) {
             ledger.plugins[key] = makeRecord(
@@ -319,7 +344,6 @@ export async function reconcileCloudPlugins(): Promise<void> {
             continue
           }
           // Retry a previously failed install/enable.
-          await ensureMarketplace(plugin.marketplaceRepo)
           const result = await installPluginOp(key, 'user')
           ledger.plugins[key] = result.success
             ? makeRecord(plugin, key, 'active', prev)

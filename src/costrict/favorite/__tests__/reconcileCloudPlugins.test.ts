@@ -120,6 +120,8 @@ function seedLedger(plugins: Record<string, unknown>) {
   writeFileSync(ledgerPath(), JSON.stringify({ plugins }, null, 2))
 }
 
+const AGG = 'https://github.com/costrict-plugins-repo/marketplace.git'
+
 describe('reconcileCloudPlugins', () => {
   beforeEach(() => {
     tempHome = mkdtempSync(path.join(tmpdir(), 'csc-plugin-reconcile-'))
@@ -136,18 +138,34 @@ describe('reconcileCloudPlugins', () => {
     // temp dirs live under the OS temp dir; cheap and auto-reaped by the OS
   })
 
-  test('first-time favorite: ensures marketplace, installs, records active', async () => {
+  test('first-time favorite: adds aggregated marketplace, installs @costrict-plugins, records active', async () => {
     listItems = [
       makeItem('1', 'claude-api', 'anthropic-agent-skills', 'anthropics/skills'),
     ]
 
     await reconcileCloudPlugins()
 
-    expect(marketplaceCalls).toEqual(['anthropics/skills'])
-    expect(installCalls).toEqual(['claude-api@anthropic-agent-skills'])
-    expect(
-      readLedger().plugins['claude-api@anthropic-agent-skills'].lifecycle,
-    ).toBe('active')
+    // installs from the aggregated costrict-plugins marketplace, NOT the origin repo
+    expect(marketplaceCalls).toEqual([AGG])
+    expect(installCalls).toEqual(['claude-api@costrict-plugins'])
+    const rec = readLedger().plugins['claude-api@costrict-plugins']
+    expect(rec.lifecycle).toBe('active')
+    expect(rec.marketplaceName).toBe('costrict-plugins')
+    expect(rec.originRepo).toBe('anthropics/skills')
+  })
+
+  test('aggregated marketplace is added once for multiple favorites', async () => {
+    listItems = [
+      makeItem('1', 'claude-api', 'anthropic-agent-skills', 'anthropics/skills'),
+      makeItem('2', 'frontend-slides', 'frontend-slides', 'zarazhangrui/frontend-slides'),
+    ]
+
+    await reconcileCloudPlugins()
+
+    expect(marketplaceCalls).toEqual([AGG]) // exactly once, not per-plugin
+    expect(installCalls.sort()).toEqual(
+      ['claude-api@costrict-plugins', 'frontend-slides@costrict-plugins'].sort(),
+    )
   })
 
   test('falls back to detail fetch when the list omits install metadata', async () => {
@@ -163,11 +181,11 @@ describe('reconcileCloudPlugins', () => {
 
     await reconcileCloudPlugins()
 
-    expect(installCalls).toEqual(['foo@mkt-name'])
+    expect(installCalls).toEqual(['foo@costrict-plugins'])
   })
 
   test('respects user disable: ledger active but now disabled becomes unloaded', async () => {
-    const key = 'claude-api@anthropic-agent-skills'
+    const key = 'claude-api@costrict-plugins'
     listItems = [
       makeItem('1', 'claude-api', 'anthropic-agent-skills', 'anthropics/skills'),
     ]
@@ -177,8 +195,8 @@ describe('reconcileCloudPlugins', () => {
       [key]: {
         key,
         pluginName: 'claude-api',
-        marketplaceName: 'anthropic-agent-skills',
-        marketplaceRepo: 'anthropics/skills',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'anthropics/skills',
         lifecycle: 'active',
         installedAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
@@ -192,7 +210,7 @@ describe('reconcileCloudPlugins', () => {
   })
 
   test('respects prior unloaded: stays unloaded, no install', async () => {
-    const key = 'p@m'
+    const key = 'p@costrict-plugins'
     listItems = [makeItem('1', 'p', 'm', 'o/r')]
     installedPlugins = { [key]: [{ scope: 'user' }] }
     enabledPlugins = { [key]: false }
@@ -200,8 +218,8 @@ describe('reconcileCloudPlugins', () => {
       [key]: {
         key,
         pluginName: 'p',
-        marketplaceName: 'm',
-        marketplaceRepo: 'o/r',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
         lifecycle: 'unloaded',
         installedAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
@@ -215,7 +233,7 @@ describe('reconcileCloudPlugins', () => {
   })
 
   test("never touches a user's manual install (installed but absent from ledger)", async () => {
-    const key = 'manual@m'
+    const key = 'manual@costrict-plugins'
     listItems = [makeItem('1', 'manual', 'm', 'o/r')]
     installedPlugins = { [key]: [{ scope: 'user' }] }
     enabledPlugins = { [key]: false }
@@ -223,8 +241,7 @@ describe('reconcileCloudPlugins', () => {
 
     await reconcileCloudPlugins()
 
-    expect(installCalls).toEqual([])
-    expect(marketplaceCalls).toEqual([])
+    expect(installCalls).toEqual([]) // manual install never enabled/installed
     expect(readLedger().plugins[key]).toBeUndefined()
   })
 
@@ -234,13 +251,13 @@ describe('reconcileCloudPlugins', () => {
 
     await reconcileCloudPlugins()
 
-    const rec = readLedger().plugins['p@m']
+    const rec = readLedger().plugins['p@costrict-plugins']
     expect(rec.lifecycle).toBe('install_failed')
     expect(rec.lastError).toBe('SSH dependency missing')
   })
 
   test('unfavorite is a no-op: ledger keys absent from desired set are untouched', async () => {
-    const key = 'gone@m'
+    const key = 'gone@costrict-plugins'
     listItems = [] // nothing favorited remotely
     installedPlugins = { [key]: [{ scope: 'user' }] }
     enabledPlugins = { [key]: true }
@@ -248,8 +265,8 @@ describe('reconcileCloudPlugins', () => {
       [key]: {
         key,
         pluginName: 'gone',
-        marketplaceName: 'm',
-        marketplaceRepo: 'o/r',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
         lifecycle: 'active',
         installedAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
