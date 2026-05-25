@@ -48,20 +48,23 @@ type ContentBlock = {
   text?: string
 }
 
-function firstBlock(message: Message): ContentBlock | undefined {
-  const content = message.type === 'assistant' || message.type === 'user' ? message.message?.content : undefined
-  if (!Array.isArray(content)) return undefined
-  const block = content[0]
+function toContentBlock(block: unknown): ContentBlock | undefined {
   if (block == null || typeof block === 'string') return undefined
   return block as ContentBlock
 }
 
+function contentBlocks(message: Message): ContentBlock[] {
+  const content = message.type === 'assistant' || message.type === 'user' ? message.message?.content : undefined
+  if (!Array.isArray(content)) return []
+  return content.map(toContentBlock).filter(block => block !== undefined)
+}
+
 function isToolUseMessage(message: Message): boolean {
-  return message.type === 'assistant' && firstBlock(message)?.type === 'tool_use'
+  return message.type === 'assistant' && contentBlocks(message).some(block => block.type === 'tool_use')
 }
 
 function isToolResultMessage(message: Message): boolean {
-  return message.type === 'user' && firstBlock(message)?.type === 'tool_result'
+  return message.type === 'user' && contentBlocks(message).some(block => block.type === 'tool_result')
 }
 
 function shouldKeepInDefaultChat(message: Message): boolean {

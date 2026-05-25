@@ -101,4 +101,58 @@ describe('deriveActivityRailState', () => {
 
     expect(result.chatMessages.map(message => String(message.uuid))).toEqual(['a1', 's1'])
   })
+
+  test('chatMessages hides assistant messages when tool_use is after text content', () => {
+    const message: any = {
+      ...assistantText('a1', '先说明一下'),
+      message: {
+        id: 'msg-a1',
+        content: [
+          { type: 'text', text: '先说明一下' },
+          { type: 'tool_use', id: 'toolu_read', name: 'Read', input: { file_path: 'src/login.ts' } },
+        ],
+      },
+    }
+
+    const result = derive({ messages: [message, assistantText('a2', '后续说明')] })
+
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a2'])
+  })
+
+  test('chatMessages hides user messages when tool_result is after text content', () => {
+    const message: any = {
+      ...userText('u1', '先说明一下'),
+      message: {
+        content: [
+          { type: 'text', text: '先说明一下' },
+          { type: 'tool_result', tool_use_id: 'toolu_read', content: 'file content', is_error: false },
+        ],
+      },
+    }
+
+    const result = derive({ messages: [message, userText('u2', '继续')] })
+
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['u2'])
+  })
+
+  test('chatMessages hides assistant messages when any content block is tool_use', () => {
+    const message: any = {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: '2026-05-25T00:00:00.000Z',
+      message: {
+        id: 'msg-a1',
+        content: [
+          { type: 'text', text: '准备读取' },
+          { type: 'text', text: '第二段说明' },
+          { type: 'tool_use', id: 'toolu_bash', name: 'Bash', input: { command: 'pwd' } },
+          { type: 'text', text: '工具调用之后的内容' },
+        ],
+      },
+    }
+
+    const result = derive({ messages: [assistantText('a0', '保留'), message] })
+
+    expect(result.chatMessages.map(item => String(item.uuid))).toEqual(['a0'])
+  })
 })
