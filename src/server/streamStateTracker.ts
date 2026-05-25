@@ -8,6 +8,7 @@ type BlockState = {
   inputJson: string
   startTime: number
   text: string
+  inputEmitted?: boolean
 }
 
 type SessionStreamState = {
@@ -244,6 +245,26 @@ export function processStreamEvent(
         })
       } else if (delta.type === 'input_json_delta') {
         blockState.inputJson += (delta.partial_json as string) ?? ''
+        if (blockState.type === 'tool_use' && !blockState.inputEmitted) {
+          const partialInput = extractSubtitleInput(blockState.inputJson, blockState.toolName ?? '')
+          if (partialInput && Object.keys(partialInput).length > 0) {
+            blockState.inputEmitted = true
+            results.push({
+              type: 'message.part.updated',
+              properties: {
+                sessionID,
+                part: {
+                  type: 'tool',
+                  id: blockState.partID,
+                  callID: blockState.toolUseID,
+                  tool: normalizeToolName(blockState.toolName ?? ''),
+                  state: { status: 'pending', input: partialInput },
+                  messageID: state.messageID, sessionID,
+                },
+              },
+            })
+          }
+        }
       }
       break
     }
@@ -375,6 +396,34 @@ export function processStreamEvent(
   }
 
   return results
+}
+
+const SUBTITLE_KEYS: Record<string, string[]> = {
+  read: ['file_path'],
+  edit: ['file_path'],
+  write: ['file_path'],
+  list: ['path'],
+  glob: ['pattern'],
+  grep: ['pattern'],
+  bash: ['command', 'description'],
+  shell: ['command', 'description'],
+  webfetch: ['url'],
+  websearch: ['query'],
+  task: ['description'],
+}
+
+function extractSubtitleInput(partialJson: string, toolName: string): Record<string, unknown> | null {
+  const keys = SUBTITLE_KEYS[toolName.toLowerCase()] ?? SUBTITLE_KEYS[normalizeToolName(toolName)] ?? []
+  if (keys.length === 0) return null
+  const result: Record<string, unknown> = {}
+  for (const key of keys) {
+    const re = new RegExp(`"${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
+    const m = re.exec(partialJson)
+    if (m?.[1] != null) {
+      result[key] = m[1]
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null
 }
 
 function normalizeToolInput(input: Record<string, unknown>): Record<string, unknown> {

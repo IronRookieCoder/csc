@@ -517,8 +517,6 @@ export class SessionHandle implements DisposableChildProcess {
         this.opts.onInit?.(data)
       },
       resolvePrompt: value => {
-        this._busyStatus = { type: 'idle' }
-        this.emitBusyStatus()
         if (this.promptResolve) {
           this.promptResolve(value)
           this.promptResolve = null
@@ -617,12 +615,7 @@ export class SessionHandle implements DisposableChildProcess {
     }
     this._prompting = true
 
-    const alreadyBusy = this._busyStatus?.type === 'busy'
-
-    if (!alreadyBusy) {
-      this._busyStatus = { type: 'busy' }
-      this.emitBusyStatus()
-    }
+    this._busyStatus = { type: 'busy' }
     this.lastActiveAt = Date.now()
 
     const uuid = opts?.messageID ?? crypto.randomUUID()
