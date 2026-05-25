@@ -45,5 +45,7 @@ describe('ActivityRail', () => {
 
     expect(out).toContain('Activity')
     expect(out).toContain('No activity')
+    expect(out).toContain('No file changes')
+    expect(out).toContain('No gates')
   })
 })
