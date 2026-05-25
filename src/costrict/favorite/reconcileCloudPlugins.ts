@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { createCoStrictFetch } from '../provider/fetch.js'
 import { getCoStrictBaseURL } from '../provider/auth.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -98,9 +98,14 @@ async function readLedger(): Promise<PluginLedger> {
 }
 
 async function writeLedger(ledger: PluginLedger) {
-  const dir = path.dirname(pluginLedgerPath())
-  await mkdir(dir, { recursive: true })
-  await writeFile(pluginLedgerPath(), JSON.stringify(ledger, null, 2) + '\n')
+  const target = pluginLedgerPath()
+  await mkdir(path.dirname(target), { recursive: true })
+  // Atomic: write a temp file then rename, so a crash mid-write can never leave
+  // a truncated plugins.json (a corrupt ledger would parse-fail → reset to empty
+  // → orphan every cloud-managed plugin).
+  const tmp = `${target}.${process.pid}.tmp`
+  await writeFile(tmp, JSON.stringify(ledger, null, 2) + '\n')
+  await rename(tmp, target)
 }
 
 function now() {
@@ -279,11 +284,20 @@ async function ensureAggregatedMarketplace(): Promise<void> {
 
 export async function reconcileCloudPlugins(): Promise<void> {
   try {
-    const desired = await listFavoritedPlugins()
+    // Dedupe by ledger key: distinct catalog items can carry the same
+    // plugin_name (different origin repos) yet all map to a single
+    // `<pluginName>@costrict-plugins` install — install/track it once.
+    const desiredByKey = new Map<string, DesiredPlugin>()
+    for (const p of await listFavoritedPlugins()) {
+      desiredByKey.set(`${p.pluginName}@${AGGREGATED_MARKETPLACE_NAME}`, p)
+    }
+    const desired = [...desiredByKey.values()]
+    const desiredKeys = new Set(desiredByKey.keys())
+
     const ledger = await readLedger()
-    const desiredKeys = new Set(
-      desired.map(p => `${p.pluginName}@${AGGREGATED_MARKETPLACE_NAME}`),
-    )
+    // On-disk install snapshot (memoized). Removal and install passes act on
+    // disjoint key sets, so reusing this single snapshot is safe.
+    const installed = loadInstalledPluginsV2()
 
     let mutated = false
 
@@ -294,11 +308,19 @@ export async function reconcileCloudPlugins(): Promise<void> {
       if (desiredKeys.has(key)) continue
       try {
         const result = await uninstallPluginOp(key, 'user')
-        delete ledger.plugins[key]
-        mutated = true
-        logForDebugging(
-          `[plugin-reconcile] unfavorited ${key} → uninstalled (${result.success ? 'ok' : result.message})`,
-        )
+        if (result.success || !installed.plugins[key]) {
+          // Uninstalled, or it was not installed at our scope to begin with →
+          // stop tracking it.
+          delete ledger.plugins[key]
+          mutated = true
+          logForDebugging(`[plugin-reconcile] unfavorited ${key} → removed`)
+        } else {
+          // Still installed but the uninstall did not take (e.g. another scope);
+          // keep the ledger entry and retry next startup rather than orphan it.
+          logForDebugging(
+            `[plugin-reconcile] uninstall ${key} did not take (${result.message}); keeping ledger entry`,
+          )
+        }
       } catch (error) {
         // Keep the ledger entry so the uninstall is retried next startup.
         const message = error instanceof Error ? error.message : String(error)
@@ -327,10 +349,8 @@ export async function reconcileCloudPlugins(): Promise<void> {
       return
     }
 
-    // Snapshots taken once up front: they reflect the on-disk / settings state
-    // at startup, which is exactly what we compare against to detect a user's
-    // prior manual disable.
-    const installed = loadInstalledPluginsV2()
+    // Settings snapshot — compared against the ledger to detect a user's prior
+    // manual disable. (`installed` snapshot was taken up front, above.)
     const enabled = enabledPluginsSnapshot()
 
     for (const plugin of desired) {
@@ -407,7 +427,10 @@ export async function reconcileCloudPlugins(): Promise<void> {
     }
 
     if (mutated) await writeLedger(ledger)
-  } catch {
-    // Never let a flaky cloud API or plugin op break startup.
+  } catch (error) {
+    // Never let a flaky cloud API or plugin op break startup; log for diagnosis.
+    logForDebugging(
+      `[plugin-reconcile] aborted: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
 }

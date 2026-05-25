@@ -19,6 +19,10 @@ let installResult: { success: boolean; message: string } = {
   success: true,
   message: 'ok',
 }
+let uninstallResult: { success: boolean; message: string } = {
+  success: true,
+  message: 'uninstalled',
+}
 const marketplaceCalls: string[] = []
 const installCalls: string[] = []
 const uninstallCalls: string[] = []
@@ -90,7 +94,7 @@ mock.module('../../../services/plugins/pluginOperations.js', () => ({
   },
   uninstallPluginOp: async (plugin: string) => {
     uninstallCalls.push(plugin)
-    return { success: true, message: 'uninstalled' }
+    return uninstallResult
   },
 }))
 mock.module('../../../utils/plugins/marketplaceManager.js', () => ({
@@ -135,6 +139,7 @@ describe('reconcileCloudPlugins', () => {
     installedPlugins = {}
     enabledPlugins = {}
     installResult = { success: true, message: 'ok' }
+    uninstallResult = { success: true, message: 'uninstalled' }
     marketplaceCalls.length = 0
     installCalls.length = 0
     uninstallCalls.length = 0
@@ -323,5 +328,62 @@ describe('reconcileCloudPlugins', () => {
     const ledger = readLedger().plugins
     expect(ledger[dropped]).toBeUndefined()
     expect(ledger[kept].lifecycle).toBe('active')
+  })
+
+  test('unfavorite: uninstall did not take but still installed → ledger entry kept (no orphan)', async () => {
+    const key = 'stuck@costrict-plugins'
+    listItems = [] // unfavorited
+    installedPlugins = { [key]: [{ scope: 'project' }] } // still installed (other scope)
+    uninstallResult = { success: false, message: 'installed in project scope' }
+    seedLedger({
+      [key]: {
+        key,
+        pluginName: 'stuck',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(uninstallCalls).toEqual([key])
+    // still installed + uninstall failed → keep tracking, retry next time
+    expect(readLedger().plugins[key]).toBeDefined()
+  })
+
+  test('unfavorite: not installed + uninstall reports not-found → ledger entry dropped', async () => {
+    const key = 'gonemissing@costrict-plugins'
+    listItems = []
+    installedPlugins = {} // not installed at all
+    uninstallResult = { success: false, message: 'not found in installed plugins' }
+    seedLedger({
+      [key]: {
+        key,
+        pluginName: 'gonemissing',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(readLedger().plugins[key]).toBeUndefined() // gone → stop tracking
+  })
+
+  test('dedupes by key: two favorited items with the same plugin_name install once', async () => {
+    listItems = [
+      makeItem('1', 'dup', 'mkt-a', 'owner/a'),
+      makeItem('2', 'dup', 'mkt-b', 'owner/b'), // different id+repo, same plugin_name
+    ]
+
+    await reconcileCloudPlugins()
+
+    expect(installCalls).toEqual(['dup@costrict-plugins']) // exactly once
   })
 })
