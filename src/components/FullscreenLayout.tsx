@@ -15,7 +15,14 @@ import { fileURLToPath } from 'url';
 import { ModalContext } from '../context/modalContext.js';
 import { PromptOverlayProvider, usePromptOverlay, usePromptOverlayDialog } from '../context/promptOverlayContext.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
-import { Box, ScrollBox, type ScrollBoxHandle, Text, instances } from '@anthropic/ink';
+import {
+  Box,
+  ScrollBox,
+  TerminalSizeContext,
+  type ScrollBoxHandle,
+  Text,
+  instances,
+} from '@anthropic/ink';
 import type { Message } from '../types/message.js';
 import { openBrowser, openPath } from '../utils/browser.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
@@ -281,6 +288,17 @@ export function getFullscreenMainColumnWidth(columns: number, sideRailWidth?: nu
   return Math.max(1, columns - sideRailWidth);
 }
 
+export function getFullscreenMainTerminalSize(
+  rows: number,
+  columns: number,
+  sideRailWidth?: number,
+): { rows: number; columns: number } {
+  return {
+    rows,
+    columns: getFullscreenMainColumnWidth(columns, sideRailWidth),
+  };
+}
+
 /**
  * Layout wrapper for the REPL. In fullscreen mode, puts scrollable
  * content in a sticky-scroll box and pins bottom content via flexbox.
@@ -360,6 +378,7 @@ export function FullscreenLayout({
   if (isFullscreenEnvEnabled()) {
     const resolvedSideRailWidth = sideRail == null ? undefined : sideRailWidth;
     const mainColumnWidth = getFullscreenMainColumnWidth(columns, resolvedSideRailWidth);
+    const mainTerminalSize = getFullscreenMainTerminalSize(terminalRows, columns, resolvedSideRailWidth);
     // Overlay renders BELOW messages inside the same ScrollBox — user can
     // scroll up to see prior context while a permission dialog is showing.
     // The ScrollBox never unmounts across overlay transitions, so scroll
@@ -384,34 +403,36 @@ export function FullscreenLayout({
       <PromptOverlayProvider>
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
           <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
-            <Box flexGrow={1} flexDirection="column" overflow="hidden">
-              {headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />}
-              <ScrollBox
-                ref={scrollRef}
-                flexGrow={1}
-                flexDirection="column"
-                paddingTop={padCollapsed ? 0 : 1}
-                stickyScroll
-              >
-                <ScrollChromeContext value={chromeCtx}>{scrollable}</ScrollChromeContext>
-                {overlay}
-              </ScrollBox>
-              {!hidePill && pillVisible && overlay == null && (
-                <NewMessagesPill count={newMessageCount} onClick={onPillClick} />
-              )}
-              {bottomFloat != null && (
-                <Box position="absolute" bottom={0} right={0} opaque>
-                  {bottomFloat}
-                </Box>
-              )}
-            </Box>
-            <Box flexDirection="column" flexShrink={0} width="100%" maxHeight="50%">
-              <SuggestionsOverlay />
-              <DialogOverlay />
-              <Box flexDirection="column" width="100%" flexGrow={1} overflowY="hidden">
-                {bottom}
+            <TerminalSizeContext.Provider value={mainTerminalSize}>
+              <Box flexGrow={1} flexDirection="column" overflow="hidden">
+                {headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />}
+                <ScrollBox
+                  ref={scrollRef}
+                  flexGrow={1}
+                  flexDirection="column"
+                  paddingTop={padCollapsed ? 0 : 1}
+                  stickyScroll
+                >
+                  <ScrollChromeContext value={chromeCtx}>{scrollable}</ScrollChromeContext>
+                  {overlay}
+                </ScrollBox>
+                {!hidePill && pillVisible && overlay == null && (
+                  <NewMessagesPill count={newMessageCount} onClick={onPillClick} />
+                )}
+                {bottomFloat != null && (
+                  <Box position="absolute" bottom={0} right={0} opaque>
+                    {bottomFloat}
+                  </Box>
+                )}
               </Box>
-            </Box>
+              <Box flexDirection="column" flexShrink={0} width="100%" maxHeight="50%">
+                <SuggestionsOverlay />
+                <DialogOverlay />
+                <Box flexDirection="column" width="100%" flexGrow={1} overflowY="hidden">
+                  {bottom}
+                </Box>
+              </Box>
+            </TerminalSizeContext.Provider>
           </Box>
           {sideRail != null && resolvedSideRailWidth !== undefined && (
             <Box flexDirection="column" flexShrink={0} width={resolvedSideRailWidth} overflow="hidden">

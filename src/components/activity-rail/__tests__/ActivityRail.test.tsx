@@ -4,7 +4,7 @@ import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
 import { ActivityRailLayout } from '../ActivityRailLayout.js'
-import { getFullscreenMainColumnWidth } from '../../FullscreenLayout.js'
+import { getFullscreenMainColumnWidth, getFullscreenMainTerminalSize } from '../../FullscreenLayout.js'
 import type { ActivityRailState } from '../../../utils/activityRail.js'
 
 const state: ActivityRailState = {
@@ -135,5 +135,10 @@ describe('FullscreenLayout side rail sizing', () => {
     expect(getFullscreenMainColumnWidth(140, 34)).toBe(106)
     expect(getFullscreenMainColumnWidth(140)).toBe(140)
     expect(getFullscreenMainColumnWidth(20, 34)).toBe(1)
+  })
+
+  test('scopes main terminal size to the scrollbox column width', () => {
+    expect(getFullscreenMainTerminalSize(40, 140, 34)).toEqual({ rows: 40, columns: 106 })
+    expect(getFullscreenMainTerminalSize(40, 140)).toEqual({ rows: 40, columns: 140 })
   })
 })
