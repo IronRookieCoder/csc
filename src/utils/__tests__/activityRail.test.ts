@@ -245,4 +245,77 @@ describe('deriveActivityRailState', () => {
       status: '待执行',
     })
   })
+
+  test('failed verification is not overwritten by later successful verification', () => {
+    const messages = [
+      toolUse('a1', 'toolu_typecheck', 'Bash', { command: 'bun run typecheck' }),
+      toolResult('u1', 'toolu_typecheck', 'tsc failed', true),
+      toolUse('a2', 'toolu_test', 'Bash', { command: 'bun test src/login.test.ts' }),
+      toolResult('u2', 'toolu_test', 'pass'),
+    ]
+
+    const result = derive({ messages })
+
+    expect(result.railState.activity).toContainEqual({
+      id: 'verification',
+      title: '执行验证',
+      detail: 'bun test src/login.test.ts',
+      status: 'attention',
+    })
+    expect(result.railState.quality).toContainEqual({
+      id: 'verification',
+      label: '测试验证',
+      status: '需关注',
+    })
+  })
+
+  test('completed tool results take precedence over stale in-progress ids', () => {
+    const messages = [
+      toolUse('a1', 'toolu_done', 'Read', { file_path: 'src/login.ts' }),
+      toolResult('u1', 'toolu_done'),
+      toolUse('a2', 'toolu_failed', 'Bash', { command: 'bun run typecheck' }),
+      toolResult('u2', 'toolu_failed', 'tsc failed', true),
+    ]
+
+    const result = derive({
+      messages,
+      inProgressToolUseIDs: new Set(['toolu_done', 'toolu_failed']),
+    })
+
+    expect(result.railState.activity).toContainEqual({
+      id: 'read-context',
+      title: '读取上下文',
+      status: 'done',
+    })
+    expect(result.railState.activity).toContainEqual({
+      id: 'verification',
+      title: '执行验证',
+      detail: 'bun run typecheck',
+      status: 'attention',
+    })
+  })
+
+  test('same file edit keeps attention status after later successful edit', () => {
+    const messages = [
+      toolUse('a1', 'toolu_write', 'Write', { file_path: 'src/login.ts' }),
+      toolResult('u1', 'toolu_write', 'write failed', true),
+      toolUse('a2', 'toolu_edit', 'Edit', { file_path: 'src/login.ts' }),
+      toolResult('u2', 'toolu_edit', 'updated'),
+    ]
+
+    const result = derive({ messages })
+
+    expect(result.railState.activity).toContainEqual({
+      id: 'prepare-change',
+      title: '准备改动',
+      status: 'attention',
+    })
+    expect(result.railState.changes).toEqual([
+      {
+        filePath: 'src/login.ts',
+        diffStat: 'modified',
+        status: 'attention',
+      },
+    ])
+  })
 })

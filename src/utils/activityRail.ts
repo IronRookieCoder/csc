@@ -121,11 +121,10 @@ function toolStatus(
   resultsByToolUseID: ReadonlyMap<string, ToolResultBlock>,
   inProgressToolUseIDs: ReadonlySet<string>,
 ): ActivityStatus {
-  if (inProgressToolUseIDs.has(toolUseID)) return 'running'
-
   const result = resultsByToolUseID.get(toolUseID)
-  if (result === undefined) return 'pending'
-  return result.isError ? 'attention' : 'done'
+  if (result !== undefined) return result.isError ? 'attention' : 'done'
+  if (inProgressToolUseIDs.has(toolUseID)) return 'running'
+  return 'pending'
 }
 
 function commandFromInput(input: Record<string, unknown>): string | undefined {
@@ -151,6 +150,17 @@ function isVerificationCommand(command: string | undefined): boolean {
   return /\b(test|lint|typecheck|tsc|build)\b/i.test(command)
 }
 
+function statusPriority(status: ActivityStatus): number {
+  if (status === 'attention') return 4
+  if (status === 'running') return 3
+  if (status === 'pending') return 2
+  return 1
+}
+
+function mergeStatus(current: ActivityStatus, next: ActivityStatus): ActivityStatus {
+  return statusPriority(next) > statusPriority(current) ? next : current
+}
+
 function upsertActivity(activity: ActivityRailItem[], item: ActivityRailItem): void {
   const existing = activity.find(activityItem => activityItem.id === item.id)
   if (existing === undefined) {
@@ -159,7 +169,7 @@ function upsertActivity(activity: ActivityRailItem[], item: ActivityRailItem): v
   }
 
   existing.detail = item.detail
-  existing.status = item.status
+  existing.status = mergeStatus(existing.status, item.status)
 }
 
 function upsertChange(changes: ChangeSetItem[], filePath: string, status: ActivityStatus): void {
@@ -173,7 +183,7 @@ function upsertChange(changes: ChangeSetItem[], filePath: string, status: Activi
     return
   }
 
-  existing.status = status
+  existing.status = mergeStatus(existing.status, status)
 }
 
 function qualityFromState(changes: ChangeSetItem[], verificationStatus: ActivityStatus | undefined): QualityGateItem[] {
@@ -250,7 +260,7 @@ export function deriveActivityRailState(input: ActivityRailInput): ActivityRailD
           detail: command,
           status,
         })
-        verificationStatus = status
+        verificationStatus = verificationStatus === undefined ? status : mergeStatus(verificationStatus, status)
         continue
       }
 
