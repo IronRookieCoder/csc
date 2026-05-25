@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { Box, Text } from '@anthropic/ink'
 import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
+import { ActivityRailLayout } from '../ActivityRailLayout.js'
 import type { ActivityRailState } from '../../../utils/activityRail.js'
 
 const state: ActivityRailState = {
@@ -84,5 +86,45 @@ describe('ActivityRail', () => {
     expect(out).toContain('Change Set')
     expect(out).toContain('Quality Gate')
     expect(out.split('\n').length).toBeLessThanOrEqual(12)
+  })
+})
+
+describe('ActivityRailLayout', () => {
+  test('renders rail beside chat when wide', async () => {
+    const out = await renderToString(
+      <ActivityRailLayout
+        columns={140}
+        railState={state}
+        narrowSummary="Tools: 2 done | 1 file changed | tests pending"
+      >
+        <Box flexDirection="column">
+          <Text>聊天主体</Text>
+        </Box>
+      </ActivityRailLayout>,
+      140,
+    )
+
+    expect(out).toContain('聊天主体')
+    expect(out).toContain('Activity')
+    expect(out).toContain('Quality Gate')
+  })
+
+  test('renders summary instead of rail when narrow', async () => {
+    const out = await renderToString(
+      <ActivityRailLayout
+        columns={100}
+        railState={state}
+        narrowSummary="Tools: 2 done | 1 file changed | tests pending"
+      >
+        <Box flexDirection="column">
+          <Text>聊天主体</Text>
+        </Box>
+      </ActivityRailLayout>,
+      100,
+    )
+
+    expect(out).toContain('聊天主体')
+    expect(out).toContain('Tools: 2 done')
+    expect(out).not.toContain('Quality Gate')
   })
 })
