@@ -5476,6 +5476,17 @@ export function REPL({
       ? messages
       : deferredMessages;
 
+  const activityRail = useMemo(
+    () =>
+      deriveActivityRailState({
+        messages: displayedMessages,
+        inProgressToolUseIDs: viewedTeammateTask
+          ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set<string>())
+          : inProgressToolUseIDs,
+      }),
+    [displayedMessages, viewedTeammateTask, inProgressToolUseIDs],
+  );
+
   if (screen === 'transcript') {
     // Virtual scroll replaces the 30-message cap: everything is scrollable
     // and memory is bounded by the viewport. Without it, wrapping transcript
@@ -5650,17 +5661,6 @@ export function REPL({
     }
     return transcriptReturn;
   }
-
-  const activityRail = useMemo(
-    () =>
-      deriveActivityRailState({
-        messages: displayedMessages,
-        inProgressToolUseIDs: viewedTeammateTask
-          ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set<string>())
-          : inProgressToolUseIDs,
-      }),
-    [displayedMessages, viewedTeammateTask, inProgressToolUseIDs],
-  );
 
   // Show the placeholder until the real user message appears in
   // displayedMessages. userInputOnProcessing stays set for the whole turn
