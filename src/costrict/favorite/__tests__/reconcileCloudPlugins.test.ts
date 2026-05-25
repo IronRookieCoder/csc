@@ -21,6 +21,7 @@ let installResult: { success: boolean; message: string } = {
 }
 const marketplaceCalls: string[] = []
 const installCalls: string[] = []
+const uninstallCalls: string[] = []
 
 function installEnvelope(
   pluginName: string,
@@ -87,6 +88,10 @@ mock.module('../../../services/plugins/pluginOperations.js', () => ({
     installCalls.push(plugin)
     return installResult
   },
+  uninstallPluginOp: async (plugin: string) => {
+    uninstallCalls.push(plugin)
+    return { success: true, message: 'uninstalled' }
+  },
 }))
 mock.module('../../../utils/plugins/marketplaceManager.js', () => ({
   addMarketplaceSource: async (source: { repo?: string }) => {
@@ -132,6 +137,7 @@ describe('reconcileCloudPlugins', () => {
     installResult = { success: true, message: 'ok' }
     marketplaceCalls.length = 0
     installCalls.length = 0
+    uninstallCalls.length = 0
   })
 
   afterEach(() => {
@@ -256,9 +262,9 @@ describe('reconcileCloudPlugins', () => {
     expect(rec.lastError).toBe('SSH dependency missing')
   })
 
-  test('unfavorite is a no-op: ledger keys absent from desired set are untouched', async () => {
+  test('unfavorite uninstalls the plugin and drops it from the ledger', async () => {
     const key = 'gone@costrict-plugins'
-    listItems = [] // nothing favorited remotely
+    listItems = [] // nothing favorited remotely anymore
     installedPlugins = { [key]: [{ scope: 'user' }] }
     enabledPlugins = { [key]: true }
     seedLedger({
@@ -275,7 +281,47 @@ describe('reconcileCloudPlugins', () => {
 
     await reconcileCloudPlugins()
 
+    expect(uninstallCalls).toEqual([key]) // uninstalled so it disappears
     expect(installCalls).toEqual([])
-    expect(readLedger().plugins[key].lifecycle).toBe('active')
+    expect(readLedger().plugins[key]).toBeUndefined() // dropped from ledger
+  })
+
+  test('unfavorite one of several: only the dropped one is uninstalled', async () => {
+    const kept = 'kept@costrict-plugins'
+    const dropped = 'dropped@costrict-plugins'
+    listItems = [makeItem('1', 'kept', 'm', 'o/r')] // only "kept" still favorited
+    installedPlugins = {
+      [kept]: [{ scope: 'user' }],
+      [dropped]: [{ scope: 'user' }],
+    }
+    enabledPlugins = { [kept]: true, [dropped]: true }
+    seedLedger({
+      [kept]: {
+        key: kept,
+        pluginName: 'kept',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+      [dropped]: {
+        key: dropped,
+        pluginName: 'dropped',
+        marketplaceName: 'costrict-plugins',
+        originRepo: 'o/r',
+        lifecycle: 'active',
+        installedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await reconcileCloudPlugins()
+
+    expect(uninstallCalls).toEqual([dropped])
+    expect(installCalls).toEqual([]) // "kept" already installed+enabled+active
+    const ledger = readLedger().plugins
+    expect(ledger[dropped]).toBeUndefined()
+    expect(ledger[kept].lifecycle).toBe('active')
   })
 })

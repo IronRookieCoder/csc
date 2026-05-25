@@ -4,7 +4,10 @@ import { createCoStrictFetch } from '../provider/fetch.js'
 import { getCoStrictBaseURL } from '../provider/auth.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { installPluginOp } from '../../services/plugins/pluginOperations.js'
+import {
+  installPluginOp,
+  uninstallPluginOp,
+} from '../../services/plugins/pluginOperations.js'
 import { addMarketplaceSource } from '../../utils/plugins/marketplaceManager.js'
 import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsManager.js'
 import { parseMarketplaceInput } from '../../utils/plugins/parseMarketplaceInput.js'
@@ -20,14 +23,21 @@ import { getSettingsForSource } from '../../utils/settings/settings.js'
  * plugin state by importing csc's own plugin ops (addMarketplaceSource +
  * installPluginOp) rather than spawning `csc plugin` subprocesses.
  *
- * Lifecycle mirrors the skill chain exactly:
- *  - first-time favorite: ensure marketplace, then install (auto-enables)
+ * Lifecycle:
+ *  - first-time favorite: ensure the aggregated marketplace, then install
+ *    (auto-enables)
  *  - respect user disable: a plugin we enabled but the user later disabled in
  *    `/plugin` is re-marked `unloaded` and never re-enabled
- *  - unfavorite is a no-op: plugins dropped from the remote set are neither
- *    disabled nor uninstalled
+ *  - unfavorite → uninstall: a ledger-tracked plugin that is no longer in the
+ *    remote favorited set is uninstalled so it disappears from `/plugin →
+ *    Installed`, then dropped from the ledger (this intentionally goes further
+ *    than the skill chain, which leaves remotely-unfavorited skills in place)
  *  - manual installs are never touched: a plugin present on disk but absent
  *    from our ledger is left entirely alone
+ *
+ * Runs in-process (async I/O on the event loop — no child process); plugin ops
+ * spawn git via execa (non-detached, auto-killed on csc exit), so a mid-flight
+ * reconcile leaves no orphaned subprocess.
  *
  * A provenance ledger at ~/.claude/favorites/plugins.json records the
  * cloud-managed `<plugin>@<marketplace>` keys and their lifecycle, mirroring the
@@ -270,28 +280,58 @@ async function ensureAggregatedMarketplace(): Promise<void> {
 export async function reconcileCloudPlugins(): Promise<void> {
   try {
     const desired = await listFavoritedPlugins()
-    if (desired.length === 0) return
+    const ledger = await readLedger()
+    const desiredKeys = new Set(
+      desired.map(p => `${p.pluginName}@${AGGREGATED_MARKETPLACE_NAME}`),
+    )
 
-    // All plugins live in the one aggregated marketplace — materialize it once.
-    // If it can't be reached, nothing can install; bail and retry next startup.
+    let mutated = false
+
+    // ── Removal pass: a ledger-tracked plugin that is no longer favorited gets
+    //    uninstalled (so it disappears from `/plugin → Installed`) and dropped
+    //    from the ledger. Manual installs are never in the ledger → untouched.
+    for (const key of Object.keys(ledger.plugins)) {
+      if (desiredKeys.has(key)) continue
+      try {
+        const result = await uninstallPluginOp(key, 'user')
+        delete ledger.plugins[key]
+        mutated = true
+        logForDebugging(
+          `[plugin-reconcile] unfavorited ${key} → uninstalled (${result.success ? 'ok' : result.message})`,
+        )
+      } catch (error) {
+        // Keep the ledger entry so the uninstall is retried next startup.
+        const message = error instanceof Error ? error.message : String(error)
+        logForDebugging(
+          `[plugin-reconcile] uninstall ${key} failed, will retry: ${message}`,
+        )
+      }
+    }
+
+    // Nothing favorited remotely → the removal pass was all there was to do.
+    if (desired.length === 0) {
+      if (mutated) await writeLedger(ledger)
+      return
+    }
+
+    // ── Install/enable pass. Materialize the one aggregated marketplace once;
+    //    if unreachable, nothing can install — persist removals and bail.
     try {
       await ensureAggregatedMarketplace()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logForDebugging(
-        `[plugin-reconcile] cannot materialize ${AGGREGATED_MARKETPLACE_NAME} marketplace, skipping: ${message}`,
+        `[plugin-reconcile] cannot materialize ${AGGREGATED_MARKETPLACE_NAME} marketplace, skipping installs: ${message}`,
       )
+      if (mutated) await writeLedger(ledger)
       return
     }
 
-    const ledger = await readLedger()
     // Snapshots taken once up front: they reflect the on-disk / settings state
     // at startup, which is exactly what we compare against to detect a user's
     // prior manual disable.
     const installed = loadInstalledPluginsV2()
     const enabled = enabledPluginsSnapshot()
-
-    let mutated = false
 
     for (const plugin of desired) {
       const key = `${plugin.pluginName}@${AGGREGATED_MARKETPLACE_NAME}`
