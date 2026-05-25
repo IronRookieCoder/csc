@@ -53,8 +53,7 @@ export async function saveChildSpawnPrefix(): Promise<void> {
     } catch {}
     const envFeatures = Object.entries(process.env)
       .filter(([k]) => k.startsWith('FEATURE_') && k.slice(8))
-      .map(([k]) => ['--feature', k.slice(8)] as [string, string])
-      .flat()
+      .flatMap(([k]) => ['--feature', k.slice(8)] as [string, string])
     featureArgs = [...featureArgs, ...envFeatures]
   }
   const prefix = JSON.stringify({ execPath, scriptArgs, defineArgs, featureArgs })
