@@ -53,6 +53,12 @@ type Props = {
    *  ScrollBox AND bottom slot. Provides ModalContext so Pane/Dialog inside
    *  skip their own frame. Fullscreen only; inline after overlay otherwise. */
   modal?: ReactNode;
+  /** Optional fullscreen-only right rail. It renders outside the ScrollBox
+   *  so virtual message coordinates stay relative to the original scroll
+   *  content tree. */
+  sideRail?: ReactNode;
+  /** Fixed terminal column width reserved for sideRail. */
+  sideRailWidth?: number;
   /** Ref passed via ModalContext so Tabs (or any scroll-owning descendant)
    *  can attach it to their own ScrollBox for tall content. */
   modalScrollRef?: React.RefObject<ScrollBoxHandle | null>;
@@ -270,6 +276,11 @@ export function computeUnseenDivider(
   return { firstUnseenUuid: uuid, count: Math.max(1, count) };
 }
 
+export function getFullscreenMainColumnWidth(columns: number, sideRailWidth?: number): number {
+  if (sideRailWidth === undefined) return columns;
+  return Math.max(1, columns - sideRailWidth);
+}
+
 /**
  * Layout wrapper for the REPL. In fullscreen mode, puts scrollable
  * content in a sticky-scroll box and pins bottom content via flexbox.
@@ -288,6 +299,8 @@ export function FullscreenLayout({
   overlay,
   bottomFloat,
   modal,
+  sideRail,
+  sideRailWidth,
   modalScrollRef,
   scrollRef,
   dividerYRef,
@@ -345,6 +358,8 @@ export function FullscreenLayout({
   }, []);
 
   if (isFullscreenEnvEnabled()) {
+    const resolvedSideRailWidth = sideRail == null ? undefined : sideRailWidth;
+    const mainColumnWidth = getFullscreenMainColumnWidth(columns, resolvedSideRailWidth);
     // Overlay renders BELOW messages inside the same ScrollBox — user can
     // scroll up to see prior context while a permission dialog is showing.
     // The ScrollBox never unmounts across overlay transitions, so scroll
@@ -368,7 +383,7 @@ export function FullscreenLayout({
     return (
       <PromptOverlayProvider>
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
-          <Box flexDirection="column" flexGrow={1} width={columns} overflow="hidden">
+          <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
             <Box flexGrow={1} flexDirection="column" overflow="hidden">
               {headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />}
               <ScrollBox
@@ -398,6 +413,11 @@ export function FullscreenLayout({
               </Box>
             </Box>
           </Box>
+          {sideRail != null && resolvedSideRailWidth !== undefined && (
+            <Box flexDirection="column" flexShrink={0} width={resolvedSideRailWidth} overflow="hidden">
+              {sideRail}
+            </Box>
+          )}
         </Box>
         {modal != null && (
           <ModalContext

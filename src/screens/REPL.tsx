@@ -277,7 +277,12 @@ import { useManagePlugins } from '../hooks/useManagePlugins.js';
 import { Messages } from '../components/Messages.js';
 import { TaskListV2 } from '../components/TaskListV2.js';
 import { TeammateViewHeader } from '../components/TeammateViewHeader.js';
-import { ActivityRailLayout } from '../components/activity-rail/ActivityRailLayout.js';
+import { ActivityRail } from '../components/activity-rail/ActivityRail.js';
+import {
+  ACTIVITY_RAIL_WIDTH,
+  ActivityRailLayout,
+  shouldShowActivityRail,
+} from '../components/activity-rail/ActivityRailLayout.js';
 import { getPipeIpc } from '../utils/pipeTransport.js';
 import { useTasksV2WithCollapseEffect } from '../hooks/useTasksV2.js';
 import { maybeMarkProjectOnboardingComplete } from '../projectOnboardingState.js';
@@ -5705,6 +5710,7 @@ export function REPL({
   // check footerSelection: pill FOCUS (arrow-down to tasks pill) must keep
   // the sprite visible so arrow-right can navigate to it.
   const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
+  const showFullscreenActivityRail = isFullscreenEnvEnabled() && shouldShowActivityRail(transcriptCols);
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -5720,6 +5726,94 @@ export function REPL({
   // flexGrow in FullscreenLayout resolves against this Box. The transcript
   // early return above wraps its virtual-scroll branch the same way; only
   // the 30-cap dump branch stays unwrapped for native terminal scrollback.
+  const defaultScrollableContent = (
+    <>
+      <TeammateViewHeader />
+      <Messages
+        messages={activityRail.chatMessages}
+        tools={tools}
+        commands={commands}
+        verbose={verbose}
+        toolJSX={toolJSX}
+        toolUseConfirmQueue={toolUseConfirmQueue}
+        inProgressToolUseIDs={
+          viewedTeammateTask ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set()) : inProgressToolUseIDs
+        }
+        isMessageSelectorVisible={isMessageSelectorVisible}
+        conversationId={conversationId}
+        screen={screen}
+        streamingToolUses={streamingToolUses}
+        showAllInTranscript={showAllInTranscript}
+        agentDefinitions={agentDefinitions}
+        onOpenRateLimitOptions={handleOpenRateLimitOptions}
+        isLoading={isLoading}
+        streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null}
+        isBriefOnly={viewedAgentTask ? false : isBriefOnly}
+        unseenDivider={viewedAgentTask ? undefined : unseenDivider}
+        scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined}
+        trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined}
+        cursor={cursor}
+        setCursor={setCursor}
+        cursorNavRef={cursorNavRef}
+      />
+      <AwsAuthStatusBox />
+      {/* Hide the processing placeholder while a modal is showing —
+          it would sit at the last visible transcript row right above
+          the ▔ divider, showing "❯ /config" as redundant clutter
+          (the modal IS the /config UI). Outside modals it stays so
+          the user sees their input echoed while Claude processes. */}
+      {!disabled && placeholderText && !centeredModal && (
+        <UserTextMessage param={{ text: placeholderText, type: 'text' }} addMargin={true} verbose={verbose} />
+      )}
+      {toolJSX && !(toolJSX.isLocalJSXCommand && toolJSX.isImmediate) && !toolJsxCentered && (
+        <Box flexDirection="column" width="100%">
+          {toolJSX.jsx}
+        </Box>
+      )}
+      {process.env.USER_TYPE === 'ant' && <TungstenLiveMonitor />}
+      {/* WebBrowserPanel removed — browser-lite, no panel */}
+      <Box flexGrow={1} />
+      {showSpinner && (
+        <SpinnerWithVerb
+          mode={streamMode}
+          spinnerTip={spinnerTip}
+          responseLengthRef={responseLengthRef}
+          apiMetricsRef={apiMetricsRef}
+          overrideMessage={spinnerMessage}
+          spinnerSuffix={stopHookSpinnerSuffix}
+          verbose={verbose}
+          loadingStartTimeRef={loadingStartTimeRef}
+          totalPausedMsRef={totalPausedMsRef}
+          pauseStartTimeRef={pauseStartTimeRef}
+          overrideColor={spinnerColor}
+          overrideShimmerColor={spinnerShimmerColor}
+          hasActiveTools={inProgressToolUseIDs.size > 0}
+          leaderIsIdle={!isLoading}
+        />
+      )}
+      {!showSpinner &&
+        !isLoading &&
+        !userInputOnProcessing &&
+        !hasRunningTeammates &&
+        isBriefOnly &&
+        !viewedAgentTask && <BriefIdleStatus />}
+      {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
+      {isFullscreenEnvEnabled() && !showFullscreenActivityRail && (
+        <Text wrap="truncate-end">{activityRail.narrowSummary}</Text>
+      )}
+    </>
+  );
+  const defaultScrollable = isFullscreenEnvEnabled() ? (
+    defaultScrollableContent
+  ) : (
+    <ActivityRailLayout
+      columns={transcriptCols}
+      railState={activityRail.railState}
+      narrowSummary={activityRail.narrowSummary}
+    >
+      {defaultScrollableContent}
+    </ActivityRailLayout>
+  );
 
   const mainReturn = (
     <KeybindingSetup>
@@ -5767,6 +5861,12 @@ export function REPL({
             feature('BUDDY') && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined
           }
           modal={centeredModal}
+          sideRail={
+            showFullscreenActivityRail ? (
+              <ActivityRail state={activityRail.railState} width={ACTIVITY_RAIL_WIDTH} />
+            ) : undefined
+          }
+          sideRailWidth={ACTIVITY_RAIL_WIDTH}
           modalScrollRef={modalScrollRef}
           dividerYRef={dividerYRef}
           hidePill={!!viewedAgentTask}
@@ -5776,84 +5876,7 @@ export function REPL({
             setCursor(null);
             jumpToNew(scrollRef.current);
           }}
-          scrollable={
-            <ActivityRailLayout
-              columns={transcriptCols}
-              railState={activityRail.railState}
-              narrowSummary={activityRail.narrowSummary}
-            >
-              <TeammateViewHeader />
-              <Messages
-                messages={activityRail.chatMessages}
-                tools={tools}
-                commands={commands}
-                verbose={verbose}
-                toolJSX={toolJSX}
-                toolUseConfirmQueue={toolUseConfirmQueue}
-                inProgressToolUseIDs={
-                  viewedTeammateTask ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set()) : inProgressToolUseIDs
-                }
-                isMessageSelectorVisible={isMessageSelectorVisible}
-                conversationId={conversationId}
-                screen={screen}
-                streamingToolUses={streamingToolUses}
-                showAllInTranscript={showAllInTranscript}
-                agentDefinitions={agentDefinitions}
-                onOpenRateLimitOptions={handleOpenRateLimitOptions}
-                isLoading={isLoading}
-                streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null}
-                isBriefOnly={viewedAgentTask ? false : isBriefOnly}
-                unseenDivider={viewedAgentTask ? undefined : unseenDivider}
-                scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined}
-                trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined}
-                cursor={cursor}
-                setCursor={setCursor}
-                cursorNavRef={cursorNavRef}
-              />
-              <AwsAuthStatusBox />
-              {/* Hide the processing placeholder while a modal is showing —
-                  it would sit at the last visible transcript row right above
-                  the ▔ divider, showing "❯ /config" as redundant clutter
-                  (the modal IS the /config UI). Outside modals it stays so
-                  the user sees their input echoed while Claude processes. */}
-              {!disabled && placeholderText && !centeredModal && (
-                <UserTextMessage param={{ text: placeholderText, type: 'text' }} addMargin={true} verbose={verbose} />
-              )}
-              {toolJSX && !(toolJSX.isLocalJSXCommand && toolJSX.isImmediate) && !toolJsxCentered && (
-                <Box flexDirection="column" width="100%">
-                  {toolJSX.jsx}
-                </Box>
-              )}
-              {process.env.USER_TYPE === 'ant' && <TungstenLiveMonitor />}
-              {/* WebBrowserPanel removed — browser-lite, no panel */}
-              <Box flexGrow={1} />
-              {showSpinner && (
-                <SpinnerWithVerb
-                  mode={streamMode}
-                  spinnerTip={spinnerTip}
-                  responseLengthRef={responseLengthRef}
-                  apiMetricsRef={apiMetricsRef}
-                  overrideMessage={spinnerMessage}
-                  spinnerSuffix={stopHookSpinnerSuffix}
-                  verbose={verbose}
-                  loadingStartTimeRef={loadingStartTimeRef}
-                  totalPausedMsRef={totalPausedMsRef}
-                  pauseStartTimeRef={pauseStartTimeRef}
-                  overrideColor={spinnerColor}
-                  overrideShimmerColor={spinnerShimmerColor}
-                  hasActiveTools={inProgressToolUseIDs.size > 0}
-                  leaderIsIdle={!isLoading}
-                />
-              )}
-              {!showSpinner &&
-                !isLoading &&
-                !userInputOnProcessing &&
-                !hasRunningTeammates &&
-                isBriefOnly &&
-                !viewedAgentTask && <BriefIdleStatus />}
-              {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-            </ActivityRailLayout>
-          }
+          scrollable={defaultScrollable}
           bottom={
             <Box
               flexDirection={feature('BUDDY') && companionNarrow ? 'column' : 'row'}

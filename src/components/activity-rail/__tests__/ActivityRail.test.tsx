@@ -4,6 +4,7 @@ import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
 import { ActivityRailLayout } from '../ActivityRailLayout.js'
+import { getFullscreenMainColumnWidth } from '../../FullscreenLayout.js'
 import type { ActivityRailState } from '../../../utils/activityRail.js'
 
 const state: ActivityRailState = {
@@ -126,5 +127,13 @@ describe('ActivityRailLayout', () => {
     expect(out).toContain('聊天主体')
     expect(out).toContain('Tools: 2 done')
     expect(out).not.toContain('Quality Gate')
+  })
+})
+
+describe('FullscreenLayout side rail sizing', () => {
+  test('reserves fixed rail width outside the scrollbox', () => {
+    expect(getFullscreenMainColumnWidth(140, 34)).toBe(106)
+    expect(getFullscreenMainColumnWidth(140)).toBe(140)
+    expect(getFullscreenMainColumnWidth(20, 34)).toBe(1)
   })
 })
