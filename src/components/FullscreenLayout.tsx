@@ -300,7 +300,7 @@ export function getFullscreenMainTerminalSize(
 }
 
 export function getFullscreenSideRailPaddingTop(padCollapsed: boolean): number {
-  return padCollapsed ? 0 : 1;
+  return padCollapsed ? 0 : 8;
 }
 
 /**

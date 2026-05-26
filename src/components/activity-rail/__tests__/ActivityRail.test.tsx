@@ -188,8 +188,8 @@ describe('FullscreenLayout side rail sizing', () => {
     expect(getFullscreenMainTerminalSize(40, 140)).toEqual({ rows: 40, columns: 140 })
   })
 
-  test('aligns the side rail with scrollbox content padding', () => {
-    expect(getFullscreenSideRailPaddingTop(false)).toBe(1)
+  test('aligns the side rail with the first conversation row after the logo', () => {
+    expect(getFullscreenSideRailPaddingTop(false)).toBe(8)
     expect(getFullscreenSideRailPaddingTop(true)).toBe(0)
   })
 })
