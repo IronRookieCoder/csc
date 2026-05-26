@@ -8,6 +8,7 @@ import {
   ActivityRailMainColumn,
   getActivityRailChatBackgroundColor,
   getActivityRailChatPaddingTop,
+  getActivityRailMinHeight,
   getActivityRailTopPadding,
   getFullscreenActivityRailAnchorTop,
   hasActivityRailContent,
@@ -339,6 +340,19 @@ describe('ActivityRailLayout', () => {
     expect(getActivityRailTopPadding(7)).toBe(7);
   });
 
+  test('reserves vertical space for a rail anchored below the welcome area', () => {
+    expect(
+      getActivityRailMinHeight({
+        railPaddingTop: 21,
+        topBarState,
+        railState: {
+          changes: [],
+          quality: [],
+        },
+      }),
+    ).toBeGreaterThan(30);
+  });
+
   test('does not render wide rail while waiting for the measured anchor in scrollback layout', async () => {
     const anchorRef = React.createRef<import('@anthropic/ink').DOMElement | null>();
     const out = await renderToString(
@@ -411,6 +425,42 @@ describe('ActivityRailLayout', () => {
     expect(out).toContain('Chat body');
     expect(out).toContain('Change Set');
     expect(out).not.toContain('Quality Gate');
+  });
+
+  test('clips scrollback rail before following bottom chrome in wide mode', async () => {
+    const out = await renderToString(
+      <Box flexDirection="column" width={125}>
+        <ActivityRailLayout
+          columns={125}
+          railState={state}
+          narrowSummary="Changes: 1 file changed | tests pending"
+          topBarState={topBarState}
+          hasConversationStarted
+        >
+          <Box flexDirection="column">
+            <Text>Chat row 1</Text>
+            <Text>Chat row 2</Text>
+          </Box>
+        </ActivityRailLayout>
+        <Text>INPUT ROW</Text>
+        <Text>WIDGET ROW</Text>
+      </Box>,
+      125,
+    );
+    const inputLine = out.split('\n').find(line => line.includes('INPUT ROW')) ?? '';
+    const widgetLine = out.split('\n').find(line => line.includes('WIDGET ROW')) ?? '';
+
+    expect(out).toContain('Progress');
+    expect(inputLine).toContain('INPUT ROW');
+    expect(widgetLine).toContain('WIDGET ROW');
+    expect(inputLine).not.toContain('│');
+    expect(widgetLine).not.toContain('│');
+    expect(inputLine).not.toContain('Changes');
+    expect(widgetLine).not.toContain('src/login.ts');
+    expect(inputLine).not.toContain('Sessions');
+    expect(inputLine).not.toContain('Change Set');
+    expect(widgetLine).not.toContain('Sessions');
+    expect(widgetLine).not.toContain('Change Set');
   });
 
   test('keeps header width full while scoping reduced width to the main chat column', async () => {
