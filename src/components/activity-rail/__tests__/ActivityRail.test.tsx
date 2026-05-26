@@ -6,6 +6,7 @@ import { ActivityRail } from '../ActivityRail.js';
 import {
   ActivityRailLayout,
   ActivityRailMainColumn,
+  getActivityRailChatBackgroundColor,
   getActivityRailChatPaddingTop,
   getActivityRailTopPadding,
   getFullscreenActivityRailAnchorTop,
@@ -201,6 +202,60 @@ describe('ActivityRailLayout', () => {
     changes: [],
     quality: [],
   };
+
+  test('applies chat background only when conversation layout is stable', () => {
+    expect(
+      getActivityRailChatBackgroundColor({
+        branch: 'wide-rail',
+        theme: 'dark',
+        capabilities: {
+          charset: 'unicode',
+          colorDepth: 'truecolor',
+          columns: 140,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBe('#161b22');
+
+    expect(
+      getActivityRailChatBackgroundColor({
+        branch: 'narrow-summary',
+        theme: 'light',
+        capabilities: {
+          charset: 'unicode',
+          colorDepth: 'truecolor',
+          columns: 100,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBe('#f6efe7');
+
+    expect(
+      getActivityRailChatBackgroundColor({
+        branch: 'hidden-no-content',
+        theme: 'dark',
+        capabilities: {
+          charset: 'unicode',
+          colorDepth: 'truecolor',
+          columns: 140,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      getActivityRailChatBackgroundColor({
+        branch: 'waiting-anchor',
+        theme: 'dark',
+        capabilities: {
+          charset: 'unicode',
+          colorDepth: 'truecolor',
+          columns: 140,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBeUndefined();
+  });
 
   test('does not render rail or summary before activity exists', async () => {
     const out = await renderToString(

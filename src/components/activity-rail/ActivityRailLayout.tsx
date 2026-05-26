@@ -1,10 +1,17 @@
 import * as React from 'react';
-import { Box, type DOMElement, TerminalSizeContext, Text, useTerminalSize } from '@anthropic/ink';
+import { Box, type DOMElement, TerminalSizeContext, Text, useTerminalSize, useTheme } from '@anthropic/ink';
 import { ActivityRail } from './ActivityRail.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import type { ActivityRailState } from '../../utils/activityRail.js';
-import type { TerminalCharset, TerminalColorDepth } from '../../utils/terminalCapabilities.js';
+import { getChatColumnBackgroundColor } from '../../utils/chatColumnBackground.js';
+import type { DesignTokenColor } from '../../utils/designTokens.js';
+import {
+  getTerminalCapabilities,
+  type TerminalCapabilities,
+  type TerminalCharset,
+  type TerminalColorDepth,
+} from '../../utils/terminalCapabilities.js';
 import type { TopBarState } from '../../utils/topBar.js';
 
 export const ACTIVITY_RAIL_MIN_COLUMNS = 120;
@@ -187,6 +194,21 @@ type Props = {
   children: React.ReactNode;
 };
 
+type ActivityRailLayoutBranch = 'hidden-no-content' | 'narrow-summary' | 'waiting-anchor' | 'wide-rail';
+
+export function getActivityRailChatBackgroundColor({
+  branch,
+  theme,
+  capabilities,
+}: {
+  branch: ActivityRailLayoutBranch;
+  theme: string;
+  capabilities: TerminalCapabilities;
+}): DesignTokenColor | undefined {
+  if (branch === 'hidden-no-content' || branch === 'waiting-anchor') return undefined;
+  return getChatColumnBackgroundColor(theme, capabilities);
+}
+
 type ActivityRailMainColumnProps = {
   children: React.ReactNode;
 };
@@ -220,6 +242,7 @@ export function ActivityRailLayout({
   children,
 }: Props): React.ReactNode {
   const terminalSize = useTerminalSize();
+  const [theme] = useTheme();
   const anchorTop = useElementAbsoluteTop(anchorRef);
   const hasRailStateContent = hasActivityRailContent(railState);
   const hasTopBarState = topBarState !== undefined;
@@ -227,7 +250,7 @@ export function ActivityRailLayout({
   const isWide = shouldShowActivityRail(columns);
   const chatWidth = Math.max(1, columns - ACTIVITY_RAIL_WIDTH);
   const chatPaddingTop = getActivityRailChatPaddingTop(anchorRef !== undefined);
-  const branch = !hasContent
+  const branch: ActivityRailLayoutBranch = !hasContent
     ? 'hidden-no-content'
     : !isWide
       ? 'narrow-summary'
@@ -235,6 +258,12 @@ export function ActivityRailLayout({
         ? 'waiting-anchor'
         : 'wide-rail';
   const railPaddingTop = branch === 'wide-rail' ? getActivityRailTopPadding(anchorTop) : undefined;
+  const backgroundCapabilities = getTerminalCapabilities(process.env, columns);
+  const chatBackgroundColor = getActivityRailChatBackgroundColor({
+    branch,
+    theme,
+    capabilities: backgroundCapabilities,
+  });
 
   useActivityRailLayoutDebugLog({
     branch,
@@ -255,7 +284,9 @@ export function ActivityRailLayout({
   if (!isWide) {
     return (
       <Box flexDirection="column">
-        {children}
+        <Box flexDirection="column" backgroundColor={chatBackgroundColor}>
+          {children}
+        </Box>
         <Text wrap="truncate-end">{narrowSummary}</Text>
       </Box>
     );
@@ -268,7 +299,12 @@ export function ActivityRailLayout({
   return (
     <Box flexDirection="column" width={columns} position="relative">
       <ActivityRailMainColumnContext.Provider value={chatWidth}>
-        <Box flexDirection="column" width={columns} paddingTop={chatPaddingTop}>
+        <Box
+          flexDirection="column"
+          width={chatWidth}
+          paddingTop={chatPaddingTop}
+          backgroundColor={chatBackgroundColor}
+        >
           {children}
         </Box>
       </ActivityRailMainColumnContext.Provider>
