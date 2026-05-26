@@ -193,7 +193,6 @@ export function HooksConfigMenu({ toolNames, onExit }: Props): React.ReactNode {
               <Text dimColor>When hooks are disabled:</Text>
             </Box>
             <Text dimColor>· No hook commands will execute</Text>
-            <Text dimColor>· StatusLine will not be displayed</Text>
             <Text dimColor>· Tool operations will proceed without hook validation</Text>
           </Box>
           {!disabledByPolicy && (

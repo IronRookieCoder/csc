@@ -455,11 +455,11 @@ export const SettingsSchema = lazySchema(() =>
         })
         .optional()
         .describe('Git worktree configuration for --worktree flag.'),
-      // Whether to disable all hooks and statusLine
+      // Whether to disable all hooks.
       disableAllHooks: z
         .boolean()
         .optional()
-        .describe('Disable all hooks and statusLine execution'),
+        .describe('Disable all hooks execution'),
       // Which shell backs input-box `!` (see docs/design/ps-shell-selection.md §4.2)
       defaultShell: z
         .enum(['bash', 'powershell'])
@@ -546,23 +546,12 @@ export const SettingsSchema = lazySchema(() =>
             'Composes with strictKnownMarketplaces for end-to-end admin control — plugins gated by ' +
             'marketplace allowlist, everything else blocked here.',
         ),
-      // Status line for custom status line display
-      statusLine: z
-        .object({
-          type: z.literal('command'),
-          command: z.string(),
-          padding: z.number().optional(),
-          refreshInterval: z.number().optional(),
-        })
-        .optional()
-        .describe('Custom status line display configuration'),
-      // Toggle for the fork's built-in status line (BuiltinStatusLine + CachePill).
-      // Toggled by the /statusline command. Default false → no rendering.
+      // Toggle for the built-in CSC status bar.
       statusLineEnabled: z
         .boolean()
         .optional()
         .describe(
-          'Whether to render the fork built-in status line (model + ctx + 5h/7d limits + cost + cache pill). Toggled with /statusline.',
+          'Whether to render the built-in CSC status bar. Set false to hide it.',
         ),
       // Enabled plugins using marketplace-first format
       enabledPlugins: z
@@ -1125,7 +1114,17 @@ export const SettingsSchema = lazySchema(() =>
             'ANTHROPIC_API_KEY environment variable takes precedence when both are set.',
         ),
     })
-    .passthrough(),
+    .passthrough()
+    .check(ctx => {
+      if ('statusLine' in (ctx.value as Record<string, unknown>)) {
+        ctx.issues.push({
+          code: 'custom',
+          input: (ctx.value as Record<string, unknown>).statusLine,
+          path: ['statusLine'],
+          message: 'statusLine.command has been removed. Use statusLineEnabled to toggle the built-in status bar.',
+        })
+      }
+    }),
 )
 
 /**

@@ -8,6 +8,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { statusLineShouldDisplay } from '../StatusLine.js';
 import { computeHitRate } from '../../utils/cacheStats.js';
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,16 @@ describe('computeHitRate used in CachePill', () => {
 
   test('zero-token response returns null rate', () => {
     expect(computeHitRate({ input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 })).toBeNull();
+  });
+});
+
+describe('statusLineShouldDisplay', () => {
+  test('still hides the built-in bar when disabled', () => {
+    expect(statusLineShouldDisplay({ statusLineEnabled: false })).toBe(false);
+  });
+
+  test('shows the built-in bar by default', () => {
+    expect(statusLineShouldDisplay({})).toBe(true);
   });
 });
 

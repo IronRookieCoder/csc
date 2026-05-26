@@ -20,7 +20,7 @@ import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { getPipeDisplayRole, isPipeControlled } from '../../utils/pipeTransport.js';
 import { isUndercover } from '../../utils/undercover.js';
 import { CoordinatorTaskPanel, useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
-import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
+import { StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
 import { Notifications } from './Notifications.js';
 import { PromptInputFooterLeftSide } from './PromptInputFooterLeftSide.js';
 
@@ -35,11 +35,11 @@ type Props = {
     show: boolean;
     key?: string;
   };
-  vimMode: VimMode | undefined;
-  mode: PromptInputMode;
   autoUpdaterResult: AutoUpdaterResult | null;
   isAutoUpdating: boolean;
   verbose: boolean;
+  mode: PromptInputMode;
+  vimMode: VimMode | undefined;
   onAutoUpdaterResult: (result: AutoUpdaterResult) => void;
   onChangeIsUpdating: (isUpdating: boolean) => void;
   suggestions: SuggestionItem[];
@@ -59,7 +59,7 @@ type Props = {
   isPasting?: boolean;
   isInputWrapped?: boolean;
   messages: Message[];
-  isSearching: boolean;
+  isSearching?: boolean;
   historyQuery: string;
   setHistoryQuery: (query: string) => void;
   historyFailedMatch: boolean;
@@ -70,11 +70,11 @@ function PromptInputFooter({
   apiKeyStatus,
   debug,
   exitMessage,
-  vimMode,
-  mode,
   autoUpdaterResult,
   isAutoUpdating,
   verbose,
+  mode,
+  vimMode,
   onAutoUpdaterResult,
   onChangeIsUpdating,
   suggestions,
@@ -94,7 +94,7 @@ function PromptInputFooter({
   isPasting = false,
   isInputWrapped = false,
   messages,
-  isSearching,
+  isSearching = false,
   historyQuery,
   setHistoryQuery,
   historyFailedMatch,
@@ -104,7 +104,6 @@ function PromptInputFooter({
   const { columns, rows } = useTerminalSize();
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
-  const lastAssistantMessageId = useMemo(() => getLastAssistantMessageId(messages), [messages]);
   const isNarrow = columns < 80;
   // In fullscreen the bottom slot is flexShrink:0, so every row here is a row
   // stolen from the ScrollBox. Drop the optional StatusLine first. Non-fullscreen
@@ -121,7 +120,7 @@ function PromptInputFooter({
   const coordinatorTaskIndex = useAppState(s => s.coordinatorTaskIndex);
   const pillSelected = tasksSelected && (coordinatorTaskCount === 0 || coordinatorTaskIndex < 0);
 
-  // Hide `? for shortcuts` if the user has a custom status line, or during ctrl-r
+  // Hide `? for shortcuts` when the built-in status bar already shows help text, or during ctrl-r.
   const suppressHint = suppressHintFromProps || statusLineShouldDisplay(settings) || isSearching;
   // Fullscreen: portal data to FullscreenLayout — see promptOverlayContext.tsx
   const overlayData = useMemo(
@@ -156,7 +155,7 @@ function PromptInputFooter({
       >
         <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
           {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && statusLineShouldDisplay(settings) && (
-            <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} />
+            <StatusLine messagesRef={messagesRef} />
           )}
           <PipeStatusInline />
           <PromptInputFooterLeftSide

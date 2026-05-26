@@ -2536,10 +2536,10 @@ function PromptInput({
         apiKeyStatus={apiKeyStatus}
         debug={debug}
         exitMessage={exitMessage}
-        vimMode={isVimModeEnabled() ? vimMode : undefined}
-        mode={mode}
         autoUpdaterResult={autoUpdaterResult}
         isAutoUpdating={isAutoUpdating}
+        mode={mode}
+        vimMode={isVimModeEnabled() ? vimMode : undefined}
         verbose={verbose}
         onAutoUpdaterResult={onAutoUpdaterResult}
         onChangeIsUpdating={setIsAutoUpdating}

@@ -136,11 +136,23 @@ describe('SettingsSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  test('accepts statusLine configuration', () => {
+  test('keeps only the built-in status line toggle', () => {
+    const result = SettingsSchema().safeParse({
+      statusLineEnabled: true,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.statusLineEnabled).toBe(true)
+      expect((result.data as Record<string, unknown>).statusLine).toBeUndefined()
+    }
+  })
+
+  test('rejects statusLine.command after the field is removed', () => {
     const result = SettingsSchema().safeParse({
       statusLine: { type: 'command', command: 'echo status' },
     })
-    expect(result.success).toBe(true)
+
+    expect(result.success).toBe(false)
   })
 
   test('accepts sshConfigs', () => {
