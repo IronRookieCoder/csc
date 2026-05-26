@@ -71,17 +71,21 @@ describe('ActivityRail', () => {
     expect(out).not.toContain('Activity');
   });
 
-  test('renders project information in the rail header', async () => {
+  test('renders idle progress and sessions sections together', async () => {
     const out = await renderToString(<ActivityRail state={state} width={34} topBarState={topBarState} />);
 
-    expect(out).toContain('Session');
+    expect(out).toContain('Progress');
+    expect(out).toContain('✓ Context');
+    expect(out).toContain('◷ Changes');
+    expect(out).toContain('○ Verify');
+    expect(out).toContain('Sessions');
     expect(out).toContain('Fix login timeout');
     expect(out).toContain('docs/csc-ui-redesign');
     expect(out).not.toContain('CoStrict v4.0.13');
     expect(out).toContain('Change Set');
   });
 
-  test('renders active pipeline information in the rail header', async () => {
+  test('renders active progress and sessions sections together', async () => {
     const out = await renderToString(
       <ActivityRail
         state={state}
@@ -96,7 +100,22 @@ describe('ActivityRail', () => {
     expect(out).toContain('◷ Changes');
     expect(out).toContain('○ Verify');
     expect(out).toContain('src/login.ts');
+    expect(out).toContain('Sessions');
+    expect(out).toContain('Fix login timeout');
+    expect(out).toContain('docs/csc-ui-redesign');
     expect(out).not.toContain('CoStrict v4.0.13');
+  });
+
+  test('keeps progress anchored above sessions when both sections render', async () => {
+    const out = await renderToString(<ActivityRail state={state} width={34} topBarState={topBarState} />);
+    const lines = out.split('\n');
+    const progressLine = lines.findIndex(line => line.includes('Progress'));
+    const sessionsLine = lines.findIndex(line => line.includes('Sessions'));
+    const changeSetLine = lines.findIndex(line => line.includes('Change Set'));
+
+    expect(progressLine).toBeGreaterThanOrEqual(0);
+    expect(sessionsLine).toBeGreaterThan(progressLine);
+    expect(changeSetLine).toBeGreaterThan(sessionsLine);
   });
 
   test('hides quality gate while all gates are pending', async () => {
@@ -115,7 +134,7 @@ describe('ActivityRail', () => {
       />,
     );
 
-    expect(out).toContain('Session');
+    expect(out).toContain('Sessions');
     expect(out).not.toContain('Quality Gate');
     expect(out).not.toContain('Requirements');
     expect(out).not.toContain('Impact');
@@ -208,13 +227,21 @@ describe('ActivityRailLayout', () => {
       >
         <Box flexDirection="column">
           <Text>Welcome screen</Text>
+          <Text>Preparing session context</Text>
+          <Text>Waiting for first user prompt</Text>
+          <Text>Rail should keep session metadata visible</Text>
+          <Text>Layout height supports full rail content</Text>
+          <Text>Rail can render below progress rows</Text>
+          <Text>Sessions title should remain observable</Text>
+          <Text>Session branch should remain observable</Text>
+          <Text>End of layout fixture</Text>
         </Box>
       </ActivityRailLayout>,
       140,
     );
 
     expect(out).toContain('Welcome screen');
-    expect(out).toContain('Session');
+    expect(out).toContain('Sessions');
     expect(out).toContain('Fix login timeout');
     expect(out).not.toContain('Changes: 0 files changed');
   });
@@ -235,7 +262,7 @@ describe('ActivityRailLayout', () => {
     );
 
     expect(out).toContain('Welcome screen');
-    expect(out).not.toContain('Session');
+    expect(out).not.toContain('Sessions');
     expect(out).not.toContain('Fix login timeout');
   });
 

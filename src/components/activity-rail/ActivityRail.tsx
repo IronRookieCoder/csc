@@ -53,7 +53,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function RailHeader({
+function ProgressSection({
   state,
   contentWidth,
   capabilities,
@@ -62,18 +62,24 @@ function RailHeader({
   contentWidth: number;
   capabilities: TerminalCapabilities;
 }): React.ReactNode {
-  if (state.mode === 'active') {
-    return (
-      <Section title="Progress">
-        {state.pipeline.map(phase => (
-          <PipelineRow key={phase.id} phase={phase} contentWidth={contentWidth} capabilities={capabilities} />
-        ))}
-      </Section>
-    );
-  }
-
   return (
-    <Section title="Session">
+    <Section title="Progress">
+      {state.pipeline.map(phase => (
+        <PipelineRow key={phase.id} phase={phase} contentWidth={contentWidth} capabilities={capabilities} />
+      ))}
+    </Section>
+  );
+}
+
+function SessionsSection({
+  state,
+  contentWidth,
+}: {
+  state: TopBarState;
+  contentWidth: number;
+}): React.ReactNode {
+  return (
+    <Section title="Sessions">
       <Box width={contentWidth}>
         <Text wrap="truncate-end">{state.sessionTitle}</Text>
       </Box>
@@ -143,7 +149,10 @@ export function ActivityRail({
       paddingX={1}
     >
       {topBarState !== undefined && (
-        <RailHeader state={topBarState} contentWidth={contentWidth} capabilities={capabilities} />
+        <>
+          <ProgressSection state={topBarState} contentWidth={contentWidth} capabilities={capabilities} />
+          <SessionsSection state={topBarState} contentWidth={contentWidth} />
+        </>
       )}
       <Section title="Change Set">
         {state.changes.length === 0 ? (
