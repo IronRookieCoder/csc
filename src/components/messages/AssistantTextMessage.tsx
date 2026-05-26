@@ -21,6 +21,7 @@ import {
   isEmptyMessageText,
   NO_RESPONSE_REQUESTED,
 } from '../../utils/messages.js'
+import { getFriendlyErrorHint } from '../../utils/friendlyErrorHints.js'
 import { getUpgradeMessage } from '../../utils/model/contextWindowUpgradeCheck.js'
 import {
   getDefaultSonnetModel,
@@ -180,6 +181,7 @@ export function AssistantTextMessage({
     default:
       if (startsWithApiErrorPrefix(text)) {
         const truncated = !verbose && text.length > MAX_API_ERROR_CHARS
+        const hint = getFriendlyErrorHint(text)
         return (
           <MessageResponse>
             <Box flexDirection="column">
@@ -190,6 +192,7 @@ export function AssistantTextMessage({
                     ? text.slice(0, MAX_API_ERROR_CHARS) + '…'
                     : text}
               </Text>
+              {hint && <Text dimColor>{hint}</Text>}
               {truncated && <CtrlOToExpand />}
             </Box>
           </MessageResponse>
