@@ -20,6 +20,7 @@ import {
   getFullscreenMainTerminalSize,
   getFullscreenSideRailPaddingTopForAnchor,
   getFullscreenSideRailPaddingTop,
+  FullscreenLayout,
 } from '../../FullscreenLayout.js';
 import type { ActivityRailState } from '../../../utils/activityRail.js';
 import type { TopBarState } from '../../../utils/topBar.js';
@@ -530,5 +531,54 @@ describe('FullscreenLayout side rail sizing', () => {
     expect(getFullscreenSideRailPaddingTopForAnchor(false, 12)).toBe(12);
     expect(getFullscreenSideRailPaddingTopForAnchor(false, null)).toBe(8);
     expect(getFullscreenSideRailPaddingTopForAnchor(true, 12)).toBe(0);
+  });
+
+  test('keeps fullscreen side rail out of the bottom input area', async () => {
+    const originalUserType = process.env.USER_TYPE;
+    process.env.USER_TYPE = 'ant';
+    try {
+      const out = await renderToString(
+        <FullscreenLayout
+          scrollable={
+            <Box flexDirection="column">
+              <Text>Chat row</Text>
+              <Text>More chat</Text>
+            </Box>
+          }
+          bottom={
+            <Box flexDirection="column">
+              <Text>INPUT ROW</Text>
+              <Text>WIDGET ROW</Text>
+            </Box>
+          }
+          sideRail={
+            <Box flexDirection="column">
+              <Text>Rail top</Text>
+              <Text>Rail middle</Text>
+              <Text>Rail lower</Text>
+              <Text>Rail near input</Text>
+              <Text>Rail should not reach input</Text>
+            </Box>
+          }
+          sideRailWidth={34}
+          sideRailAnchorTop={0}
+        />,
+        100,
+      );
+      const inputLine = out.split('\n').find(line => line.includes('INPUT ROW')) ?? '';
+      const widgetLine = out.split('\n').find(line => line.includes('WIDGET ROW')) ?? '';
+
+      expect(inputLine).toContain('INPUT ROW');
+      expect(widgetLine).toContain('WIDGET ROW');
+      expect(out).toContain('Rail should not reach input');
+      expect(inputLine).not.toContain('Rail');
+      expect(widgetLine).not.toContain('Rail');
+    } finally {
+      if (originalUserType === undefined) {
+        delete process.env.USER_TYPE;
+      } else {
+        process.env.USER_TYPE = originalUserType;
+      }
+    }
   });
 });

@@ -483,10 +483,10 @@ export function FullscreenLayout({
           overlayPresent={overlay != null}
           mainColumnWidth={mainColumnWidth}
         />
-        <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
-          <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
-            <TerminalSizeContext.Provider value={mainTerminalSize}>
-              <Box flexGrow={1} flexDirection="column" overflow="hidden">
+        <Box flexDirection="column" flexGrow={1} overflow="hidden" width="100%">
+          <TerminalSizeContext.Provider value={mainTerminalSize}>
+            <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
+              <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
                 {top != null && (
                   <Box flexShrink={0} width="100%">
                     {top}
@@ -512,26 +512,26 @@ export function FullscreenLayout({
                   </Box>
                 )}
               </Box>
-              <Box flexDirection="column" flexShrink={0} width="100%" maxHeight="50%">
-                <SuggestionsOverlay />
-                <DialogOverlay />
-                <Box flexDirection="column" width="100%" flexGrow={1} overflowY="hidden">
-                  {bottom}
+              {sideRail != null && resolvedSideRailWidth !== undefined && (
+                <Box
+                  flexDirection="column"
+                  flexShrink={0}
+                  width={resolvedSideRailWidth}
+                  overflow="hidden"
+                  paddingTop={sideRailPaddingTop}
+                >
+                  {sideRail}
                 </Box>
-              </Box>
-            </TerminalSizeContext.Provider>
-          </Box>
-          {sideRail != null && resolvedSideRailWidth !== undefined && (
-            <Box
-              flexDirection="column"
-              flexShrink={0}
-              width={resolvedSideRailWidth}
-              overflow="hidden"
-              paddingTop={sideRailPaddingTop}
-            >
-              {sideRail}
+              )}
             </Box>
-          )}
+            <Box flexDirection="column" flexShrink={0} width={mainColumnWidth} maxHeight="50%">
+              <SuggestionsOverlay />
+              <DialogOverlay />
+              <Box flexDirection="column" width="100%" flexGrow={1} overflowY="hidden">
+                {bottom}
+              </Box>
+            </Box>
+          </TerminalSizeContext.Provider>
         </Box>
         {modal != null && (
           <ModalContext
