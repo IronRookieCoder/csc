@@ -3,10 +3,11 @@ import { Box, Text } from '@anthropic/ink'
 import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
-import { ActivityRailLayout, hasActivityRailContent } from '../ActivityRailLayout.js'
+import { ActivityRailLayout, getActivityRailTopPadding, hasActivityRailContent } from '../ActivityRailLayout.js'
 import {
   getFullscreenMainColumnWidth,
   getFullscreenMainTerminalSize,
+  getFullscreenSideRailPaddingTopForAnchor,
   getFullscreenSideRailPaddingTop,
 } from '../../FullscreenLayout.js'
 import type { ActivityRailState } from '../../../utils/activityRail.js'
@@ -137,6 +138,39 @@ describe('ActivityRailLayout', () => {
     expect(hasActivityRailContent(state)).toBe(true)
   })
 
+  test('converts measured chat anchor top to rail padding', () => {
+    expect(getActivityRailTopPadding(null)).toBe(0)
+    expect(getActivityRailTopPadding(0)).toBe(0)
+    expect(getActivityRailTopPadding(7)).toBe(6)
+  })
+
+  test('aligns the activity title with the first chat row in wide scrollback layout', async () => {
+    const anchorRef = React.createRef<import('@anthropic/ink').DOMElement | null>()
+    const out = await renderToString(
+      <Box flexDirection="column">
+        <Text>动态高度头部</Text>
+        <ActivityRailLayout
+          columns={140}
+          railState={state}
+          narrowSummary="Tools: 2 done | 1 file changed | tests pending"
+          anchorRef={anchorRef}
+        >
+          <Box flexDirection="column">
+            <Box ref={anchorRef} height={0} flexShrink={0} />
+            <Text>❯ /re-check</Text>
+          </Box>
+        </ActivityRailLayout>
+      </Box>,
+      140,
+    )
+    const lines = out.split('\n')
+    const commandLine = lines.findIndex(line => line.includes('❯ /re-check'))
+    const activityLine = lines.findIndex(line => line.includes('Activity'))
+
+    expect(commandLine).toBeGreaterThanOrEqual(0)
+    expect(activityLine).toBe(commandLine)
+  })
+
   test('renders rail beside chat when wide', async () => {
     const out = await renderToString(
       <ActivityRailLayout
@@ -188,8 +222,14 @@ describe('FullscreenLayout side rail sizing', () => {
     expect(getFullscreenMainTerminalSize(40, 140)).toEqual({ rows: 40, columns: 140 })
   })
 
-  test('aligns the side rail with the first conversation row after the logo', () => {
+  test('keeps the legacy fallback for side rail top padding', () => {
     expect(getFullscreenSideRailPaddingTop(false)).toBe(8)
     expect(getFullscreenSideRailPaddingTop(true)).toBe(0)
+  })
+
+  test('aligns the side rail from a measured conversation anchor', () => {
+    expect(getFullscreenSideRailPaddingTopForAnchor(false, 12)).toBe(11)
+    expect(getFullscreenSideRailPaddingTopForAnchor(false, null)).toBe(8)
+    expect(getFullscreenSideRailPaddingTopForAnchor(true, 12)).toBe(0)
   })
 })

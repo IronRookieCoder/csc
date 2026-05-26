@@ -10,7 +10,7 @@ import { getIsRemoteMode } from '../bootstrap/state.js';
 import type { Command } from '../commands.js';
 import { BLACK_CIRCLE } from '../constants/figures.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
-import type { ScrollBoxHandle } from '@anthropic/ink';
+import type { DOMElement, ScrollBoxHandle } from '@anthropic/ink';
 import { useTerminalNotification } from '@anthropic/ink';
 import { Box, Text } from '@anthropic/ink';
 import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
@@ -257,6 +257,8 @@ type Props = {
   onOpenRateLimitOptions?: () => void;
   /** Hide the logo/header - used for subagent zoom view */
   hideLogo?: boolean;
+  /** Optional zero-height marker rendered after the header and before timeline rows. */
+  timelineStartRef?: RefObject<DOMElement | null>;
   isLoading: boolean;
   /** In transcript mode, hide all thinking blocks except the last one */
   hidePastThinking?: boolean;
@@ -386,6 +388,7 @@ const MessagesImpl = ({
   agentDefinitions,
   onOpenRateLimitOptions,
   hideLogo = false,
+  timelineStartRef,
   isLoading,
   hidePastThinking = false,
   streamingThinking,
@@ -916,6 +919,8 @@ const MessagesImpl = ({
             width={columns}
           />
         )}
+
+      {timelineStartRef && <Box ref={timelineStartRef} height={0} flexShrink={0} />}
 
       {/* Messages - rendered as memoized MessageRow components.
           flatMap inserts the unseen-divider as a separate keyed sibling so

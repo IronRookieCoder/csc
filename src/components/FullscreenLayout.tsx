@@ -66,6 +66,8 @@ type Props = {
   sideRail?: ReactNode;
   /** Fixed terminal column width reserved for sideRail. */
   sideRailWidth?: number;
+  /** Measured absolute row where the main transcript timeline begins. */
+  sideRailAnchorTop?: number | null;
   /** Ref passed via ModalContext so Tabs (or any scroll-owning descendant)
    *  can attach it to their own ScrollBox for tall content. */
   modalScrollRef?: React.RefObject<ScrollBoxHandle | null>;
@@ -303,6 +305,15 @@ export function getFullscreenSideRailPaddingTop(padCollapsed: boolean): number {
   return padCollapsed ? 0 : 8;
 }
 
+export function getFullscreenSideRailPaddingTopForAnchor(
+  padCollapsed: boolean,
+  anchorTop: number | null | undefined,
+): number {
+  if (padCollapsed) return 0;
+  if (anchorTop == null) return getFullscreenSideRailPaddingTop(false);
+  return Math.max(0, anchorTop - 1);
+}
+
 /**
  * Layout wrapper for the REPL. In fullscreen mode, puts scrollable
  * content in a sticky-scroll box and pins bottom content via flexbox.
@@ -323,6 +334,7 @@ export function FullscreenLayout({
   modal,
   sideRail,
   sideRailWidth,
+  sideRailAnchorTop,
   modalScrollRef,
   scrollRef,
   dividerYRef,
@@ -403,7 +415,7 @@ export function FullscreenLayout({
     const sticky = hideSticky ? null : stickyPrompt;
     const headerPrompt = sticky != null && sticky !== 'clicked' && overlay == null ? sticky : null;
     const padCollapsed = sticky != null && overlay == null;
-    const sideRailPaddingTop = getFullscreenSideRailPaddingTop(padCollapsed);
+    const sideRailPaddingTop = getFullscreenSideRailPaddingTopForAnchor(padCollapsed, sideRailAnchorTop);
     return (
       <PromptOverlayProvider>
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">

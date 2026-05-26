@@ -283,6 +283,7 @@ import {
   ActivityRailLayout,
   hasActivityRailContent,
   shouldShowActivityRail,
+  useElementAbsoluteTop,
 } from '../components/activity-rail/ActivityRailLayout.js';
 import { getPipeIpc } from '../utils/pipeTransport.js';
 import { useTasksV2WithCollapseEffect } from '../hooks/useTasksV2.js';
@@ -5713,6 +5714,10 @@ export function REPL({
   const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
   const hasActivityRail = hasActivityRailContent(activityRail.railState);
   const showFullscreenActivityRail = isFullscreenEnvEnabled() && hasActivityRail && shouldShowActivityRail(transcriptCols);
+  const scrollbackActivityAnchorRef = useRef<import('@anthropic/ink').DOMElement | null>(null);
+  const activityAnchorTop = useElementAbsoluteTop(
+    hasActivityRail && shouldShowActivityRail(transcriptCols) ? scrollbackActivityAnchorRef : undefined,
+  );
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -5754,6 +5759,11 @@ export function REPL({
         unseenDivider={viewedAgentTask ? undefined : unseenDivider}
         scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined}
         trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined}
+        timelineStartRef={
+          !isFullscreenEnvEnabled() && hasActivityRail && shouldShowActivityRail(transcriptCols)
+            ? scrollbackActivityAnchorRef
+            : undefined
+        }
         cursor={cursor}
         setCursor={setCursor}
         cursorNavRef={cursorNavRef}
@@ -5812,6 +5822,7 @@ export function REPL({
       columns={transcriptCols}
       railState={activityRail.railState}
       narrowSummary={activityRail.narrowSummary}
+      anchorRef={scrollbackActivityAnchorRef}
     >
       {defaultScrollableContent}
     </ActivityRailLayout>
@@ -5869,6 +5880,7 @@ export function REPL({
             ) : undefined
           }
           sideRailWidth={ACTIVITY_RAIL_WIDTH}
+          sideRailAnchorTop={activityAnchorTop}
           modalScrollRef={modalScrollRef}
           dividerYRef={dividerYRef}
           hidePill={!!viewedAgentTask}
