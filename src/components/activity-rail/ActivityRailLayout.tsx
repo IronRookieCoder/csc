@@ -16,10 +16,6 @@ import type { TopBarState } from '../../utils/topBar.js';
 
 export const ACTIVITY_RAIL_MIN_COLUMNS = 120;
 export const ACTIVITY_RAIL_WIDTH = 34;
-const ACTIVITY_RAIL_ESTIMATED_PROGRESS_ROWS = 8;
-const ACTIVITY_RAIL_ESTIMATED_SESSIONS_ROWS = 4;
-const ACTIVITY_RAIL_ESTIMATED_CHANGE_SET_HEADER_ROWS = 1;
-const ACTIVITY_RAIL_ESTIMATED_EMPTY_CHANGE_ROWS = 1;
 
 export function shouldShowActivityRail(columns: number): boolean {
   return columns >= ACTIVITY_RAIL_MIN_COLUMNS;
@@ -44,30 +40,6 @@ export function getActivityRailTopPadding(anchorTop: number | null): number {
 
 export function getActivityRailChatPaddingTop(hasAnchorRef: boolean): number {
   return hasAnchorRef ? 0 : 1;
-}
-
-export function getActivityRailMinHeight({
-  railPaddingTop,
-  topBarState,
-  railState,
-}: {
-  railPaddingTop: number;
-  topBarState?: TopBarState;
-  railState: ActivityRailState;
-}): number {
-  const progressRows = topBarState === undefined ? 0 : ACTIVITY_RAIL_ESTIMATED_PROGRESS_ROWS;
-  const sessionsRows = topBarState === undefined ? 0 : ACTIVITY_RAIL_ESTIMATED_SESSIONS_ROWS;
-  const changeRows =
-    railState.changes.length === 0
-      ? ACTIVITY_RAIL_ESTIMATED_EMPTY_CHANGE_ROWS
-      : railState.changes.length * 2;
-  return (
-    railPaddingTop +
-    progressRows +
-    sessionsRows +
-    ACTIVITY_RAIL_ESTIMATED_CHANGE_SET_HEADER_ROWS +
-    changeRows
-  );
 }
 
 export function getElementAbsoluteTop(element: DOMElement | null): number | null {
@@ -286,14 +258,6 @@ export function ActivityRailLayout({
         ? 'waiting-anchor'
         : 'wide-rail';
   const railPaddingTop = branch === 'wide-rail' ? getActivityRailTopPadding(anchorTop) : undefined;
-  const railMinHeight =
-    branch === 'wide-rail'
-      ? getActivityRailMinHeight({
-          railPaddingTop: railPaddingTop ?? 0,
-          topBarState,
-          railState,
-        })
-      : undefined;
   const backgroundCapabilities = getTerminalCapabilities(process.env, columns);
   const chatBackgroundColor = getActivityRailChatBackgroundColor({
     branch,
@@ -333,7 +297,7 @@ export function ActivityRailLayout({
   }
 
   return (
-    <Box flexDirection="column" width={columns} minHeight={railMinHeight} position="relative">
+    <Box flexDirection="column" width={columns} position="relative">
       <ActivityRailMainColumnContext.Provider value={chatWidth}>
         <Box
           flexDirection="column"
