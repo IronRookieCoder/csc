@@ -3,7 +3,7 @@ import { Box, Text } from '@anthropic/ink'
 import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
-import { ActivityRailLayout } from '../ActivityRailLayout.js'
+import { ActivityRailLayout, hasActivityRailContent } from '../ActivityRailLayout.js'
 import {
   getFullscreenMainColumnWidth,
   getFullscreenMainTerminalSize,
@@ -95,6 +95,40 @@ describe('ActivityRail', () => {
 })
 
 describe('ActivityRailLayout', () => {
+  const emptyState: ActivityRailState = {
+    activity: [],
+    changes: [],
+    quality: [
+      { id: 'requirements', label: '需求一致性', status: '待执行' },
+      { id: 'impact', label: '影响范围', status: '待执行' },
+      { id: 'verification', label: '测试验证', status: '待执行' },
+    ],
+  }
+
+  test('does not render rail or summary before activity exists', async () => {
+    const out = await renderToString(
+      <ActivityRailLayout
+        columns={140}
+        railState={emptyState}
+        narrowSummary="Tools: idle | 0 files changed | tests pending"
+      >
+        <Box flexDirection="column">
+          <Text>欢迎页</Text>
+        </Box>
+      </ActivityRailLayout>,
+      140,
+    )
+
+    expect(out).toContain('欢迎页')
+    expect(out).not.toContain('Activity')
+    expect(out).not.toContain('Tools: idle')
+  })
+
+  test('reports rail content only when activity or changes exist', () => {
+    expect(hasActivityRailContent(emptyState)).toBe(false)
+    expect(hasActivityRailContent(state)).toBe(true)
+  })
+
   test('renders rail beside chat when wide', async () => {
     const out = await renderToString(
       <ActivityRailLayout

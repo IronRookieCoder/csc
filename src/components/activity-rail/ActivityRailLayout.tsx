@@ -10,6 +10,10 @@ export function shouldShowActivityRail(columns: number): boolean {
   return columns >= ACTIVITY_RAIL_MIN_COLUMNS
 }
 
+export function hasActivityRailContent(railState: ActivityRailState): boolean {
+  return railState.activity.length > 0 || railState.changes.length > 0
+}
+
 type Props = {
   columns: number
   railState: ActivityRailState
@@ -18,6 +22,10 @@ type Props = {
 }
 
 export function ActivityRailLayout({ columns, railState, narrowSummary, children }: Props): React.ReactNode {
+  if (!hasActivityRailContent(railState)) {
+    return <Box flexDirection="column">{children}</Box>
+  }
+
   if (!shouldShowActivityRail(columns)) {
     return (
       <Box flexDirection="column">

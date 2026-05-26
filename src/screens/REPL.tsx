@@ -281,6 +281,7 @@ import { ActivityRail } from '../components/activity-rail/ActivityRail.js';
 import {
   ACTIVITY_RAIL_WIDTH,
   ActivityRailLayout,
+  hasActivityRailContent,
   shouldShowActivityRail,
 } from '../components/activity-rail/ActivityRailLayout.js';
 import { getPipeIpc } from '../utils/pipeTransport.js';
@@ -5710,7 +5711,8 @@ export function REPL({
   // check footerSelection: pill FOCUS (arrow-down to tasks pill) must keep
   // the sprite visible so arrow-right can navigate to it.
   const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
-  const showFullscreenActivityRail = isFullscreenEnvEnabled() && shouldShowActivityRail(transcriptCols);
+  const hasActivityRail = hasActivityRailContent(activityRail.railState);
+  const showFullscreenActivityRail = isFullscreenEnvEnabled() && hasActivityRail && shouldShowActivityRail(transcriptCols);
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -5798,7 +5800,7 @@ export function REPL({
         isBriefOnly &&
         !viewedAgentTask && <BriefIdleStatus />}
       {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-      {isFullscreenEnvEnabled() && !showFullscreenActivityRail && (
+      {isFullscreenEnvEnabled() && hasActivityRail && !showFullscreenActivityRail && (
         <Text wrap="truncate-end">{activityRail.narrowSummary}</Text>
       )}
     </>
