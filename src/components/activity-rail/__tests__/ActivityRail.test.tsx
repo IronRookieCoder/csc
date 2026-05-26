@@ -18,6 +18,7 @@ import {
   shouldShowFullscreenActivityRail,
 } from '../ActivityRailLayout.js';
 import {
+  getFullscreenMainBackgroundColor,
   getFullscreenMainColumnWidth,
   getFullscreenMainTerminalSize,
   getFullscreenSideRailPaddingTopForAnchor,
@@ -637,4 +638,29 @@ describe('FullscreenLayout side rail sizing', () => {
     expect(getFullscreenSideRailPaddingTopForAnchor(true, 12)).toBe(0);
   });
 
+  test('uses chat background for the fullscreen main column only', () => {
+    expect(
+      getFullscreenMainBackgroundColor({
+        theme: 'dark',
+        capabilities: {
+          charset: 'unicode',
+          colorDepth: 'truecolor',
+          columns: 140,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBe('#161b22');
+
+    expect(
+      getFullscreenMainBackgroundColor({
+        theme: 'dark',
+        capabilities: {
+          charset: 'ascii',
+          colorDepth: 'indexed',
+          columns: 80,
+          terminalFamily: 'generic',
+        },
+      }),
+    ).toBe('userMessageBackground');
+  });
 });

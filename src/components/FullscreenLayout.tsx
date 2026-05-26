@@ -22,13 +22,20 @@ import {
   type ScrollBoxHandle,
   Text,
   instances,
+  useTheme,
 } from '@anthropic/ink';
 import type { Message } from '../types/message.js';
 import { openBrowser, openPath } from '../utils/browser.js';
+import { getChatColumnBackgroundColor } from '../utils/chatColumnBackground.js';
 import { logForDebugging } from '../utils/debug.js';
+import type { DesignTokenColor } from '../utils/designTokens.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { plural } from '../utils/stringUtils.js';
+import {
+  getTerminalCapabilities,
+  type TerminalCapabilities,
+} from '../utils/terminalCapabilities.js';
 import { isNullRenderingAttachment } from './messages/nullRenderingAttachments.js';
 import PromptInputFooterSuggestions from './PromptInput/PromptInputFooterSuggestions.js';
 import type { StickyPrompt } from './VirtualMessageList.js';
@@ -366,6 +373,16 @@ export function getFullscreenSideRailPaddingTopForAnchor(
   return Math.max(0, anchorTop);
 }
 
+export function getFullscreenMainBackgroundColor({
+  theme,
+  capabilities,
+}: {
+  theme: string;
+  capabilities: TerminalCapabilities;
+}): DesignTokenColor {
+  return getChatColumnBackgroundColor(theme, capabilities);
+}
+
 /**
  * Layout wrapper for the REPL. In fullscreen mode, puts scrollable
  * content in a sticky-scroll box and pins bottom content via flexbox.
@@ -397,6 +414,7 @@ export function FullscreenLayout({
   onPillClick,
 }: Props): React.ReactNode {
   const { rows: terminalRows, columns } = useTerminalSize();
+  const [theme] = useTheme();
   // Scroll-derived chrome state lives HERE, not in REPL. StickyTracker
   // writes via ScrollChromeContext; pillVisible subscribes directly to
   // ScrollBox. Both change rarely (pill flips once per threshold crossing,
@@ -448,6 +466,10 @@ export function FullscreenLayout({
     const resolvedSideRailWidth = sideRail == null ? undefined : sideRailWidth;
     const mainColumnWidth = getFullscreenMainColumnWidth(columns, resolvedSideRailWidth);
     const mainTerminalSize = getFullscreenMainTerminalSize(terminalRows, columns, resolvedSideRailWidth);
+    const mainBackgroundColor = getFullscreenMainBackgroundColor({
+      theme,
+      capabilities: getTerminalCapabilities(process.env, mainColumnWidth),
+    });
     // Overlay renders BELOW messages inside the same ScrollBox — user can
     // scroll up to see prior context while a permission dialog is showing.
     // The ScrollBox never unmounts across overlay transitions, so scroll
@@ -486,7 +508,12 @@ export function FullscreenLayout({
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
           <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
             <TerminalSizeContext.Provider value={mainTerminalSize}>
-              <Box flexGrow={1} flexDirection="column" overflow="hidden">
+              <Box
+                flexGrow={1}
+                flexDirection="column"
+                overflow="hidden"
+                backgroundColor={mainBackgroundColor}
+              >
                 {top != null && (
                   <Box flexShrink={0} width="100%">
                     {top}
