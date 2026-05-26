@@ -475,6 +475,7 @@ function handleSystemMessage(msg: StdoutMessage, ctx: MessageRouterCtx): void {
       emitSessionInfo(msg, ctx)
       break
     case 'session_state_changed':
+      break
     case 'status':
       emitSessionStatus(msg, ctx)
       break

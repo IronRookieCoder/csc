@@ -72,7 +72,6 @@ export function createInfoRoutes(sessionManager: SessionManager): Hono {
             const servers = await handle.getMcpStatus()
             return c.json({ servers })
           } catch {
-            continue
           }
         }
       }

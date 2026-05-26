@@ -27,6 +27,8 @@ let _listFavoriteItemsCache: {
   expiry: number
 } | null = null
 
+export type HubSyncMode = 'auto' | 'ask'
+
 export type FavoriteItemType = 'skill' | 'agent' | 'command' | 'mcp'
 
 type FavoriteLifecycle = 'downloaded' | 'active' | 'unloaded'
@@ -879,4 +881,74 @@ export async function autoEnableCloudFavorites(): Promise<void> {
   } catch {
     // Silently ignore so a flaky cloud API doesn't break startup
   }
+}
+
+export function getHubSyncMode(): HubSyncMode {
+  const mode = process.env.COSTRICT_HUB_SYNC_MODE
+  if (mode === 'auto') return 'auto'
+  return 'ask'
+}
+
+export type OrphanedFavoriteItem = FavoriteItemWithStatus
+
+export async function findOrphanedFavoriteItems(): Promise<OrphanedFavoriteItem[]> {
+  const [state, activeSkillSlugs, activeAgentNames, activeCommandNames, activeMcpNames] =
+    await Promise.all([
+      readState(),
+      getActiveSkillSlugs(),
+      getActiveAgentNames(),
+      getActiveCommandNames(),
+      getActiveMcpNames(),
+    ])
+
+  const remoteItems = await listFavoriteItems()
+  const remoteSlugs = new Set(remoteItems.map(i => i.slug))
+
+  const orphaned: OrphanedFavoriteItem[] = []
+
+  for (const [, record] of Object.entries(state.items)) {
+    const status = deriveStatus(
+      record,
+      activeSkillSlugs,
+      activeAgentNames,
+      activeCommandNames,
+      activeMcpNames,
+    )
+    if (status !== 'Active') continue
+    if (remoteSlugs.has(record.slug)) continue
+
+    orphaned.push({
+      id: record.id,
+      slug: record.slug,
+      name: record.name,
+      description: '',
+      itemType: record.itemType,
+      content: '',
+      status: 'Active',
+      localPath: record.localPath,
+    })
+  }
+
+  return orphaned
+}
+
+export async function batchUnloadFavoriteItems(
+  slugs: string[],
+): Promise<{ unloaded: string[]; errors: { slug: string; message: string }[] }> {
+  const unloaded: string[] = []
+  const errors: { slug: string; message: string }[] = []
+
+  for (const slug of slugs) {
+    try {
+      await unloadFavoriteItem(slug)
+      unloaded.push(slug)
+    } catch (error) {
+      errors.push({
+        slug,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  return { unloaded, errors }
 }

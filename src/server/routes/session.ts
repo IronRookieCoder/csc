@@ -87,6 +87,10 @@ function ssePrompt(
     })
 
     try {
+      eventBus.publish('session.status', {
+        sessionID: id,
+        status: { type: 'busy' },
+      })
       await handle.prompt(content, { parts, messageID })
     } catch {
       if (!resultWritten) {

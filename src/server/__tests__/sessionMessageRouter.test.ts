@@ -250,10 +250,10 @@ describe('routeMessage — system subtype dispatch', () => {
     expect(ctx.oc[0].properties.subtype).toBe('custom_subtype')
   })
 
-  test('session_state_changed → session.status', () => {
+  test('session_state_changed is not forwarded to session.status', () => {
     const ctx = makeCtx()
     routeMessage({ type: 'system', subtype: 'session_state_changed', status: 'compacting' }, ctx)
-    expect(ctx.oc[0].event).toBe('session.status')
+    expect(ctx.oc.length).toBe(0)
   })
 })
 

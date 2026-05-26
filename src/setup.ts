@@ -538,4 +538,10 @@ export async function setup(
   // Skills/agents/commands/mcps from CoStrict cloud become available without
   // requiring the user to manually open /hub and press Update.
   void import('./costrict/favorite/favorite.js').then((m) => m.autoEnableCloudFavorites())
+
+  // Reconcile cloud-favorited plugins into the native /plugin panel.
+  // Decoupled from /hub: runs once at startup, fire-and-forget, no polling.
+  void import('./costrict/favorite/reconcileCloudPlugins.js').then((m) =>
+    m.reconcileCloudPlugins(),
+  )
 }
