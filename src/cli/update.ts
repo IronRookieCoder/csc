@@ -246,7 +246,7 @@ export async function update() {
             `Successfully updated from ${MACRO.VERSION} to version ${result.latestVersion}`,
           ) + '\n',
         )
-        await regenerateCompletionCache()
+        void regenerateCompletionCache()
       }
       await gracefulShutdown(0)
     } catch (error) {
@@ -377,7 +377,7 @@ export async function update() {
           `Successfully updated from ${MACRO.VERSION} to version ${latestVersion}`,
         ) + '\n',
       )
-      await regenerateCompletionCache()
+      void regenerateCompletionCache()
       break
     case 'no_permissions':
       process.stderr.write(
