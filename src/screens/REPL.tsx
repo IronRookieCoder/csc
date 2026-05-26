@@ -281,8 +281,13 @@ import { ActivityRail } from '../components/activity-rail/ActivityRail.js';
 import {
   ACTIVITY_RAIL_WIDTH,
   ActivityRailLayout,
+  getFullscreenActivityRailAnchorTop,
   hasActivityRailContent,
   shouldShowActivityRail,
+  shouldAttachActivityRailAnchorRef,
+  shouldAttachActivityRailAnchorToMessages,
+  shouldAttachActivityRailAnchorToPlaceholder,
+  shouldShowFullscreenActivityRail,
   useElementAbsoluteTop,
 } from '../components/activity-rail/ActivityRailLayout.js';
 import { getPipeIpc } from '../utils/pipeTransport.js';
@@ -511,7 +516,9 @@ import {
 import { setClipboard } from '@anthropic/ink';
 import type { ScrollBoxHandle } from '@anthropic/ink';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
-import { deriveActivityRailState } from '../utils/activityRail.js';
+import { deriveActivityRailState, hasVisibleConversationContent } from '../utils/activityRail.js';
+import { getTerminalCapabilities } from '../utils/terminalCapabilities.js';
+import { deriveTopBarState } from '../utils/topBar.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -5494,6 +5501,26 @@ export function REPL({
     [displayedMessages, viewedTeammateTask, inProgressToolUseIDs],
   );
 
+  const terminalCapabilities = useMemo(
+    () => getTerminalCapabilities(process.env, transcriptCols),
+    [transcriptCols],
+  );
+
+  const topBarState = useMemo(
+    () =>
+      deriveTopBarState({
+        messages: displayedMessages,
+        inProgressToolUseIDs: viewedTeammateTask
+          ? (viewedTeammateTask.inProgressToolUseIDs ?? new Set<string>())
+          : inProgressToolUseIDs,
+        sessionTitle: haikuTitle ?? 'New session',
+        branch: getCurrentWorktreeSession()?.worktreeBranch ?? 'no branch',
+        brandVersion: `CoStrict v${MACRO.VERSION}`,
+        columns: transcriptCols,
+      }),
+    [displayedMessages, viewedTeammateTask, inProgressToolUseIDs, haikuTitle, transcriptCols],
+  );
+
   if (screen === 'transcript') {
     // Virtual scroll replaces the 30-message cap: everything is scrollable
     // and memory is bounded by the viewport. Without it, wrapping transcript
@@ -5713,11 +5740,61 @@ export function REPL({
   // the sprite visible so arrow-right can navigate to it.
   const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
   const hasActivityRail = hasActivityRailContent(activityRail.railState);
-  const showFullscreenActivityRail = isFullscreenEnvEnabled() && hasActivityRail && shouldShowActivityRail(transcriptCols);
+  const hasVisibleConversation = hasVisibleConversationContent(displayedMessages);
+  const hasProcessingInput = userInputOnProcessing !== undefined;
+  const hasConversationStarted = hasVisibleConversation || hasProcessingInput;
+  const showFullscreenActivityRail = shouldShowFullscreenActivityRail({
+    fullscreenEnabled: isFullscreenEnvEnabled(),
+    hasVisibleConversationContent: hasVisibleConversation,
+    shouldShowRail: shouldShowActivityRail(transcriptCols),
+  });
   const scrollbackActivityAnchorRef = useRef<import('@anthropic/ink').DOMElement | null>(null);
+  const shouldAttachActivityAnchor = shouldAttachActivityRailAnchorRef({
+    hasConversationStarted,
+    shouldShowRail: shouldShowActivityRail(transcriptCols),
+  });
+  const shouldAnchorActivityRailToMessages = shouldAttachActivityRailAnchorToMessages({
+    hasVisibleConversationContent: hasVisibleConversation,
+    shouldAttachActivityAnchor,
+  });
+  const shouldAnchorActivityRailToPlaceholder = shouldAttachActivityRailAnchorToPlaceholder({
+    hasVisibleConversationContent: hasVisibleConversation,
+    hasProcessingPlaceholder: placeholderText !== undefined,
+    shouldAttachActivityAnchor,
+  });
   const activityAnchorTop = useElementAbsoluteTop(
-    hasActivityRail && shouldShowActivityRail(transcriptCols) ? scrollbackActivityAnchorRef : undefined,
+    shouldAttachActivityAnchor ? scrollbackActivityAnchorRef : undefined,
   );
+  const activityAnchorVisibleRowOffset = shouldAnchorActivityRailToPlaceholder ? 1 : 0;
+  const fullscreenActivityRailAnchorTop = getFullscreenActivityRailAnchorTop(
+    showFullscreenActivityRail,
+    activityAnchorTop,
+    activityAnchorVisibleRowOffset,
+  );
+
+  useEffect(() => {
+    if (!isEnvTruthy(process.env.COSTRICT_DEBUG_ACTIVITY_RAIL)) return;
+    logForDebugging(
+      `[activity-rail:repl] fullscreen=${isFullscreenEnvEnabled()} transcriptCols=${transcriptCols} messages=${displayedMessages.length} chatMessages=${activityRail.chatMessages.length} changes=${activityRail.railState.changes.length} inProgress=${inProgressToolUseIDs.size} hasVisibleConversation=${hasVisibleConversation} hasProcessingInput=${hasProcessingInput} placeholder=${placeholderText === undefined ? 'none' : 'present'} hasConversationStarted=${hasConversationStarted} hasActivityRail=${hasActivityRail} showFullscreenRail=${showFullscreenActivityRail} attachAnchor=${shouldAttachActivityAnchor} anchorToMessages=${shouldAnchorActivityRailToMessages} anchorToPlaceholder=${shouldAnchorActivityRailToPlaceholder} anchorRefMounted=${scrollbackActivityAnchorRef.current == null ? 'no' : 'yes'} activityAnchorTop=${activityAnchorTop ?? 'none'} sideRailAnchorTop=${fullscreenActivityRailAnchorTop ?? 'none'}`,
+    );
+  }, [
+    transcriptCols,
+    displayedMessages.length,
+    activityRail.chatMessages.length,
+    activityRail.railState.changes.length,
+    inProgressToolUseIDs.size,
+    hasVisibleConversation,
+    hasProcessingInput,
+    placeholderText,
+    hasConversationStarted,
+    hasActivityRail,
+    showFullscreenActivityRail,
+    shouldAttachActivityAnchor,
+    shouldAnchorActivityRailToMessages,
+    shouldAnchorActivityRailToPlaceholder,
+    activityAnchorTop,
+    fullscreenActivityRailAnchorTop,
+  ]);
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -5759,11 +5836,7 @@ export function REPL({
         unseenDivider={viewedAgentTask ? undefined : unseenDivider}
         scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined}
         trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined}
-        timelineStartRef={
-          !isFullscreenEnvEnabled() && hasActivityRail && shouldShowActivityRail(transcriptCols)
-            ? scrollbackActivityAnchorRef
-            : undefined
-        }
+        timelineStartRef={shouldAnchorActivityRailToMessages ? scrollbackActivityAnchorRef : undefined}
         cursor={cursor}
         setCursor={setCursor}
         cursorNavRef={cursorNavRef}
@@ -5775,7 +5848,10 @@ export function REPL({
           (the modal IS the /config UI). Outside modals it stays so
           the user sees their input echoed while Claude processes. */}
       {!disabled && placeholderText && !centeredModal && (
-        <UserTextMessage param={{ text: placeholderText, type: 'text' }} addMargin={true} verbose={verbose} />
+        <>
+          {shouldAnchorActivityRailToPlaceholder && <Box ref={scrollbackActivityAnchorRef} height={0} flexShrink={0} />}
+          <UserTextMessage param={{ text: placeholderText, type: 'text' }} addMargin={true} verbose={verbose} />
+        </>
       )}
       {toolJSX && !(toolJSX.isLocalJSXCommand && toolJSX.isImmediate) && !toolJsxCentered && (
         <Box flexDirection="column" width="100%">
@@ -5822,6 +5898,10 @@ export function REPL({
       columns={transcriptCols}
       railState={activityRail.railState}
       narrowSummary={activityRail.narrowSummary}
+      topBarState={hasConversationStarted ? topBarState : undefined}
+      hasConversationStarted={hasConversationStarted}
+      charset={terminalCapabilities.charset}
+      colorDepth={terminalCapabilities.colorDepth}
       anchorRef={scrollbackActivityAnchorRef}
     >
       {defaultScrollableContent}
@@ -5876,11 +5956,17 @@ export function REPL({
           modal={centeredModal}
           sideRail={
             showFullscreenActivityRail ? (
-              <ActivityRail state={activityRail.railState} width={ACTIVITY_RAIL_WIDTH} />
+              <ActivityRail
+                state={activityRail.railState}
+                width={ACTIVITY_RAIL_WIDTH}
+                topBarState={topBarState}
+                charset={terminalCapabilities.charset}
+                colorDepth={terminalCapabilities.colorDepth}
+              />
             ) : undefined
           }
           sideRailWidth={ACTIVITY_RAIL_WIDTH}
-          sideRailAnchorTop={activityAnchorTop}
+          sideRailAnchorTop={fullscreenActivityRailAnchorTop}
           modalScrollRef={modalScrollRef}
           dividerYRef={dividerYRef}
           hidePill={!!viewedAgentTask}

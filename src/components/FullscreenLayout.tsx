@@ -25,6 +25,8 @@ import {
 } from '@anthropic/ink';
 import type { Message } from '../types/message.js';
 import { openBrowser, openPath } from '../utils/browser.js';
+import { logForDebugging } from '../utils/debug.js';
+import { isEnvTruthy } from '../utils/envUtils.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { plural } from '../utils/stringUtils.js';
 import { isNullRenderingAttachment } from './messages/nullRenderingAttachments.js';
@@ -33,6 +35,54 @@ import type { StickyPrompt } from './VirtualMessageList.js';
 
 /** Rows of transcript context kept visible above the modal pane's ▔ divider. */
 const MODAL_TRANSCRIPT_PEEK = 2;
+
+function shouldDebugActivityRailLayout(): boolean {
+  return isEnvTruthy(process.env.COSTRICT_DEBUG_ACTIVITY_RAIL);
+}
+
+function ActivityRailLayoutDebugEffect({
+  columns,
+  terminalRows,
+  sideRailPresent,
+  resolvedSideRailWidth,
+  sideRailAnchorTop,
+  sideRailPaddingTop,
+  padCollapsed,
+  stickyState,
+  overlayPresent,
+  mainColumnWidth,
+}: {
+  columns: number;
+  terminalRows: number;
+  sideRailPresent: boolean;
+  resolvedSideRailWidth: number | undefined;
+  sideRailAnchorTop: number | null | undefined;
+  sideRailPaddingTop: number;
+  padCollapsed: boolean;
+  stickyState: 'none' | 'clicked' | 'prompt';
+  overlayPresent: boolean;
+  mainColumnWidth: number;
+}): null {
+  useEffect(() => {
+    if (!shouldDebugActivityRailLayout()) return;
+    logForDebugging(
+      `[activity-rail:fullscreen-layout] columns=${columns} terminalRows=${terminalRows} sideRail=${sideRailPresent ? 'on' : 'off'} sideRailWidth=${resolvedSideRailWidth ?? 'none'} sideRailAnchorTop=${sideRailAnchorTop ?? 'none'} sideRailPaddingTop=${sideRailPaddingTop} padCollapsed=${padCollapsed} sticky=${stickyState} overlay=${overlayPresent ? 'present' : 'none'} mainColumnWidth=${mainColumnWidth}`,
+    );
+  }, [
+    columns,
+    terminalRows,
+    sideRailPresent,
+    resolvedSideRailWidth,
+    sideRailAnchorTop,
+    sideRailPaddingTop,
+    padCollapsed,
+    stickyState,
+    overlayPresent,
+    mainColumnWidth,
+  ]);
+
+  return null;
+}
 
 /** Context for scroll-derived chrome (sticky header, pill). StickyTracker
  *  in VirtualMessageList writes via this instead of threading a callback
@@ -43,6 +93,8 @@ export const ScrollChromeContext = createContext<{
 }>({ setStickyPrompt: () => {} });
 
 type Props = {
+  /** Content pinned above the ScrollBox, used by the CSC top bar. */
+  top?: ReactNode;
   /** Content that scrolls (messages, tool output) */
   scrollable: ReactNode;
   /** Content pinned to the bottom (spinner, prompt, permissions) */
@@ -311,7 +363,7 @@ export function getFullscreenSideRailPaddingTopForAnchor(
 ): number {
   if (padCollapsed) return 0;
   if (anchorTop == null) return getFullscreenSideRailPaddingTop(false);
-  return Math.max(0, anchorTop - 1);
+  return Math.max(0, anchorTop);
 }
 
 /**
@@ -327,6 +379,7 @@ export function getFullscreenSideRailPaddingTopForAnchor(
  * so nothing can accidentally render outside it.
  */
 export function FullscreenLayout({
+  top,
   scrollable,
   bottom,
   overlay,
@@ -418,10 +471,27 @@ export function FullscreenLayout({
     const sideRailPaddingTop = getFullscreenSideRailPaddingTopForAnchor(padCollapsed, sideRailAnchorTop);
     return (
       <PromptOverlayProvider>
+        <ActivityRailLayoutDebugEffect
+          columns={columns}
+          terminalRows={terminalRows}
+          sideRailPresent={sideRail != null}
+          resolvedSideRailWidth={resolvedSideRailWidth}
+          sideRailAnchorTop={sideRailAnchorTop}
+          sideRailPaddingTop={sideRailPaddingTop}
+          padCollapsed={padCollapsed}
+          stickyState={sticky == null ? 'none' : sticky === 'clicked' ? 'clicked' : 'prompt'}
+          overlayPresent={overlay != null}
+          mainColumnWidth={mainColumnWidth}
+        />
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
           <Box flexDirection="column" flexGrow={1} width={mainColumnWidth} overflow="hidden">
             <TerminalSizeContext.Provider value={mainTerminalSize}>
               <Box flexGrow={1} flexDirection="column" overflow="hidden">
+                {top != null && (
+                  <Box flexShrink={0} width="100%">
+                    {top}
+                  </Box>
+                )}
                 {headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />}
                 <ScrollBox
                   ref={scrollRef}
@@ -515,6 +585,7 @@ export function FullscreenLayout({
 
   return (
     <>
+      {top}
       {scrollable}
       {bottom}
       {overlay}

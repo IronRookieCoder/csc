@@ -6,8 +6,9 @@
 
 import { cwd } from 'process';
 import React from 'react';
-import { WelcomeV2 } from '../../components/LogoV2/WelcomeV2.js';
+import { WelcomeCard } from '../../components/LogoV2/WelcomeCard.js';
 import { useManagePlugins } from '../../hooks/useManagePlugins.js';
+import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import type { Root } from '@anthropic/ink';
 import { Box, Text } from '@anthropic/ink';
 import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js';
@@ -16,6 +17,18 @@ import { MCPConnectionManager } from '../../services/mcp/MCPConnectionManager.js
 import { AppStateProvider } from '../../state/AppState.js';
 import { onChangeAppState } from '../../state/onChangeAppState.js';
 import { isAnthropicAuthEnabled } from '../../utils/auth.js';
+
+function SetupTokenWelcome(): React.ReactNode {
+  const mainLoopModel = useMainLoopModel();
+  return (
+    <WelcomeCard
+      version={MACRO.VERSION}
+      modelName={mainLoopModel}
+      cwd={cwd()}
+      columns={process.stdout.columns ?? 80}
+    />
+  );
+}
 
 export async function setupTokenHandler(root: Root): Promise<void> {
   logEvent('tengu_setup_token_command', {});
@@ -27,7 +40,7 @@ export async function setupTokenHandler(root: Root): Promise<void> {
       <AppStateProvider onChangeAppState={onChangeAppState}>
         <KeybindingSetup>
           <Box flexDirection="column" gap={1}>
-            <WelcomeV2 />
+            <SetupTokenWelcome />
             {showAuthWarning && (
               <Box flexDirection="column">
                 <Text color="warning">

@@ -2,13 +2,6 @@ import type { Message } from '../types/message.js'
 
 export type ActivityStatus = 'done' | 'running' | 'pending' | 'attention'
 
-export type ActivityRailItem = {
-  id: string
-  title: string
-  detail?: string
-  status: ActivityStatus
-}
-
 export type ChangeSetItem = {
   filePath: string
   diffStat: string
@@ -18,11 +11,10 @@ export type ChangeSetItem = {
 export type QualityGateItem = {
   id: 'requirements' | 'impact' | 'verification'
   label: string
-  status: '通过' | '需关注' | '待确认' | '待执行'
+  status: 'passed' | 'attention' | 'pending-review' | 'pending'
 }
 
 export type ActivityRailState = {
-  activity: ActivityRailItem[]
   changes: ChangeSetItem[]
   quality: QualityGateItem[]
 }
@@ -65,7 +57,10 @@ function toContentBlock(block: unknown): ContentBlock | undefined {
 }
 
 function contentBlocks(message: Message): ContentBlock[] {
-  const content = message.type === 'assistant' || message.type === 'user' ? message.message?.content : undefined
+  const content =
+    message.type === 'assistant' || message.type === 'user'
+      ? message.message?.content
+      : undefined
   if (!Array.isArray(content)) return []
   return content.map(toContentBlock).filter(block => block !== undefined)
 }
@@ -74,7 +69,10 @@ function isToolActivityBlock(block: ContentBlock): boolean {
   return block.type === 'tool_use' || block.type === 'tool_result'
 }
 
-function messageWithFilteredContent(message: Message, content: ContentBlock[]): Message | undefined {
+function messageWithFilteredContent(
+  message: Message,
+  content: ContentBlock[],
+): Message | undefined {
   const visibleContent = content.filter(block => !isToolActivityBlock(block))
   if (visibleContent.length === 0) return undefined
   return {
@@ -99,11 +97,34 @@ function defaultChatMessage(message: Message): Message | undefined {
   return messageWithFilteredContent(message, content)
 }
 
+function textFromContentBlock(block: ContentBlock): string {
+  return typeof block.text === 'string' ? block.text.trim() : ''
+}
+
+function hasVisibleTextContent(message: Message): boolean {
+  if (message.type !== 'assistant' && message.type !== 'user') return false
+  return contentBlocks(message).some(block => block.type === 'text' && textFromContentBlock(block).length > 0)
+}
+
+export function hasVisibleConversationContent(messages: readonly Message[]): boolean {
+  return messages.some(message => {
+    if (message.type === 'assistant') return hasVisibleTextContent(message)
+    if (message.type === 'user') {
+      if ('isMeta' in message && message.isMeta === true) return false
+      const content = contentBlocks(message)
+      if (content.length === 0) return false
+      if (content.every(isToolActivityBlock)) return false
+      return content.some(block => block.type === 'text' && textFromContentBlock(block).length > 0)
+    }
+    return false
+  })
+}
+
 function emptyQuality(): QualityGateItem[] {
   return [
-    { id: 'requirements', label: '需求一致性', status: '待执行' },
-    { id: 'impact', label: '影响范围', status: '待执行' },
-    { id: 'verification', label: '测试验证', status: '待执行' },
+    { id: 'requirements', label: 'Requirements', status: 'pending' },
+    { id: 'impact', label: 'Impact', status: 'pending' },
+    { id: 'verification', label: 'Verification', status: 'pending' },
   ]
 }
 
@@ -114,7 +135,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function toolUsesFromMessage(message: Message): ToolUseBlock[] {
   if (message.type !== 'assistant') return []
   return contentBlocks(message)
-    .filter(block => block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string')
+    .filter(
+      block =>
+        block.type === 'tool_use' &&
+        typeof block.id === 'string' &&
+        typeof block.name === 'string',
+    )
     .map(block => ({
       id: block.id as string,
       name: block.name as string,
@@ -125,7 +151,10 @@ function toolUsesFromMessage(message: Message): ToolUseBlock[] {
 function toolResultsFromMessage(message: Message): ToolResultBlock[] {
   if (message.type !== 'user') return []
   return contentBlocks(message)
-    .filter(block => block.type === 'tool_result' && typeof block.tool_use_id === 'string')
+    .filter(
+      block =>
+        block.type === 'tool_result' && typeof block.tool_use_id === 'string',
+    )
     .map(block => ({
       toolUseID: block.tool_use_id as string,
       isError: block.is_error === true,
@@ -153,10 +182,6 @@ function filePathFromInput(input: Record<string, unknown>): string | undefined {
   return typeof filePath === 'string' ? filePath : undefined
 }
 
-function isReadTool(name: string): boolean {
-  return name === 'Read' || name === 'Glob' || name === 'Grep'
-}
-
 function isEditTool(name: string): boolean {
   return name === 'Edit' || name === 'MultiEdit' || name === 'Write'
 }
@@ -173,22 +198,18 @@ function statusPriority(status: ActivityStatus): number {
   return 1
 }
 
-function mergeStatus(current: ActivityStatus, next: ActivityStatus): ActivityStatus {
+function mergeStatus(
+  current: ActivityStatus,
+  next: ActivityStatus,
+): ActivityStatus {
   return statusPriority(next) > statusPriority(current) ? next : current
 }
 
-function upsertActivity(activity: ActivityRailItem[], item: ActivityRailItem): void {
-  const existing = activity.find(activityItem => activityItem.id === item.id)
-  if (existing === undefined) {
-    activity.push(item)
-    return
-  }
-
-  existing.detail = item.detail
-  existing.status = mergeStatus(existing.status, item.status)
-}
-
-function upsertChange(changes: ChangeSetItem[], filePath: string, status: ActivityStatus): void {
+function upsertChange(
+  changes: ChangeSetItem[],
+  filePath: string,
+  status: ActivityStatus,
+): void {
   const existing = changes.find(change => change.filePath === filePath)
   if (existing === undefined) {
     changes.push({
@@ -202,43 +223,58 @@ function upsertChange(changes: ChangeSetItem[], filePath: string, status: Activi
   existing.status = mergeStatus(existing.status, status)
 }
 
-function qualityFromState(changes: ChangeSetItem[], verificationStatus: ActivityStatus | undefined): QualityGateItem[] {
+function qualityFromState(
+  changes: ChangeSetItem[],
+  verificationStatus: ActivityStatus | undefined,
+): QualityGateItem[] {
   const verificationGateStatus =
-    verificationStatus === 'done' ? '通过' : verificationStatus === 'attention' ? '需关注' : '待执行'
+    verificationStatus === 'done'
+      ? 'passed'
+      : verificationStatus === 'attention'
+        ? 'attention'
+        : 'pending'
 
   return [
-    { id: 'requirements', label: '需求一致性', status: changes.length > 0 ? '待确认' : '待执行' },
-    { id: 'impact', label: '影响范围', status: changes.length > 0 ? '需关注' : '待执行' },
-    { id: 'verification', label: '测试验证', status: verificationGateStatus },
+    {
+      id: 'requirements',
+      label: 'Requirements',
+      status: changes.length > 0 ? 'pending-review' : 'pending',
+    },
+    {
+      id: 'impact',
+      label: 'Impact',
+      status: changes.length > 0 ? 'attention' : 'pending',
+    },
+    { id: 'verification', label: 'Verification', status: verificationGateStatus },
   ]
 }
 
 function narrowSummaryFromState(railState: ActivityRailState): string {
-  if (railState.activity.length === 0 && railState.changes.length === 0) {
-    return 'Tools: idle | 0 files changed | tests pending'
-  }
-
-  const verification = railState.quality.find(item => item.id === 'verification')
+  const verification = railState.quality.find(
+    item => item.id === 'verification',
+  )
   const tests =
-    verification?.status === '通过' ? 'passed' : verification?.status === '需关注' ? 'attention' : 'pending'
-  const doneCount = railState.activity.filter(item => item.status === 'done').length
-  const runningCount = railState.activity.filter(item => item.status === 'running').length
-  const pendingCount = railState.activity.filter(item => item.status === 'pending').length
-  const attentionCount = railState.activity.filter(item => item.status === 'attention').length
-  const toolParts = [
-    doneCount > 0 ? `${doneCount} done` : undefined,
-    runningCount > 0 ? `${runningCount} running` : undefined,
-    pendingCount > 0 ? `${pendingCount} pending` : undefined,
-    attentionCount > 0 ? `${attentionCount} attention` : undefined,
-  ].filter(part => part !== undefined)
-  const toolSummary = toolParts.length > 0 ? toolParts.join(', ') : 'idle'
+    verification?.status === 'passed'
+      ? 'passed'
+      : verification?.status === 'attention'
+        ? 'attention'
+        : 'pending'
   const fileLabel = railState.changes.length === 1 ? 'file' : 'files'
+  const attentionCount = railState.changes.filter(
+    item => item.status === 'attention',
+  ).length
+  const attentionSummary =
+    attentionCount > 0 ? `, ${attentionCount} attention` : ''
 
-  return `Tools: ${toolSummary} | ${railState.changes.length} ${fileLabel} changed | tests ${tests}`
+  return `Changes: ${railState.changes.length} ${fileLabel} changed${attentionSummary} | tests ${tests}`
 }
 
-export function deriveActivityRailState(input: ActivityRailInput): ActivityRailDerivedState {
-  const chatMessages = input.messages.map(defaultChatMessage).filter(message => message !== undefined)
+export function deriveActivityRailState(
+  input: ActivityRailInput,
+): ActivityRailDerivedState {
+  const chatMessages = input.messages
+    .map(defaultChatMessage)
+    .filter(message => message !== undefined)
   const toolUses = input.messages.flatMap(toolUsesFromMessage)
   const resultsByToolUseID = new Map<string, ToolResultBlock>()
   for (const result of input.messages.flatMap(toolResultsFromMessage)) {
@@ -246,7 +282,6 @@ export function deriveActivityRailState(input: ActivityRailInput): ActivityRailD
   }
 
   const railState: ActivityRailState = {
-    activity: [],
     changes: [],
     quality: emptyQuality(),
   }
@@ -254,24 +289,13 @@ export function deriveActivityRailState(input: ActivityRailInput): ActivityRailD
   let verificationStatus: ActivityStatus | undefined
 
   for (const toolUse of toolUses) {
-    const status = toolStatus(toolUse.id, resultsByToolUseID, input.inProgressToolUseIDs)
-
-    if (isReadTool(toolUse.name)) {
-      upsertActivity(railState.activity, {
-        id: 'read-context',
-        title: '读取上下文',
-        status,
-      })
-      continue
-    }
+    const status = toolStatus(
+      toolUse.id,
+      resultsByToolUseID,
+      input.inProgressToolUseIDs,
+    )
 
     if (isEditTool(toolUse.name)) {
-      upsertActivity(railState.activity, {
-        id: 'prepare-change',
-        title: '准备改动',
-        status,
-      })
-
       const filePath = filePathFromInput(toolUse.input)
       if (filePath !== undefined) {
         upsertChange(railState.changes, filePath, status)
@@ -282,22 +306,11 @@ export function deriveActivityRailState(input: ActivityRailInput): ActivityRailD
     if (toolUse.name === 'Bash') {
       const command = commandFromInput(toolUse.input)
       if (isVerificationCommand(command)) {
-        upsertActivity(railState.activity, {
-          id: 'verification',
-          title: status === 'pending' ? '等待验证' : '执行验证',
-          detail: command,
-          status,
-        })
-        verificationStatus = verificationStatus === undefined ? status : mergeStatus(verificationStatus, status)
-        continue
+        verificationStatus =
+          verificationStatus === undefined
+            ? status
+            : mergeStatus(verificationStatus, status)
       }
-
-      upsertActivity(railState.activity, {
-        id: toolUse.id,
-        title: '执行工具：Bash',
-        detail: command,
-        status,
-      })
     }
   }
 

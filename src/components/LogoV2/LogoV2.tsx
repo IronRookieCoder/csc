@@ -72,6 +72,7 @@ import { useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { renderModelSetting } from '../../utils/model/model.js';
+import { WelcomeCard } from './WelcomeCard.js';
 
 const LEFT_PANEL_MAX_WIDTH = 50;
 
@@ -155,7 +156,12 @@ export function LogoV2(): React.ReactNode {
   if (true) {
     return (
       <>
-        <CondensedLogo />
+        <WelcomeCard
+          version={version}
+          modelName={`${fullModelDisplayName}${effortSuffix}`}
+          cwd={agentName ? `@${agentName} · ${cwd}` : cwd}
+          columns={columns}
+        />
         <VoiceModeNotice />
         {/* NOTE: Opus 1M merge notice disabled
         <Opus1mMergeNotice />
