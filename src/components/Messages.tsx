@@ -31,6 +31,7 @@ import { collapseHookSummaries } from '../utils/collapseHookSummaries.js';
 import { collapseReadSearchGroups } from '../utils/collapseReadSearch.js';
 import { collapseTeammateShutdowns } from '../utils/collapseTeammateShutdowns.js';
 import { getGlobalConfig } from '../utils/config.js';
+import { logForDebugging } from '../utils/debug.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { applyGrouping } from '../utils/groupToolUses.js';
@@ -68,6 +69,7 @@ import {
 import { AssistantThinkingMessage } from './messages/AssistantThinkingMessage.js';
 import { isNullRenderingAttachment } from './messages/nullRenderingAttachments.js';
 import { OffscreenFreeze } from './OffscreenFreeze.js';
+import { ActivityRailMainColumn } from './activity-rail/ActivityRailLayout.js';
 import type { ToolUseConfirm } from './permissions/PermissionRequest.js';
 import { StatusNotices } from './StatusNotices.js';
 import type { JumpHandle } from './VirtualMessageList.js';
@@ -99,6 +101,58 @@ const LogoHeader = React.memo(function LogoHeader({
     </OffscreenFreeze>
   );
 });
+
+function getDebugElementAbsoluteTop(element: DOMElement | null): number | null {
+  if (!element?.yogaNode) return null;
+
+  let top = element.yogaNode.getComputedTop();
+  let parent = element.parentNode;
+  while (parent) {
+    if (parent.yogaNode) {
+      top += parent.yogaNode.getComputedTop();
+    }
+    parent = parent.parentNode;
+  }
+  return top;
+}
+
+function ActivityRailDebugLogoHeader({
+  agentDefinitions,
+  enabled,
+}: {
+  agentDefinitions: AgentDefinitionsResult | undefined;
+  enabled: boolean;
+}): React.ReactNode {
+  const ref = useRef<DOMElement | null>(null);
+  const lastLogRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const node = ref.current?.yogaNode;
+    if (!node) {
+      const message = '[activity-rail:messages] logoHeader mounted=no';
+      if (lastLogRef.current !== message) {
+        lastLogRef.current = message;
+        logForDebugging(message);
+      }
+      return;
+    }
+    const localTop = node.getComputedTop();
+    const absoluteTop = getDebugElementAbsoluteTop(ref.current);
+    const height = node.getComputedHeight();
+    const message = `[activity-rail:messages] logoHeader mounted=yes localTop=${localTop} absoluteTop=${absoluteTop ?? 'none'} height=${height} absoluteBottom=${absoluteTop === null ? 'none' : absoluteTop + height}`;
+    if (lastLogRef.current !== message) {
+      lastLogRef.current = message;
+      logForDebugging(message);
+    }
+  });
+
+  return (
+    <Box ref={ref} flexDirection="column">
+      <LogoHeader agentDefinitions={agentDefinitions} />
+    </Box>
+  );
+}
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -896,93 +950,101 @@ const MessagesImpl = ({
   return (
     <SentryErrorBoundary name="MessagesBoundary">
       {/* Logo */}
-      {!hideLogo && !(renderRange && renderRange[0] > 0) && <LogoHeader agentDefinitions={agentDefinitions} />}
+      {!hideLogo &&
+        !(renderRange && renderRange[0] > 0) &&
+        (isEnvTruthy(process.env.COSTRICT_DEBUG_ACTIVITY_RAIL) ? (
+          <ActivityRailDebugLogoHeader agentDefinitions={agentDefinitions} enabled />
+        ) : (
+          <LogoHeader agentDefinitions={agentDefinitions} />
+        ))}
 
-      {/* Truncation indicator */}
-      {hasTruncatedMessages && (
-        <Divider
-          title={`${toggleShowAllShortcut} to show ${chalk.bold(hiddenMessageCount)} previous messages`}
-          width={columns}
-        />
-      )}
-
-      {/* Show all indicator */}
-      {isTranscriptMode &&
-        showAllInTranscript &&
-        hiddenMessageCount > 0 &&
-        // disableRenderCap (e.g. [ dump-to-scrollback) means we're uncapped
-        // as a one-shot escape hatch, not a toggle — ctrl+e is dead and
-        // nothing is actually "hidden" to restore.
-        !disableRenderCap && (
+      <ActivityRailMainColumn>
+        {/* Truncation indicator */}
+        {hasTruncatedMessages && (
           <Divider
-            title={`${toggleShowAllShortcut} to hide ${chalk.bold(hiddenMessageCount)} previous messages`}
+            title={`${toggleShowAllShortcut} to show ${chalk.bold(hiddenMessageCount)} previous messages`}
             width={columns}
           />
         )}
 
-      {timelineStartRef && <Box ref={timelineStartRef} height={0} flexShrink={0} />}
+        {/* Show all indicator */}
+        {isTranscriptMode &&
+          showAllInTranscript &&
+          hiddenMessageCount > 0 &&
+          // disableRenderCap (e.g. [ dump-to-scrollback) means we're uncapped
+          // as a one-shot escape hatch, not a toggle — ctrl+e is dead and
+          // nothing is actually "hidden" to restore.
+          !disableRenderCap && (
+            <Divider
+              title={`${toggleShowAllShortcut} to hide ${chalk.bold(hiddenMessageCount)} previous messages`}
+              width={columns}
+            />
+          )}
 
-      {/* Messages - rendered as memoized MessageRow components.
-          flatMap inserts the unseen-divider as a separate keyed sibling so
-          (a) non-fullscreen renders pay no per-message Fragment wrap, and
-          (b) divider toggle in fullscreen preserves all MessageRows by key.
-          Pre-compute derived values instead of passing renderableMessages to
-          each row - React Compiler pins props in the fiber's memoCache, so
-          passing the array would accumulate every historical version
-          (~1-2MB over a 7-turn session). */}
-      {virtualScrollRuntimeGate ? (
-        <InVirtualListContext.Provider value={true}>
-          <VirtualMessageList
-            messages={renderableMessages}
-            scrollRef={scrollRef}
-            columns={columns}
-            itemKey={messageKey}
-            renderItem={renderMessageRow}
-            onItemClick={onItemClick}
-            isItemClickable={isItemClickable}
-            isItemExpanded={isItemExpanded}
-            trackStickyPrompt={trackStickyPrompt}
-            selectedIndex={selectedIdx >= 0 ? selectedIdx : undefined}
-            cursorNavRef={cursorNavRef}
-            setCursor={setCursor}
-            jumpRef={jumpRef}
-            onSearchMatchesChange={onSearchMatchesChange}
-            scanElement={scanElement}
-            setPositions={setPositions}
-            extractSearchText={extractSearchText}
-          />
-        </InVirtualListContext.Provider>
-      ) : (
-        renderableMessages.flatMap(renderMessageRow)
-      )}
+        {timelineStartRef && <Box ref={timelineStartRef} height={0} flexShrink={0} />}
 
-      {streamingText && !isBriefOnly && (
-        <Box alignItems="flex-start" flexDirection="row" marginTop={1} width="100%">
-          <Box flexDirection="row">
-            <Box minWidth={2}>
-              <Text color="text">{BLACK_CIRCLE}</Text>
-            </Box>
-            <Box flexDirection="column">
-              <StreamingMarkdown>{streamingText}</StreamingMarkdown>
+        {/* Messages - rendered as memoized MessageRow components.
+            flatMap inserts the unseen-divider as a separate keyed sibling so
+            (a) non-fullscreen renders pay no per-message Fragment wrap, and
+            (b) divider toggle in fullscreen preserves all MessageRows by key.
+            Pre-compute derived values instead of passing renderableMessages to
+            each row - React Compiler pins props in the fiber's memoCache, so
+            passing the array would accumulate every historical version
+            (~1-2MB over a 7-turn session). */}
+        {virtualScrollRuntimeGate ? (
+          <InVirtualListContext.Provider value={true}>
+            <VirtualMessageList
+              messages={renderableMessages}
+              scrollRef={scrollRef}
+              columns={columns}
+              itemKey={messageKey}
+              renderItem={renderMessageRow}
+              onItemClick={onItemClick}
+              isItemClickable={isItemClickable}
+              isItemExpanded={isItemExpanded}
+              trackStickyPrompt={trackStickyPrompt}
+              selectedIndex={selectedIdx >= 0 ? selectedIdx : undefined}
+              cursorNavRef={cursorNavRef}
+              setCursor={setCursor}
+              jumpRef={jumpRef}
+              onSearchMatchesChange={onSearchMatchesChange}
+              scanElement={scanElement}
+              setPositions={setPositions}
+              extractSearchText={extractSearchText}
+            />
+          </InVirtualListContext.Provider>
+        ) : (
+          renderableMessages.flatMap(renderMessageRow)
+        )}
+
+        {streamingText && !isBriefOnly && (
+          <Box alignItems="flex-start" flexDirection="row" marginTop={1} width="100%">
+            <Box flexDirection="row">
+              <Box minWidth={2}>
+                <Text color="text">{BLACK_CIRCLE}</Text>
+              </Box>
+              <Box flexDirection="column">
+                <StreamingMarkdown>{streamingText}</StreamingMarkdown>
+              </Box>
             </Box>
           </Box>
-        </Box>
-      )}
+        )}
 
-      {isStreamingThinkingVisible && streamingThinking && !isBriefOnly && (
-        <Box marginTop={1}>
-          <AssistantThinkingMessage
-            param={{
-              type: 'thinking',
-              thinking: streamingThinking.thinking,
-            }}
-            addMargin={false}
-            isTranscriptMode={true}
-            verbose={verbose}
-            hideInTranscript={false}
-          />
-        </Box>
-      )}
+        {isStreamingThinkingVisible && streamingThinking && !isBriefOnly && (
+          <Box marginTop={1}>
+            <AssistantThinkingMessage
+              param={{
+                type: 'thinking',
+                thinking: streamingThinking.thinking,
+              }}
+              addMargin={false}
+              isTranscriptMode={true}
+              verbose={verbose}
+              hideInTranscript={false}
+            />
+          </Box>
+        )}
+      </ActivityRailMainColumn>
     </SentryErrorBoundary>
   );
 };
