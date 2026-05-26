@@ -4,7 +4,11 @@ import * as React from 'react'
 import { renderToString } from '../../../utils/staticRender.js'
 import { ActivityRail } from '../ActivityRail.js'
 import { ActivityRailLayout } from '../ActivityRailLayout.js'
-import { getFullscreenMainColumnWidth, getFullscreenMainTerminalSize } from '../../FullscreenLayout.js'
+import {
+  getFullscreenMainColumnWidth,
+  getFullscreenMainTerminalSize,
+  getFullscreenSideRailPaddingTop,
+} from '../../FullscreenLayout.js'
 import type { ActivityRailState } from '../../../utils/activityRail.js'
 
 const state: ActivityRailState = {
@@ -140,5 +144,10 @@ describe('FullscreenLayout side rail sizing', () => {
   test('scopes main terminal size to the scrollbox column width', () => {
     expect(getFullscreenMainTerminalSize(40, 140, 34)).toEqual({ rows: 40, columns: 106 })
     expect(getFullscreenMainTerminalSize(40, 140)).toEqual({ rows: 40, columns: 140 })
+  })
+
+  test('aligns the side rail with scrollbox content padding', () => {
+    expect(getFullscreenSideRailPaddingTop(false)).toBe(1)
+    expect(getFullscreenSideRailPaddingTop(true)).toBe(0)
   })
 })

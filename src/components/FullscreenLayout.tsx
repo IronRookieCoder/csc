@@ -299,6 +299,10 @@ export function getFullscreenMainTerminalSize(
   };
 }
 
+export function getFullscreenSideRailPaddingTop(padCollapsed: boolean): number {
+  return padCollapsed ? 0 : 1;
+}
+
 /**
  * Layout wrapper for the REPL. In fullscreen mode, puts scrollable
  * content in a sticky-scroll box and pins bottom content via flexbox.
@@ -399,6 +403,7 @@ export function FullscreenLayout({
     const sticky = hideSticky ? null : stickyPrompt;
     const headerPrompt = sticky != null && sticky !== 'clicked' && overlay == null ? sticky : null;
     const padCollapsed = sticky != null && overlay == null;
+    const sideRailPaddingTop = getFullscreenSideRailPaddingTop(padCollapsed);
     return (
       <PromptOverlayProvider>
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
@@ -435,7 +440,13 @@ export function FullscreenLayout({
             </TerminalSizeContext.Provider>
           </Box>
           {sideRail != null && resolvedSideRailWidth !== undefined && (
-            <Box flexDirection="column" flexShrink={0} width={resolvedSideRailWidth} overflow="hidden">
+            <Box
+              flexDirection="column"
+              flexShrink={0}
+              width={resolvedSideRailWidth}
+              overflow="hidden"
+              paddingTop={sideRailPaddingTop}
+            >
               {sideRail}
             </Box>
           )}
