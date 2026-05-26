@@ -36,10 +36,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function ActivityRail({ state, width }: Props): React.ReactNode {
-  const contentWidth = Math.max(1, width - 2)
+  const contentWidth = Math.max(1, width - 6)
 
   return (
-    <Box flexDirection="column" width={width}>
+    <Box
+      flexDirection="column"
+      width={width}
+      borderStyle="round"
+      borderColor="claudeBlue_FOR_SYSTEM_SPINNER"
+      paddingX={1}
+    >
       <Section title="Activity">
         {state.activity.length === 0 ? (
           <Text dimColor>No activity</Text>

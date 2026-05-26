@@ -38,6 +38,14 @@ describe('ActivityRail', () => {
     expect(out).toContain('测试验证')
   })
 
+  test('renders as a framed panel to match the welcome area', async () => {
+    const out = await renderToString(<ActivityRail state={state} width={34} />)
+    const firstLine = out.split('\n')[0] ?? ''
+
+    expect(firstLine).toContain('╭')
+    expect(firstLine).toContain('╮')
+  })
+
   test('renders empty state without crashing', async () => {
     const out = await renderToString(
       <ActivityRail
@@ -90,7 +98,7 @@ describe('ActivityRail', () => {
     expect(out).toContain('Activity')
     expect(out).toContain('Change Set')
     expect(out).toContain('Quality Gate')
-    expect(out.split('\n').length).toBeLessThanOrEqual(12)
+    expect(out.split('\n').length).toBeLessThanOrEqual(14)
   })
 })
 
