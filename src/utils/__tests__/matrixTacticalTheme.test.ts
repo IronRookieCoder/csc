@@ -5,6 +5,7 @@ import {
   filterConfigForSaveForTesting,
   mergeGlobalConfigForMigrationForTesting,
   migrateMatrixTacticalThemeConfigForTesting,
+  simulateGlobalConfigSaveForTesting,
 } from '../config.js';
 import { getTheme, THEME_NAMES, THEME_SETTINGS } from '../theme.js';
 
@@ -128,5 +129,24 @@ describe('matrix tactical config migration', () => {
     expect(filtered).toEqual({
       matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
     });
+  });
+
+  test('migrates raw old dark before save filtering', () => {
+    const filtered = simulateGlobalConfigSaveForTesting({
+      theme: 'dark',
+    } as any);
+
+    expect(filtered.theme).toBeUndefined();
+    expect(filtered.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
+  });
+
+  test('preserves raw guarded dark before save filtering', () => {
+    const filtered = simulateGlobalConfigSaveForTesting({
+      theme: 'dark',
+      matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+    } as any);
+
+    expect(filtered.theme).toBe('dark');
+    expect(filtered.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
   });
 });

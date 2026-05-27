@@ -853,6 +853,7 @@ export function saveGlobalConfig(
         }
         return written
       },
+      readGlobalConfigForMigration,
     )
     // Only write-through if we actually wrote. If the auth-loss guard
     // tripped (or the updater made no changes), the file is untouched and
@@ -868,10 +869,7 @@ export function saveGlobalConfig(
     // window: if another process is mid-write (or the file got truncated),
     // getConfig returns defaults. Refuse to write those over a good cached
     // config to avoid wiping auth. See GH #3117.
-    const currentConfig = getConfig(
-      getGlobalClaudeFile(),
-      createDefaultGlobalConfig,
-    )
+    const currentConfig = readGlobalConfigForMigration(getGlobalClaudeFile())
     if (wouldLoseAuthState(currentConfig)) {
       logForDebugging(
         'saveGlobalConfig fallback: re-read config is missing auth that cache has; refusing to write. See GH #3117.',
@@ -970,6 +968,15 @@ function mergeGlobalConfigForMigration(
       ...parsed,
     },
     parsed,
+  )
+}
+
+function readGlobalConfigForMigration(
+  file: string,
+  throwOnInvalid?: boolean,
+): GlobalConfig {
+  return migrateConfigFields(
+    getConfig(file, createDefaultGlobalConfigForMigration, throwOnInvalid),
   )
 }
 
@@ -1138,9 +1145,7 @@ export function getGlobalConfig(): GlobalConfig {
     } catch {
       // File doesn't exist
     }
-    const config = migrateConfigFields(
-      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfigForMigration),
-    )
+    const config = readGlobalConfigForMigration(getGlobalClaudeFile())
     globalConfigCache = {
       config,
       mtime: stats?.mtimeMs ?? Date.now(),
@@ -1152,9 +1157,7 @@ export function getGlobalConfig(): GlobalConfig {
     return config
   } catch {
     // If anything goes wrong, fall back to uncached behavior
-    return migrateConfigFields(
-      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfigForMigration),
-    )
+    return readGlobalConfigForMigration(getGlobalClaudeFile())
   }
 }
 
@@ -1195,6 +1198,8 @@ function filterConfigForSave<A extends object>(
       key === 'matrixTacticalThemeMigrationVersion' &&
       value !== undefined
     ) {
+      // Persist the guard even when it equals the default so later reads can
+      // distinguish user-selected dark from old default dark.
       return true
     }
 
@@ -1239,6 +1244,7 @@ function saveConfigWithLock<A extends object>(
   file: string,
   createDefault: () => A,
   mergeFn: (current: A) => A,
+  readCurrent: (file: string, createDefault: () => A) => A = getConfig,
 ): boolean {
   const defaultConfig = createDefault()
   const dir = dirname(file)
@@ -1298,7 +1304,7 @@ function saveConfigWithLock<A extends object>(
     // Re-read the current config to get latest state. If the file is
     // momentarily corrupted (concurrent writes, kill-during-write), this
     // returns defaults -- we must not write those back over good config.
-    const currentConfig = getConfig(file, createDefault)
+    const currentConfig = readCurrent(file, createDefault)
     if (file === getGlobalClaudeFile() && wouldLoseAuthState(currentConfig)) {
       logForDebugging(
         'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.claude.json. See GH #3117.',
@@ -1425,11 +1431,7 @@ export function enableConfigs(): void {
   // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
   // We only check the global config because currently all the configs share a file
-  getConfig(
-    getGlobalClaudeFile(),
-    createDefaultGlobalConfig,
-    true /* throw on invalid */,
-  )
+  readGlobalConfigForMigration(getGlobalClaudeFile(), true /* throw on invalid */)
 
   logForDiagnosticsNoPII('info', 'enable_configs_completed', {
     duration_ms: Date.now() - startTime,
@@ -1739,6 +1741,7 @@ export function saveCurrentProjectConfig(
         }
         return written
       },
+      readGlobalConfigForMigration,
     )
     if (didWrite && written) {
       writeThroughGlobalConfigCache(written)
@@ -1750,7 +1753,7 @@ export function saveCurrentProjectConfig(
 
     // Same race window as saveGlobalConfig's fallback -- refuse to write
     // defaults over good cached config. See GH #3117.
-    const config = getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig)
+    const config = readGlobalConfigForMigration(getGlobalClaudeFile())
     if (wouldLoseAuthState(config)) {
       logForDebugging(
         'saveCurrentProjectConfig fallback: re-read config is missing auth that cache has; refusing to write. See GH #3117.',
@@ -1899,6 +1902,13 @@ export const mergeGlobalConfigForMigrationForTesting =
   mergeGlobalConfigForMigration
 export const migrateMatrixTacticalThemeConfigForTesting =
   migrateMatrixTacticalThemeConfig
+export const simulateGlobalConfigSaveForTesting = (
+  rawConfig: Partial<GlobalConfig>,
+): Partial<GlobalConfig> =>
+  filterConfigForSave(
+    mergeGlobalConfigForMigration(rawConfig),
+    DEFAULT_GLOBAL_CONFIG,
+  )
 export { MATRIX_TACTICAL_MIGRATION_VERSION }
 export function _setGlobalConfigCacheForTesting(
   config: GlobalConfig | null,
