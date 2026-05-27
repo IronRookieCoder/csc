@@ -1,6 +1,8 @@
 import * as React from 'react';
-import { Box } from '@anthropic/ink';
+import { Box, useTheme } from '@anthropic/ink';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 import type { Theme } from '../../utils/theme.js';
+import { MatrixPermissionFrame } from '../matrix-tactical/MatrixPermissionFrame.js';
 import { PermissionRequestTitle } from './PermissionRequestTitle.js';
 import type { WorkerBadgeProps } from './WorkerBadge.js';
 
@@ -25,6 +27,23 @@ export function PermissionDialog({
   titleRight,
   children,
 }: Props): React.ReactNode {
+  const [theme] = useTheme();
+  if (isMatrixTacticalTheme(theme)) {
+    return (
+      <MatrixPermissionFrame
+        title={title}
+        subtitle={subtitle}
+        color={color}
+        titleColor={titleColor}
+        innerPaddingX={innerPaddingX}
+        workerBadge={workerBadge}
+        titleRight={titleRight}
+      >
+        {children}
+      </MatrixPermissionFrame>
+    );
+  }
+
   return (
     <Box
       flexDirection="column"

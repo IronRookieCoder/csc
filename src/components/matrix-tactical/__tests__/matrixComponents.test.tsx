@@ -2,13 +2,20 @@ import React from 'react';
 import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
+import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
+import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 
 function collectText(node: unknown): string {
   if (node == null || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(collectText).join('');
   if (React.isValidElement(node)) {
-    if (node.type === MatrixWelcome || node.type === MatrixMessageLine) {
+    if (
+      node.type === MatrixWelcome ||
+      node.type === MatrixMessageLine ||
+      node.type === MatrixPermissionFrame ||
+      node.type === PermissionRequestTitle
+    ) {
       const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
       return collectText(Component(node.props as { children?: React.ReactNode }));
     }
@@ -36,5 +43,19 @@ describe('MatrixMessageLine', () => {
     );
     expect(text).toContain('[RUN ]');
     expect(text).toContain('分析指令意图');
+  });
+});
+
+describe('MatrixPermissionFrame', () => {
+  test('renders approval frame with REQ and CUE markers', () => {
+    const text = collectText(
+      <MatrixPermissionFrame title="Bash permission">
+        <span>npm install -D vitest</span>
+      </MatrixPermissionFrame>,
+    );
+    expect(text).toContain('[REQ ]');
+    expect(text).toContain('Bash permission');
+    expect(text).toContain('[CUE ]');
+    expect(text).toContain('npm install -D vitest');
   });
 });
