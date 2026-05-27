@@ -8,6 +8,7 @@
   --orbit-muted: #8b82b8;
   --orbit-line: rgba(215, 200, 255, 0.18);
   --orbit-blue: #65d7ff;
+  --orbit-violet: #9b8cff;
   --checkpoint-yellow: #ffdf5d;
   --dock-green: #6cf2b8;
   --drift-rose: #ff5d8f;
@@ -168,7 +169,7 @@ h3 {
 
 .status-rail {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 16px 0 10px;
   font-family: var(--mono);
@@ -329,7 +330,7 @@ h3 {
 
 .scenario-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
   gap: 14px;
 }
 
@@ -344,7 +345,7 @@ h3 {
 }
 
 .scenario-card .status-rail {
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 4px;
   margin: 10px 0;
 }
@@ -412,6 +413,10 @@ h3 {
 
 .swatch-blue {
   background: var(--orbit-blue);
+}
+
+.swatch-violet {
+  background: var(--orbit-violet);
 }
 
 .swatch-yellow {

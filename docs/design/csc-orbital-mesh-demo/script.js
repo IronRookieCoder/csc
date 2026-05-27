@@ -1,6 +1,7 @@
 const STATES = [
   { key: "startup", label: "BOOT", symbol: "◎", color: "#65D7FF" },
   { key: "idle", label: "IDLE", symbol: "◌", color: "#65D7FF" },
+  { key: "work", label: "WORK", symbol: "◉", color: "#9B8CFF" },
   { key: "permission", label: "CHECKPOINT", symbol: "◍", color: "#FFDF5D" },
   { key: "complete", label: "COMPLETE", symbol: "◆", color: "#6CF2B8" },
   { key: "blocked", label: "BLOCKED", symbol: "◇!", color: "#FF5D8F" },
@@ -35,6 +36,21 @@ const SCENES = {
       ["context", "128k window · 61% free", "stable"],
       ["project", "D:\\code\\csc", "indexed"],
       ["shortcuts", "type / for command orbit", "armed"],
+    ],
+  },
+  work: {
+    name: "Active Execution",
+    summary: "CSC is running tools and streaming progress through the current turn.",
+    meta: "executing · turn 3 · Read + StrReplace · 38% context used",
+    dock: {
+      prompt: "◉ Orbital execution in progress",
+      actions: ["Pause", "View tools", "Esc×2 abort"],
+    },
+    rows: [
+      ["task", "add work scene to orbital mesh demo", "active"],
+      ["tool", "Read docs/design/csc-orbital-mesh-demo/script.js", "running"],
+      ["tool", "StrReplace index.html · styles.css", "queued"],
+      ["stream", "3.2k tokens · turn 3 of ~8", "live"],
     ],
   },
   permission: {

@@ -6,7 +6,7 @@
     <title>CSC Orbital Mesh CLI UI Demo</title>
     <meta
       name="description"
-      content="CSC Orbital Mesh terminal CLI UI demo across startup, idle, permission, complete, and blocked states."
+      content="CSC Orbital Mesh terminal CLI UI demo across startup, idle, work, permission, complete, and blocked states."
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -23,6 +23,7 @@
           <div class="hero-actions" aria-label="Scene switcher">
             <button class="scene-button is-active" type="button" data-scene="startup">Boot</button>
             <button class="scene-button" type="button" data-scene="idle">Idle</button>
+            <button class="scene-button" type="button" data-scene="work">Work</button>
             <button class="scene-button" type="button" data-scene="permission">Checkpoint</button>
             <button class="scene-button" type="button" data-scene="complete">Complete</button>
             <button class="scene-button" type="button" data-scene="blocked">Blocked</button>
@@ -48,7 +49,7 @@
 
       <section class="scenario-section" aria-labelledby="scenario-title">
         <div class="section-heading">
-          <p class="eyebrow">Five Required CLI States</p>
+          <p class="eyebrow">Six Required CLI States</p>
           <h2 id="scenario-title">State language for real terminal work</h2>
           <p>
             Each state answers the user's practical questions: where am I, what
@@ -70,6 +71,7 @@
             <ul>
               <li><span class="swatch swatch-bg"></span><code>#070713</code> orbit background</li>
               <li><span class="swatch swatch-blue"></span><code>#65D7FF</code> idle and navigation</li>
+              <li><span class="swatch swatch-violet"></span><code>#9B8CFF</code> active execution</li>
               <li><span class="swatch swatch-yellow"></span><code>#FFDF5D</code> human checkpoint</li>
               <li><span class="swatch swatch-green"></span><code>#6CF2B8</code> docked complete</li>
               <li><span class="swatch swatch-rose"></span><code>#FF5D8F</code> drift blocked</li>
@@ -81,6 +83,7 @@
             <dl class="symbol-list">
               <div><dt>◎</dt><dd>Boot alignment</dd></div>
               <div><dt>◌</dt><dd>Standby orbit</dd></div>
+              <div><dt>◉</dt><dd>Active execution</dd></div>
               <div><dt>◍</dt><dd>Human checkpoint</dd></div>
               <div><dt>◆</dt><dd>Docked complete</dd></div>
               <div><dt>◇!</dt><dd>Drift blocked</dd></div>
