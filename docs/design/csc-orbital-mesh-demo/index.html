@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CSC Orbital Mesh CLI UI Demo</title>
+    <meta
+      name="description"
+      content="CSC Orbital Mesh terminal CLI UI demo across startup, idle, permission, complete, and blocked states."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">CSC Terminal CLI UI</p>
+          <h1 id="page-title">Orbital Mesh / 轨道网格舱</h1>
+          <p class="hero-lede">
+            A high-contrast command vessel for controlled AI coding work:
+            clear state, fast checkpoints, and recoverable outcomes.
+          </p>
+          <div class="hero-actions" aria-label="Scene switcher">
+            <button class="scene-button is-active" type="button" data-scene="startup">Boot</button>
+            <button class="scene-button" type="button" data-scene="idle">Idle</button>
+            <button class="scene-button" type="button" data-scene="permission">Checkpoint</button>
+            <button class="scene-button" type="button" data-scene="complete">Complete</button>
+            <button class="scene-button" type="button" data-scene="blocked">Blocked</button>
+          </div>
+        </div>
+
+        <section class="terminal-vessel hero-terminal" aria-label="CSC Orbital Mesh terminal preview">
+          <div class="terminal-topline">
+            <div>
+              <span class="terminal-brand">CSC // ORBITAL MESH</span>
+              <span class="terminal-version">v2.1.888</span>
+            </div>
+            <div class="terminal-meta" id="hero-meta">workspace D:\code\csc</div>
+          </div>
+
+          <div class="status-rail" id="hero-rail" aria-label="Workflow status rail"></div>
+          <div class="scanline" aria-hidden="true"></div>
+
+          <div class="terminal-body" id="hero-terminal-body"></div>
+          <div class="terminal-dock" id="hero-terminal-dock"></div>
+        </section>
+      </section>
+
+      <section class="scenario-section" aria-labelledby="scenario-title">
+        <div class="section-heading">
+          <p class="eyebrow">Five Required CLI States</p>
+          <h2 id="scenario-title">State language for real terminal work</h2>
+          <p>
+            Each state answers the user's practical questions: where am I, what
+            is CSC doing, what can I do, and what happens next.
+          </p>
+        </div>
+        <div class="scenario-grid" id="scenario-grid"></div>
+      </section>
+
+      <section class="system-section" aria-labelledby="system-title">
+        <div class="section-heading">
+          <p class="eyebrow">Design System Summary</p>
+          <h2 id="system-title">Memorable, useful, and cheap to ship</h2>
+        </div>
+
+        <div class="system-grid">
+          <article class="system-card">
+            <h3>Color Tokens</h3>
+            <ul>
+              <li><span class="swatch swatch-bg"></span><code>#070713</code> orbit background</li>
+              <li><span class="swatch swatch-blue"></span><code>#65D7FF</code> idle and navigation</li>
+              <li><span class="swatch swatch-yellow"></span><code>#FFDF5D</code> human checkpoint</li>
+              <li><span class="swatch swatch-green"></span><code>#6CF2B8</code> docked complete</li>
+              <li><span class="swatch swatch-rose"></span><code>#FF5D8F</code> drift blocked</li>
+            </ul>
+          </article>
+
+          <article class="system-card">
+            <h3>Beacon Symbols</h3>
+            <dl class="symbol-list">
+              <div><dt>◎</dt><dd>Boot alignment</dd></div>
+              <div><dt>◌</dt><dd>Standby orbit</dd></div>
+              <div><dt>◍</dt><dd>Human checkpoint</dd></div>
+              <div><dt>◆</dt><dd>Docked complete</dd></div>
+              <div><dt>◇!</dt><dd>Drift blocked</dd></div>
+            </dl>
+          </article>
+
+          <article class="system-card">
+            <h3>Implementation Boundary</h3>
+            <p>
+              Static HTML, CSS, and minimal JavaScript only. No build step, no
+              WebGL, no canvas, no runtime integration, and no changes to the
+              existing CLI.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
