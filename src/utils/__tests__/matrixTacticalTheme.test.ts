@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  DEFAULT_GLOBAL_CONFIG,
   MATRIX_TACTICAL_MIGRATION_VERSION,
+  filterConfigForSaveForTesting,
   mergeGlobalConfigForMigrationForTesting,
   migrateMatrixTacticalThemeConfigForTesting,
 } from '../config.js';
@@ -101,5 +103,30 @@ describe('matrix tactical config migration', () => {
 
     expect(migrated.theme).toBe('light');
     expect(migrated.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
+  });
+
+  test('preserves migration guard when saving dark theme config', () => {
+    const filtered = filterConfigForSaveForTesting(
+      {
+        ...DEFAULT_GLOBAL_CONFIG,
+        theme: 'dark',
+        matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+      },
+      DEFAULT_GLOBAL_CONFIG,
+    );
+
+    expect(filtered.theme).toBe('dark');
+    expect(filtered.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
+  });
+
+  test('preserves migration guard without writing all default fields', () => {
+    const filtered = filterConfigForSaveForTesting(
+      DEFAULT_GLOBAL_CONFIG,
+      DEFAULT_GLOBAL_CONFIG,
+    );
+
+    expect(filtered).toEqual({
+      matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+    });
   });
 });

@@ -1186,6 +1186,22 @@ export function getCustomApiKeyStatus(
   return 'new'
 }
 
+function filterConfigForSave<A extends object>(
+  config: A,
+  defaultConfig: A,
+): Partial<A> {
+  return pickBy(config, (value, key) => {
+    if (
+      key === 'matrixTacticalThemeMigrationVersion' &&
+      value !== undefined
+    ) {
+      return true
+    }
+
+    return jsonStringify(value) !== jsonStringify(defaultConfig[key as keyof A])
+  }) as Partial<A>
+}
+
 function saveConfig<A extends object>(
   file: string,
   config: A,
@@ -1198,11 +1214,7 @@ function saveConfig<A extends object>(
   fs.mkdirSync(dir)
 
   // Filter out any values that match the defaults
-  const filteredConfig = pickBy(
-    config,
-    (value, key) =>
-      jsonStringify(value) !== jsonStringify(defaultConfig[key as keyof A]),
-  )
+  const filteredConfig = filterConfigForSave(config, defaultConfig)
   // Write config file with secure permissions - mode only applies to new files
   writeFileSyncAndFlush_DEPRECATED(
     file,
@@ -1305,11 +1317,7 @@ function saveConfigWithLock<A extends object>(
     }
 
     // Filter out any values that match the defaults
-    const filteredConfig = pickBy(
-      mergedConfig,
-      (value, key) =>
-        jsonStringify(value) !== jsonStringify(defaultConfig[key as keyof A]),
-    )
+    const filteredConfig = filterConfigForSave(mergedConfig, defaultConfig)
 
     // Create timestamped backup of existing config before writing
     // We keep multiple backups to prevent data loss if a reset/corrupted config
@@ -1886,6 +1894,7 @@ export function getUserClaudeRulesDir(): string {
 // Exported for testing only
 export const _getConfigForTesting = getConfig
 export const _wouldLoseAuthStateForTesting = wouldLoseAuthState
+export const filterConfigForSaveForTesting = filterConfigForSave
 export const mergeGlobalConfigForMigrationForTesting =
   mergeGlobalConfigForMigration
 export const migrateMatrixTacticalThemeConfigForTesting =
