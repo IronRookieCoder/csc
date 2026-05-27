@@ -89,6 +89,7 @@ export type Theme = {
 }
 
 export const THEME_NAMES = [
+  'matrix-tactical',
   'dark',
   'light',
   'light-daltonized',
@@ -514,6 +515,52 @@ const darkTheme: Theme = {
   rainbow_violet_shimmer: 'rgb(230,180,210)',
 }
 
+const matrixTacticalTheme: Theme = {
+  ...darkTheme,
+  autoAccept: 'rgb(245,158,11)',
+  bashBorder: 'rgb(245,158,11)',
+  claude: 'rgb(52,211,153)',
+  claudeShimmer: 'rgb(110,231,183)',
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(52,211,153)',
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(110,231,183)',
+  permission: 'rgb(252,211,77)',
+  permissionShimmer: 'rgb(253,230,138)',
+  planMode: 'rgb(45,212,191)',
+  ide: 'rgb(45,212,191)',
+  promptBorder: 'rgb(52,211,153)',
+  promptBorderShimmer: 'rgb(110,231,183)',
+  text: 'rgb(255,255,255)',
+  inverseText: 'rgb(9,13,16)',
+  inactive: 'rgb(161,161,170)',
+  inactiveShimmer: 'rgb(212,212,216)',
+  subtle: 'rgb(113,113,122)',
+  suggestion: 'rgb(52,211,153)',
+  remember: 'rgb(45,212,191)',
+  background: 'rgb(9,13,16)',
+  success: 'rgb(52,211,153)',
+  error: 'rgb(251,113,133)',
+  warning: 'rgb(245,158,11)',
+  warningShimmer: 'rgb(252,211,77)',
+  diffAdded: 'rgb(20,83,45)',
+  diffRemoved: 'rgb(127,29,29)',
+  diffAddedDimmed: 'rgb(21,45,34)',
+  diffRemovedDimmed: 'rgb(57,29,35)',
+  diffAddedWord: 'rgb(52,211,153)',
+  diffRemovedWord: 'rgb(251,113,133)',
+  userMessageBackground: 'rgb(9,13,16)',
+  userMessageBackgroundHover: 'rgb(11,15,23)',
+  messageActionsBackground: 'rgb(15,23,42)',
+  selectionBg: 'rgb(6,78,59)',
+  bashMessageBackgroundColor: 'rgb(2,6,23)',
+  memoryBackgroundColor: 'rgb(15,23,42)',
+  rate_limit_fill: 'rgb(52,211,153)',
+  rate_limit_empty: 'rgb(30,41,59)',
+  fastMode: 'rgb(245,158,11)',
+  fastModeShimmer: 'rgb(252,211,77)',
+  briefLabelYou: 'rgb(52,211,153)',
+  briefLabelClaude: 'rgb(110,231,183)',
+}
+
 /**
  * Dark daltonized theme (color-blind friendly) using explicit RGB values
  * to avoid inconsistencies from users' custom terminal ANSI color definitions
@@ -597,6 +644,8 @@ const darkDaltonizedTheme: Theme = {
 
 export function getTheme(themeName: ThemeName): Theme {
   switch (themeName) {
+    case 'matrix-tactical':
+      return matrixTacticalTheme
     case 'light':
       return lightTheme
     case 'light-ansi':

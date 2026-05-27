@@ -71,6 +71,7 @@ export function ThemePicker({
 
   const themeOptions: { label: string; value: ThemeSetting }[] = [
     ...(feature('AUTO_THEME') ? [{ label: 'Auto (match terminal)', value: 'auto' as const }] : []),
+    { label: 'Matrix Tactical (default)', value: 'matrix-tactical' },
     { label: 'Dark mode', value: 'dark' },
     { label: 'Light mode', value: 'light' },
     {

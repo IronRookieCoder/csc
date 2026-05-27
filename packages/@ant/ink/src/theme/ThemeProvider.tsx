@@ -8,7 +8,7 @@ import type { ThemeName, ThemeSetting } from './theme-types.js';
 // Business layer provides these via setThemeConfigCallbacks().
 // Defaults read/write from a simple module-level store.
 
-let _loadTheme: () => ThemeSetting = () => 'dark';
+let _loadTheme: () => ThemeSetting = () => 'matrix-tactical';
 let _saveTheme: (setting: ThemeSetting) => void = () => {};
 
 /** Inject config persistence from the business layer. Call once at startup. */
@@ -32,7 +32,7 @@ type ThemeContextValue = {
 };
 
 // Non-'auto' default so useTheme() works without a provider (tests, tooling).
-const DEFAULT_THEME: ThemeName = 'dark';
+const DEFAULT_THEME: ThemeName = 'matrix-tactical';
 
 const ThemeContext = createContext<ThemeContextValue>({
   themeSetting: DEFAULT_THEME,
