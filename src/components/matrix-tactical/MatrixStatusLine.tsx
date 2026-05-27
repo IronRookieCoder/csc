@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from '@anthropic/ink';
 import { formatCost } from '../../cost-tracker.js';
 import { formatTokens } from '../../utils/format.js';
+import { formatCountdown } from '../BuiltinStatusLine.js';
 
 type RateLimitBucket = {
   utilization: number;
@@ -32,6 +33,10 @@ export function MatrixStatusLine({
 }: Props): React.ReactNode {
   const sessionPct = rateLimits.five_hour ? Math.round(rateLimits.five_hour.utilization * 100) : null;
   const weeklyPct = rateLimits.seven_day ? Math.round(rateLimits.seven_day.utilization * 100) : null;
+  const sessionReset =
+    rateLimits.five_hour && rateLimits.five_hour.resets_at > 0 ? formatCountdown(rateLimits.five_hour.resets_at) : null;
+  const weeklyReset =
+    rateLimits.seven_day && rateLimits.seven_day.resets_at > 0 ? formatCountdown(rateLimits.seven_day.resets_at) : null;
   const tokenDisplay = `${formatTokens(usedTokens)}/${formatTokens(contextWindowSize)}`;
 
   return (
@@ -45,12 +50,14 @@ export function MatrixStatusLine({
         <>
           <Text color="inactive">| Session </Text>
           <Text>{sessionPct}%</Text>
+          {sessionReset && <Text color="inactive"> {sessionReset}</Text>}
         </>
       )}
       {weeklyPct !== null && (
         <>
           <Text color="inactive">| Weekly </Text>
           <Text>{weeklyPct}%</Text>
+          {weeklyReset && <Text color="inactive"> {weeklyReset}</Text>}
         </>
       )}
       {totalCostUsd > 0 && (

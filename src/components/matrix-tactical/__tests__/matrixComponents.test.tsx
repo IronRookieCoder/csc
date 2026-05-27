@@ -8,6 +8,7 @@ import { MatrixPromptCursor, MatrixFooterHint } from '../MatrixPrompt.js';
 import { MatrixStatusLine } from '../MatrixStatusLine.js';
 import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
+import { formatCountdown } from '../../BuiltinStatusLine.js';
 
 function collectText(node: unknown): string {
   if (node == null || typeof node === 'boolean') return '';
@@ -59,6 +60,28 @@ function hasTextWrappedBox(node: unknown, insideText = false): boolean {
   return false;
 }
 
+function findPermissionTitleColor(node: unknown): unknown {
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const color = findPermissionTitleColor(child);
+      if (color !== undefined) return color;
+    }
+    return undefined;
+  }
+  if (React.isValidElement(node)) {
+    if (node.type === MatrixPermissionFrame) {
+      const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
+      return findPermissionTitleColor(Component(node.props as { children?: React.ReactNode }));
+    }
+    if (node.type === PermissionRequestTitle) {
+      return (node.props as { color?: unknown }).color;
+    }
+    return findPermissionTitleColor((node.props as { children?: React.ReactNode }).children);
+  }
+  return undefined;
+}
+
 describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
@@ -92,6 +115,16 @@ describe('MatrixPermissionFrame', () => {
     expect(text).toContain('Bash permission');
     expect(text).toContain('[CUE ]');
     expect(text).toContain('npm install -D vitest');
+  });
+
+  test('uses frame color as title fallback', () => {
+    const color = findPermissionTitleColor(
+      <MatrixPermissionFrame title="Bash permission" color="error">
+        <span>npm install -D vitest</span>
+      </MatrixPermissionFrame>,
+    );
+
+    expect(color).toBe('error');
   });
 });
 
@@ -172,6 +205,8 @@ describe('MatrixToolUseLine', () => {
 
 describe('MatrixStatusLine', () => {
   test('renders CSC status fields with Matrix prefix', () => {
+    const sessionReset = Math.floor(Date.now() / 1000) + 3600;
+    const weeklyReset = Math.floor(Date.now() / 1000) + 7 * 3600;
     const text = collectText(
       <MatrixStatusLine
         modelName="Sonnet 4.6"
@@ -181,8 +216,8 @@ describe('MatrixStatusLine', () => {
         totalCostUsd={0.02}
         cacheText="Cache 82% 42:10"
         rateLimits={{
-          five_hour: { utilization: 0.03, resets_at: 0 },
-          seven_day: { utilization: 0.07, resets_at: 0 },
+          five_hour: { utilization: 0.03, resets_at: sessionReset },
+          seven_day: { utilization: 0.07, resets_at: weeklyReset },
         }}
       />,
     );
@@ -190,7 +225,9 @@ describe('MatrixStatusLine', () => {
     expect(text).toContain('Sonnet 4.6');
     expect(text).toContain('Context 18%');
     expect(text).toContain('Session 3%');
+    expect(text).toContain(formatCountdown(sessionReset));
     expect(text).toContain('Weekly 7%');
+    expect(text).toContain(formatCountdown(weeklyReset));
     expect(text).toContain('$0.02');
     expect(text).toContain('Cache 82% 42:10');
   });

@@ -19,6 +19,7 @@ type Props = {
 export function MatrixPermissionFrame({
   title,
   subtitle,
+  color,
   titleColor,
   innerPaddingX = 1,
   workerBadge,
@@ -30,7 +31,7 @@ export function MatrixPermissionFrame({
       <Text color="warning">==================== [ 警 告 : 权 限 提 审 ] ====================</Text>
       <Box paddingX={1} flexDirection="column">
         <Box justifyContent="space-between">
-          <PermissionRequestTitle title={title} subtitle={subtitle} color={titleColor ?? 'warning'} workerBadge={workerBadge} />
+          <PermissionRequestTitle title={title} subtitle={subtitle} color={titleColor ?? color ?? 'warning'} workerBadge={workerBadge} />
           {titleRight}
         </Box>
       </Box>
