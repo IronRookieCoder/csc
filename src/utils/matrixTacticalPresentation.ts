@@ -70,8 +70,9 @@ export function formatMatrixProgress(percent: number, width = 30): string {
 }
 
 export function formatMatrixBox(title: string, lines: string[], width = 58): string[] {
-  const normalizedTitle = `[ ${title} ]`;
   const safeWidth = Number.isFinite(width) ? Math.max(14, Math.round(width)) : 58;
+  const maxTitleWidth = Math.max(1, safeWidth - stringWidth('┌─── [  ] ┐') - 1);
+  const normalizedTitle = `[ ${truncateToWidthNoEllipsis(title, maxTitleWidth)} ]`;
   const topFill = Math.max(1, safeWidth - stringWidth(normalizedTitle) - 4);
   const innerWidth = Math.max(10, safeWidth - 2);
   return [

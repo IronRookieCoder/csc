@@ -76,6 +76,14 @@ describe('matrixTacticalPresentation', () => {
     expect(stringWidth(box[0]!)).toBeLessThanOrEqual(stringWidth(box[2]!));
   });
 
+  test('formatMatrixBox truncates long wide titles to keep borders aligned', () => {
+    const box = formatMatrixBox('全角标题'.repeat(20), ['OK']);
+    const widths = box.map(line => stringWidth(line));
+
+    expect(box[0]!.endsWith('┐')).toBe(true);
+    expect(new Set(widths).size).toBe(1);
+  });
+
   test('banner matches source Matrix Tactical COSTRICT logo shape', () => {
     expect(MATRIX_TACTICAL_BANNER_LINES).toHaveLength(6);
     expect(MATRIX_TACTICAL_BANNER_LINES[0]).toContain('██████╗');
