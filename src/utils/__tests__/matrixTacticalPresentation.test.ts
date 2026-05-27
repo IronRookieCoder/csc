@@ -47,27 +47,26 @@ describe('matrixTacticalPresentation', () => {
   test('formatMatrixBox wraps lines with a title', () => {
     expect(formatMatrixBox('阻 塞 诊 断', ['触发原因: 类型错误'])).toEqual([
       '┌─── [ 阻 塞 诊 断 ] ───────────────────────────────────────┐',
-      ' │ 触发原因: 类型错误                                      │',
+      ' │ 触发原因: 类型错误                                       │',
       ' └──────────────────────────────────────────────────────────┘',
     ]);
   });
 
   test('formatMatrixBox truncates long content to keep the right border aligned', () => {
     const box = formatMatrixBox('TRACE', ['0123456789'.repeat(10)]);
-    const contentLine = box[1]!;
+    const widths = box.map(line => stringWidth(line));
 
-    expect(contentLine.endsWith('│')).toBe(true);
-    expect(stringWidth(contentLine)).toBeLessThanOrEqual(stringWidth(box[2]!));
+    expect(box[1]!.endsWith('│')).toBe(true);
+    expect(new Set(widths).size).toBe(1);
   });
 
   test('formatMatrixBox pads wide content to a stable display width', () => {
     const box = formatMatrixBox('WIDE', ['全角状态：等待权限', 'ASCII']);
-    const contentLine = box[1]!;
-    const asciiLine = box[2]!;
+    const widths = box.map(line => stringWidth(line));
 
-    expect(contentLine.endsWith('│')).toBe(true);
-    expect(asciiLine.endsWith('│')).toBe(true);
-    expect(stringWidth(contentLine)).toBe(stringWidth(asciiLine));
+    expect(box[1]!.endsWith('│')).toBe(true);
+    expect(box[2]!.endsWith('│')).toBe(true);
+    expect(new Set(widths).size).toBe(1);
   });
 
   test('formatMatrixBox keeps wide title borders within the box width', () => {
