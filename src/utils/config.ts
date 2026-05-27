@@ -1244,7 +1244,7 @@ function saveConfigWithLock<A extends object>(
   file: string,
   createDefault: () => A,
   mergeFn: (current: A) => A,
-  readCurrent: (file: string, createDefault: () => A) => A = getConfig,
+  readCurrent?: (file: string) => A,
 ): boolean {
   const defaultConfig = createDefault()
   const dir = dirname(file)
@@ -1304,7 +1304,9 @@ function saveConfigWithLock<A extends object>(
     // Re-read the current config to get latest state. If the file is
     // momentarily corrupted (concurrent writes, kill-during-write), this
     // returns defaults -- we must not write those back over good config.
-    const currentConfig = readCurrent(file, createDefault)
+    const currentConfig = readCurrent
+      ? readCurrent(file)
+      : getConfig(file, createDefault)
     if (file === getGlobalClaudeFile() && wouldLoseAuthState(currentConfig)) {
       logForDebugging(
         'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.claude.json. See GH #3117.',
