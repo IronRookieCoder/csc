@@ -10,7 +10,9 @@ import { findToolByName, type Tool, type ToolProgressData, type Tools } from '..
 import type { ProgressMessage } from '../../types/message.js';
 import { useIsClassifierChecking } from '../../utils/classifierApprovalsHook.js';
 import { logError } from '../../utils/log.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 import type { buildMessageLookups } from '../../utils/messages.js';
+import { MatrixToolUseLine } from '../matrix-tactical/MatrixToolUseLine.js';
 import { MessageResponse } from '../MessageResponse.js';
 import { useSelectedMessageBg } from '../messageActions.js';
 import { SentryErrorBoundary } from '../SentryErrorBoundary.js';
@@ -122,6 +124,53 @@ export function AssistantToolUseMessage({
     : null;
   if (renderedToolUseMessage === null) {
     return null;
+  }
+
+  if (isMatrixTacticalTheme(theme)) {
+    const state = lookups.erroredToolUseIDs.has(param.id)
+      ? 'error'
+      : isResolved
+        ? 'success'
+        : 'working';
+    return (
+      <Box marginTop={addMargin ? 1 : 0} width="100%" backgroundColor={bg}>
+        <MatrixToolUseLine
+          name={userFacingToolName}
+          detail={renderedToolUseMessage}
+          state={state}
+          progressPercent={!isResolved && !isQueued ? 70 : undefined}
+        />
+        {!isResolved &&
+          !isQueued &&
+          !defaultCollapsed &&
+          (isClassifierChecking ? (
+            <MessageResponse height={1}>
+              <Text dimColor>
+                {isAutoClassifier ? 'Auto classifier checking\u2026' : 'Bash classifier checking\u2026'}
+              </Text>
+            </MessageResponse>
+          ) : isWaitingForPermission ? (
+            <MessageResponse height={1}>
+              <Text dimColor>Waiting for permission…</Text>
+            </MessageResponse>
+          ) : (
+            renderToolUseProgressMessage(
+              tool,
+              tools,
+              lookups,
+              param.id,
+              progressMessagesForMessage,
+              {
+                verbose,
+                inProgressToolCallCount,
+                isTranscriptMode,
+              },
+              terminalSize,
+            )
+          ))}
+        {!isResolved && isQueued && renderToolUseQueuedMessage(tool)}
+      </Box>
+    );
   }
 
   return (

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
 import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
+import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 
 function collectText(node: unknown): string {
@@ -14,6 +15,7 @@ function collectText(node: unknown): string {
       node.type === MatrixWelcome ||
       node.type === MatrixMessageLine ||
       node.type === MatrixPermissionFrame ||
+      node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
     ) {
       const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
@@ -57,5 +59,28 @@ describe('MatrixPermissionFrame', () => {
     expect(text).toContain('Bash permission');
     expect(text).toContain('[CUE ]');
     expect(text).toContain('npm install -D vitest');
+  });
+});
+
+describe('MatrixToolUseLine', () => {
+  test('renders working tool line with ASCII progress', () => {
+    const text = collectText(
+      <MatrixToolUseLine
+        name="Bash"
+        detail="bunx tsc --noEmit"
+        state="working"
+        progressPercent={70}
+      />,
+    );
+    expect(text).toContain('[RUN ]');
+    expect(text).toContain('Bash');
+    expect(text).toContain('bunx tsc --noEmit');
+    expect(text).toContain('[====================>.........] 70%');
+  });
+
+  test('renders errored tool line', () => {
+    const text = collectText(<MatrixToolUseLine name="Bash" detail="exit 1" state="error" />);
+    expect(text).toContain('[ERR ]');
+    expect(text).toContain('exit 1');
   });
 });
