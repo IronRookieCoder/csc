@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
@@ -82,5 +83,26 @@ describe('MatrixToolUseLine', () => {
     const text = collectText(<MatrixToolUseLine name="Bash" detail="exit 1" state="error" />);
     expect(text).toContain('[ERR ]');
     expect(text).toContain('exit 1');
+  });
+
+  test('renders queued tool line with queued tone', () => {
+    const text = collectText(<MatrixToolUseLine name="Bash" detail="waiting" state="queued" />);
+    expect(text).toContain('[RUN ]');
+    expect(text).toContain('Bash');
+    expect(text).toContain('waiting');
+  });
+
+  test('preserves tool use tag after detail', () => {
+    const text = collectText(
+      <MatrixToolUseLine
+        name="Task"
+        detail="analyze"
+        state="working"
+        tag={<Text color="warning"> timeout: 30s</Text>}
+      />,
+    );
+    expect(text).toContain('Task');
+    expect(text).toContain('analyze');
+    expect(text).toContain('timeout: 30s');
   });
 });

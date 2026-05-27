@@ -8,6 +8,7 @@ type MatrixToolState = 'queued' | 'working' | 'success' | 'error';
 type Props = {
   name: string;
   detail?: React.ReactNode;
+  tag?: React.ReactNode;
   state: MatrixToolState;
   progressPercent?: number;
 };
@@ -38,12 +39,13 @@ function toneForState(state: MatrixToolState): 'meta' | 'warning' | 'success' | 
   }
 }
 
-export function MatrixToolUseLine({ name, detail, state, progressPercent }: Props): React.ReactNode {
+export function MatrixToolUseLine({ name, detail, tag, state, progressPercent }: Props): React.ReactNode {
   return (
     <Box flexDirection="column">
       <MatrixMessageLine label={labelForState(state)} tone={toneForState(state)}>
         {name}
         {detail ? <Text color="text"> ({detail})</Text> : null}
+        {tag}
       </MatrixMessageLine>
       {progressPercent !== undefined && (
         <Box paddingLeft={3}>

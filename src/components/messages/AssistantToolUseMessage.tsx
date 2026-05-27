@@ -131,13 +131,17 @@ export function AssistantToolUseMessage({
       ? 'error'
       : isResolved
         ? 'success'
-        : 'working';
+        : isQueued
+          ? 'queued'
+          : 'working';
     return (
-      <Box marginTop={addMargin ? 1 : 0} width="100%" backgroundColor={bg}>
+      <Box flexDirection="column" marginTop={addMargin ? 1 : 0} width="100%" backgroundColor={bg}>
         <MatrixToolUseLine
           name={userFacingToolName}
           detail={renderedToolUseMessage}
+          tag={input.success ? tool.renderToolUseTag?.(input.data) : undefined}
           state={state}
+          // Indeterminate visual placeholder, not real business progress.
           progressPercent={!isResolved && !isQueued ? 70 : undefined}
         />
         {!isResolved &&
