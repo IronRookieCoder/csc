@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
 import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
+import { MatrixStatusLine } from '../MatrixStatusLine.js';
 import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 
@@ -16,6 +17,7 @@ function collectText(node: unknown): string {
       node.type === MatrixWelcome ||
       node.type === MatrixMessageLine ||
       node.type === MatrixPermissionFrame ||
+      node.type === MatrixStatusLine ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
     ) {
@@ -36,6 +38,7 @@ function hasTextWrappedBox(node: unknown, insideText = false): boolean {
       node.type === MatrixWelcome ||
       node.type === MatrixMessageLine ||
       node.type === MatrixPermissionFrame ||
+      node.type === MatrixStatusLine ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
     ) {
@@ -134,5 +137,31 @@ describe('MatrixToolUseLine', () => {
     expect(text).toContain('analyze');
     expect(text).toContain('timeout: 30s');
     expect(hasTextWrappedBox(line)).toBe(false);
+  });
+});
+
+describe('MatrixStatusLine', () => {
+  test('renders CSC status fields with Matrix prefix', () => {
+    const text = collectText(
+      <MatrixStatusLine
+        modelName="Sonnet 4.6"
+        contextUsedPct={18}
+        usedTokens={36000}
+        contextWindowSize={200000}
+        totalCostUsd={0.02}
+        cacheText="Cache 82% 42:10"
+        rateLimits={{
+          five_hour: { utilization: 0.03, resets_at: 0 },
+          seven_day: { utilization: 0.07, resets_at: 0 },
+        }}
+      />,
+    );
+    expect(text).toContain('[STAT]');
+    expect(text).toContain('Sonnet 4.6');
+    expect(text).toContain('Context 18%');
+    expect(text).toContain('Session 3%');
+    expect(text).toContain('Weekly 7%');
+    expect(text).toContain('$0.02');
+    expect(text).toContain('Cache 82% 42:10');
   });
 });

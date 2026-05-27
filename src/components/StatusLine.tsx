@@ -25,7 +25,8 @@ import {
 } from '../cost-tracker.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
 import { type ReadonlySettings, useSettings } from '../hooks/useSettings.js';
-import { Ansi, Box, Text } from '@anthropic/ink';
+import { Ansi, Box, Text, useTheme } from '@anthropic/ink';
+import { isMatrixTacticalTheme } from '../utils/matrixTacticalPresentation.js';
 import { getRawUtilization } from '../services/claudeAiLimits.js';
 import type { Message } from '../types/message.js';
 import type { StatusLineCommandInput } from '../types/statusLine.js';
@@ -45,6 +46,7 @@ import { isVimModeEnabled } from './PromptInput/utils.js';
 import { computeHitRate, tokenSignature } from '../utils/cacheStats.js';
 import { onResponse as cacheOnResponse, getCacheStatsState, initCacheStatsState } from '../utils/cacheStatsState.js';
 import { BuiltinStatusLine } from './BuiltinStatusLine.js';
+import { MatrixStatusLine } from './matrix-tactical/MatrixStatusLine.js';
 
 // ---------------------------------------------------------------------------
 // CachePill — cache hit-rate + 1-hour TTL countdown pill
@@ -288,6 +290,7 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
   const setAppState = useSetAppState();
   const settings = useSettings();
   const { addNotification } = useNotifications();
+  const [theme] = useTheme();
   // AppState-sourced model — same source as API requests. getMainLoopModel()
   // re-reads settings.json on every call, so another session's /model write
   // would leak into this session's statusline (anthropics/claude-code#37596).
@@ -511,14 +514,26 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
       {/* Top: built-in fork status (model | ctx | 5h | 7d | cost) + Cache pill */}
       {showBuiltin && (
         <Box gap={2}>
-          <BuiltinStatusLine
-            modelName={renderModelName(builtinRuntimeModel)}
-            contextUsedPct={builtinContextPct}
-            usedTokens={builtinUsedTokens}
-            contextWindowSize={builtinContextWindowSize}
-            totalCostUsd={getTotalCost()}
-            rateLimits={builtinRateLimits}
-          />
+          {isMatrixTacticalTheme(theme) ? (
+            <MatrixStatusLine
+              modelName={renderModelName(builtinRuntimeModel)}
+              contextUsedPct={builtinContextPct}
+              usedTokens={builtinUsedTokens}
+              contextWindowSize={builtinContextWindowSize}
+              totalCostUsd={getTotalCost()}
+              rateLimits={builtinRateLimits}
+              cacheText={undefined}
+            />
+          ) : (
+            <BuiltinStatusLine
+              modelName={renderModelName(builtinRuntimeModel)}
+              contextUsedPct={builtinContextPct}
+              usedTokens={builtinUsedTokens}
+              contextWindowSize={builtinContextWindowSize}
+              totalCostUsd={getTotalCost()}
+              rateLimits={builtinRateLimits}
+            />
+          )}
           <CachePill messages={messagesRef.current} />
         </Box>
       )}
