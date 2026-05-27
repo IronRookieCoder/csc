@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
 import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
+import { MatrixPromptCursor, MatrixFooterHint } from '../MatrixPrompt.js';
 import { MatrixStatusLine } from '../MatrixStatusLine.js';
 import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
@@ -17,6 +18,8 @@ function collectText(node: unknown): string {
       node.type === MatrixWelcome ||
       node.type === MatrixMessageLine ||
       node.type === MatrixPermissionFrame ||
+      node.type === MatrixPromptCursor ||
+      node.type === MatrixFooterHint ||
       node.type === MatrixStatusLine ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
@@ -38,6 +41,8 @@ function hasTextWrappedBox(node: unknown, insideText = false): boolean {
       node.type === MatrixWelcome ||
       node.type === MatrixMessageLine ||
       node.type === MatrixPermissionFrame ||
+      node.type === MatrixPromptCursor ||
+      node.type === MatrixFooterHint ||
       node.type === MatrixStatusLine ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
@@ -87,6 +92,19 @@ describe('MatrixPermissionFrame', () => {
     expect(text).toContain('Bash permission');
     expect(text).toContain('[CUE ]');
     expect(text).toContain('npm install -D vitest');
+  });
+});
+
+describe('MatrixPrompt', () => {
+  test('renders prompt cursor', () => {
+    const text = collectText(<MatrixPromptCursor />);
+    expect(text).toContain('[costrict] >>');
+  });
+
+  test('renders footer hint with CUE prefix', () => {
+    const text = collectText(<MatrixFooterHint>shift+tab cycle mode</MatrixFooterHint>);
+    expect(text).toContain('[CUE ]');
+    expect(text).toContain('shift+tab cycle mode');
   });
 });
 

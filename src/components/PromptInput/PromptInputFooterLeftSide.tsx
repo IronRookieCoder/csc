@@ -6,7 +6,7 @@ const coordinatorModule = feature('COORDINATOR_MODE')
   ? (require('../../coordinator/coordinatorMode.js') as typeof import('../../coordinator/coordinatorMode.js'))
   : undefined;
 /* eslint-enable @typescript-eslint/no-require-imports */
-import { Box, Text, Link } from '@anthropic/ink';
+import { Box, Text, Link, useTheme } from '@anthropic/ink';
 import * as React from 'react';
 import figures from 'figures';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -45,6 +45,8 @@ import { isXtermJs, useHasSelection, useSelection } from '@anthropic/ink';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { getPlatform } from '../../utils/platform.js';
 import { PrBadge } from '../PrBadge.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
+import { MatrixFooterHint } from '../matrix-tactical/MatrixPrompt.js';
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -212,6 +214,8 @@ function ModeIndicator({
   onOpenTasksDialog,
 }: ModeIndicatorProps): React.ReactNode {
   const { columns } = useTerminalSize();
+  const [theme] = useTheme();
+  const isMatrix = isMatrixTacticalTheme(theme);
   const modeCycleShortcut = useShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab');
   const tasks = useAppState(s => s.tasks);
   const teamContext = useAppState(s => s.teamContext);
@@ -457,9 +461,13 @@ function ModeIndicator({
 
   if (parts.length === 0 && !tasksPart && !modePart && showHint) {
     parts.push(
-      <Text dimColor key="shortcuts-hint">
-        ? for shortcuts
-      </Text>,
+      isMatrix ? (
+        <MatrixFooterHint key="shortcuts-hint">? for shortcuts</MatrixFooterHint>
+      ) : (
+        <Text dimColor key="shortcuts-hint">
+          ? for shortcuts
+        </Text>
+      ),
     );
   }
 
