@@ -31,6 +31,10 @@ import { normalizePathForConfigKey } from './path.js'
 import { getEssentialTrafficOnlyReason } from './privacyLevel.js'
 import { getManagedFilePath } from './settings/managedPath.js'
 import type { ThemeSetting } from './theme.js'
+import {
+  MATRIX_TACTICAL_MIGRATION_VERSION,
+  MATRIX_TACTICAL_THEME_NAME,
+} from './matrixTacticalPresentation.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const teamMemPaths = feature('TEAMMEM')
@@ -195,6 +199,7 @@ export type GlobalConfig = {
   doctorShownAtSession?: number
   userID?: string
   theme: ThemeSetting
+  matrixTacticalThemeMigrationVersion?: number
   hasCompletedOnboarding?: boolean
   // Tracks the last version that reset onboarding, used with MIN_VERSION_REQUIRING_ONBOARDING_RESET
   lastOnboardingVersion?: string
@@ -602,7 +607,8 @@ function createDefaultGlobalConfig(): GlobalConfig {
     numStartups: 0,
     installMethod: undefined,
     autoUpdates: undefined,
-    theme: 'dark',
+    theme: MATRIX_TACTICAL_THEME_NAME,
+    matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
     preferredNotifChannel: 'auto',
     verbose: false,
     editorMode: 'normal',
@@ -645,6 +651,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'autoUpdates',
   'autoUpdatesProtectedForNative',
   'theme',
+  'matrixTacticalThemeMigrationVersion',
   'verbose',
   'preferredNotifChannel',
   'shiftEnterKeyBindingInstalled',
@@ -925,7 +932,33 @@ registerCleanup(async () => {
  * Migrates old autoUpdaterStatus to new installMethod and autoUpdates fields
  * @internal
  */
+function migrateMatrixTacticalThemeConfig(config: GlobalConfig): GlobalConfig {
+  if (
+    config.matrixTacticalThemeMigrationVersion ===
+    MATRIX_TACTICAL_MIGRATION_VERSION
+  ) {
+    return config
+  }
+
+  const themeWasMissing = !('theme' in config) || config.theme === undefined
+  const themeWasOldDefault = config.theme === 'dark'
+  if (!themeWasMissing && !themeWasOldDefault) {
+    return {
+      ...config,
+      matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+    }
+  }
+
+  return {
+    ...config,
+    theme: MATRIX_TACTICAL_THEME_NAME,
+    matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+  }
+}
+
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  config = migrateMatrixTacticalThemeConfig(config)
+
   // Already migrated
   if (config.installMethod !== undefined) {
     return config
@@ -1829,6 +1862,9 @@ export function getUserClaudeRulesDir(): string {
 // Exported for testing only
 export const _getConfigForTesting = getConfig
 export const _wouldLoseAuthStateForTesting = wouldLoseAuthState
+export const migrateMatrixTacticalThemeConfigForTesting =
+  migrateMatrixTacticalThemeConfig
+export { MATRIX_TACTICAL_MIGRATION_VERSION }
 export function _setGlobalConfigCacheForTesting(
   config: GlobalConfig | null,
 ): void {

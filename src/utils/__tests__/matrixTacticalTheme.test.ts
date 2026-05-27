@@ -1,4 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import {
+  MATRIX_TACTICAL_MIGRATION_VERSION,
+  migrateMatrixTacticalThemeConfigForTesting,
+} from '../config.js';
 import { getTheme, THEME_NAMES, THEME_SETTINGS } from '../theme.js';
 
 describe('matrix tactical theme registration', () => {
@@ -15,5 +19,59 @@ describe('matrix tactical theme registration', () => {
     expect(theme.error).toBe('rgb(251,113,133)');
     expect(theme.promptBorder).toBe('rgb(52,211,153)');
     expect(theme.userMessageBackground).toBe('rgb(9,13,16)');
+  });
+});
+
+describe('matrix tactical config migration', () => {
+  test('migrates missing theme to matrix tactical', () => {
+    const migrated = migrateMatrixTacticalThemeConfigForTesting({
+      numStartups: 0,
+      preferredNotifChannel: 'auto',
+      verbose: false,
+      env: {},
+      tipsHistory: {},
+      memoryUsageCount: 0,
+      promptQueueUseCount: 0,
+      btwUseCount: 0,
+      todoFeatureEnabled: true,
+      showTurnDuration: true,
+      messageIdleNotifThresholdMs: 60000,
+      fileCheckpointingEnabled: true,
+      terminalProgressBarEnabled: true,
+      cachedStatsigGates: {},
+      respectGitignore: true,
+      copyFullResponse: false,
+    } as any);
+
+    expect(migrated.theme).toBe('matrix-tactical');
+    expect(migrated.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
+  });
+
+  test('migrates old default dark once', () => {
+    const migrated = migrateMatrixTacticalThemeConfigForTesting({
+      theme: 'dark',
+      matrixTacticalThemeMigrationVersion: undefined,
+    } as any);
+
+    expect(migrated.theme).toBe('matrix-tactical');
+  });
+
+  test('does not override non-default themes', () => {
+    for (const theme of ['light', 'auto', 'dark-ansi', 'light-ansi', 'dark-daltonized', 'light-daltonized'] as const) {
+      const migrated = migrateMatrixTacticalThemeConfigForTesting({
+        theme,
+        matrixTacticalThemeMigrationVersion: undefined,
+      } as any);
+      expect(migrated.theme).toBe(theme);
+    }
+  });
+
+  test('does not re-migrate dark after migration guard is set', () => {
+    const migrated = migrateMatrixTacticalThemeConfigForTesting({
+      theme: 'dark',
+      matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+    } as any);
+
+    expect(migrated.theme).toBe('dark');
   });
 });
