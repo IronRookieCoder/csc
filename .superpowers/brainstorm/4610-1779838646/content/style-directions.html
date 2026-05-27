@@ -1,0 +1,62 @@
+<h2>CSC-CLI 终端风格方向</h2>
+<p class="subtitle">范围：REPL、消息流、权限弹窗、状态行、工具调用展示。点击一个方向也可以，终端回复更重要。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a-command-deck" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Command Deck / 命令舱</div>
+        <div class="mockup-body" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55;">
+          <div style="color:#c96442;font-weight:700;">CSC  CONTROL  /repo/csc  sonnet  plan</div>
+          <div style="height:1px;background:#d8d3ca;margin:8px 0;"></div>
+          <div><span style="color:#8a8278;">01</span>  <b>agent</b> scanning workspace</div>
+          <div><span style="color:#8a8278;">02</span>  tool <b>Grep</b> found 14 matches</div>
+          <div style="color:#3d72a8;">PERMISSION  BashTool  bun run typecheck</div>
+          <div style="margin-top:8px;color:#5e5a54;">ctrl+enter accept  ·  esc deny  ·  o inspect</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>推荐：命令舱 + 轻社区感</h3>
+      <p>最适合高频 CLI。用清晰状态轴、短标签、分层边框和少量品牌橙建立记忆点；欢迎页和成功反馈保留一点人味。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b-annotated-code" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Annotated Code / 代码批注</div>
+        <div class="mockup-body" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55;">
+          <div style="color:#8a8278;">// assistant reasoning</div>
+          <div><span style="color:#b83b31;">- old guard condition</span></div>
+          <div><span style="color:#5d8a3c;">+ narrowed permission mode</span></div>
+          <div style="color:#c96442;">@note Run tests after edit.</div>
+          <div style="margin-top:8px;color:#5e5a54;">review · patch · verify</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>代码批注流</h3>
+      <p>适合强调 diff 和审阅，但长期对话、权限、后台任务会显得像代码审阅工具，覆盖面偏窄。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c-community-companion" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Community Companion / 社区伙伴</div>
+        <div class="mockup-body" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55;">
+          <div style="color:#c96442;font-weight:700;">Welcome back, builder.</div>
+          <div>Clawd is watching the build queue.</div>
+          <div style="color:#5d8a3c;">✓ typecheck passed</div>
+          <div style="color:#b88630;">! one permission needs you</div>
+          <div style="margin-top:8px;color:#5e5a54;">warm prompts · friendly empty states</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>社区伙伴感</h3>
+      <p>记忆点强，但如果作为主轴，容易干扰专业效率；更适合做欢迎页、空状态、低频提示的辅助层。</p>
+    </div>
+  </div>
+</div>

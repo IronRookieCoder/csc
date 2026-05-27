@@ -1,0 +1,66 @@
+<h2>命令舱风格的状态矩阵</h2>
+<p class="subtitle">每个核心场景至少覆盖启动、空闲、工作。建议额外覆盖等待权限、受阻、完成，避免真实 CLI 中状态断层。</p>
+
+<div class="mockup">
+  <div class="mockup-header">CSC-CLI / Command Deck state language</div>
+  <div class="mockup-body" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.65;">
+    <div style="display:grid;grid-template-columns:90px 1fr 1fr 1fr;gap:8px;align-items:start;">
+      <div style="color:#8a8278;font-weight:700;">SCENE</div>
+      <div style="color:#8a8278;font-weight:700;">STARTUP</div>
+      <div style="color:#8a8278;font-weight:700;">IDLE</div>
+      <div style="color:#8a8278;font-weight:700;">WORKING</div>
+
+      <div style="color:#c96442;font-weight:700;">Welcome</div>
+      <div>CSC boot<br><span style="color:#8a8278;">loading profile · MCP · trust</span></div>
+      <div>ready deck<br><span style="color:#8a8278;">model · cwd · mode visible</span></div>
+      <div>restoring session<br><span style="color:#3d72a8;">history · context · tools</span></div>
+
+      <div style="color:#c96442;font-weight:700;">Prompt</div>
+      <div>input warmup<br><span style="color:#8a8278;">short footer hints</span></div>
+      <div>empty command line<br><span style="color:#8a8278;">subtle placeholder only</span></div>
+      <div>multi-line compose<br><span style="color:#3d72a8;">mode · token pressure · paste</span></div>
+
+      <div style="color:#c96442;font-weight:700;">Messages</div>
+      <div>session header<br><span style="color:#8a8278;">no noisy filler</span></div>
+      <div>last answer rests<br><span style="color:#8a8278;">actions hidden until focus</span></div>
+      <div>streaming answer<br><span style="color:#3d72a8;">progress rail · tool markers</span></div>
+
+      <div style="color:#c96442;font-weight:700;">Tools</div>
+      <div>tool registry<br><span style="color:#8a8278;">loaded count</span></div>
+      <div>collapsed history<br><span style="color:#8a8278;">result summary</span></div>
+      <div>active run<br><span style="color:#3d72a8;">step · elapsed · output tail</span></div>
+
+      <div style="color:#c96442;font-weight:700;">Permission</div>
+      <div>policy ready<br><span style="color:#8a8278;">mode indicator</span></div>
+      <div>no pending asks<br><span style="color:#8a8278;">quiet</span></div>
+      <div style="color:#b88630;">decision needed<br><span style="color:#8a8278;">risk, command, choices</span></div>
+
+      <div style="color:#c96442;font-weight:700;">Statusline</div>
+      <div>initial metrics<br><span style="color:#8a8278;">session id hidden</span></div>
+      <div>model · cwd · mode<br><span style="color:#8a8278;">cache · tokens optional</span></div>
+      <div>busy pulse<br><span style="color:#3d72a8;">job · rate · context</span></div>
+    </div>
+
+    <div style="height:1px;background:#d8d3ca;margin:14px 0 10px;"></div>
+    <div><span style="color:#5d8a3c;font-weight:700;">DONE</span> compact success line · changed files · next action</div>
+    <div><span style="color:#b83b31;font-weight:700;">BLOCKED</span> exact cause · shortest recovery · command suggestion</div>
+    <div><span style="color:#b88630;font-weight:700;">WAITING</span> one decision at a time · keyboard-first choices</div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="state-matrix-ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>按这个状态矩阵继续</h3>
+      <p>正式设计稿将为每个 CLI 场景定义启动、空闲、工作、等待权限、完成、受阻的表现规则。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="state-matrix-minimal" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>只保留三态</h3>
+      <p>只定义启动、空闲、工作，成本最低，但错误、权限和完成状态会继续依赖现状。</p>
+    </div>
+  </div>
+</div>

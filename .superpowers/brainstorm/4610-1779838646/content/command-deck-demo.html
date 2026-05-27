@@ -1,0 +1,225 @@
+<h2>CSC-CLI Command Deck Demo</h2>
+<p class="subtitle">静态效果稿：只展示三态（启动 / 空闲 / 工作），不代表最终代码实现。</p>
+
+<style>
+  .terminal-demo {
+    background: #1b1917;
+    color: #eee9df;
+    border: 1px solid #3a342f;
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  }
+  .terminal-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: #24211e;
+    border-bottom: 1px solid #3a342f;
+    font-size: 12px;
+    color: #9d9489;
+  }
+  .terminal-body {
+    padding: 14px;
+    min-height: 260px;
+  }
+  .deck-brand { color: #d77757; font-weight: 700; }
+  .deck-blue { color: #7483ff; }
+  .deck-muted { color: #8d857b; }
+  .deck-dim { color: #635d56; }
+  .deck-green { color: #82c77a; }
+  .deck-warn { color: #e2b85d; }
+  .deck-line { height: 1px; background: #3a342f; margin: 10px 0; }
+  .deck-row {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 10px;
+    align-items: baseline;
+    line-height: 1.65;
+    font-size: 12px;
+  }
+  .deck-rail {
+    color: #6d655e;
+    text-align: right;
+  }
+  .deck-pill {
+    border: 1px solid #4a433d;
+    border-radius: 999px;
+    padding: 1px 7px;
+    color: #b8afa3;
+    font-size: 11px;
+  }
+  .state-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .state-title {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #1f1c19;
+  }
+  .prompt-box {
+    margin-top: 12px;
+    border-top: 1px solid #3a342f;
+    padding-top: 10px;
+    color: #eee9df;
+  }
+  .prompt-input {
+    border-left: 2px solid #d77757;
+    padding-left: 8px;
+  }
+  .statusline {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid #302c28;
+    color: #8d857b;
+    font-size: 11px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 900px) {
+    .state-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="state-grid">
+  <div>
+    <h3 class="state-title">启动态 / Startup</h3>
+    <div class="terminal-demo" data-choice="startup" onclick="toggleSelect(this)">
+      <div class="terminal-top">
+        <span><span class="deck-brand">CSC</span> boot deck</span>
+        <span>v2.1.888</span>
+      </div>
+      <div class="terminal-body">
+        <div class="deck-row">
+          <span class="deck-rail">00</span>
+          <span><span class="deck-brand">Welcome to CoStrict</span></span>
+          <span class="deck-pill">start</span>
+        </div>
+        <div class="deck-line"></div>
+        <div class="deck-row">
+          <span class="deck-rail">01</span>
+          <span>loading project context</span>
+          <span class="deck-muted">cwd</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-rail">02</span>
+          <span>restoring tools and MCP registry</span>
+          <span class="deck-blue">ready</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-rail">03</span>
+          <span>checking trust and permission mode</span>
+          <span class="deck-green">ok</span>
+        </div>
+        <div class="prompt-box">
+          <div class="prompt-input"><span class="deck-muted">booting</span> <span class="deck-dim">· preparing prompt</span></div>
+        </div>
+        <div class="statusline">
+          <span>model sonnet</span><span>mode default</span><span>theme dark</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3 class="state-title">空闲态 / Idle</h3>
+    <div class="terminal-demo" data-choice="idle" onclick="toggleSelect(this)">
+      <div class="terminal-top">
+        <span><span class="deck-brand">CSC</span> command deck</span>
+        <span class="deck-green">ready</span>
+      </div>
+      <div class="terminal-body">
+        <div class="deck-row">
+          <span class="deck-rail">ctx</span>
+          <span>/code/csc</span>
+          <span class="deck-pill">trusted</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-rail">mem</span>
+          <span>CLAUDE.md loaded · 3 project hints</span>
+          <span class="deck-muted">quiet</span>
+        </div>
+        <div class="deck-line"></div>
+        <div class="deck-row">
+          <span class="deck-rail">last</span>
+          <span><span class="deck-muted">No active task.</span> Ask, edit, run, or resume.</span>
+          <span></span>
+        </div>
+        <div class="prompt-box">
+          <div class="prompt-input"><span class="deck-brand">›</span> <span class="deck-dim">describe the next task...</span></div>
+        </div>
+        <div class="statusline">
+          <span>sonnet</span><span>default permissions</span><span>cache --% --:--</span><span>tokens 0%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3 class="state-title">工作态 / Working</h3>
+    <div class="terminal-demo" data-choice="working" onclick="toggleSelect(this)">
+      <div class="terminal-top">
+        <span><span class="deck-brand">CSC</span> active run</span>
+        <span class="deck-blue">working</span>
+      </div>
+      <div class="terminal-body">
+        <div class="deck-row">
+          <span class="deck-rail">01</span>
+          <span>reading theme system and status components</span>
+          <span class="deck-green">done</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-rail">02</span>
+          <span>drafting command-deck UI language</span>
+          <span class="deck-blue">stream</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-rail">03</span>
+          <span>tool <span class="deck-brand">PowerShell</span> may need approval for build</span>
+          <span class="deck-warn">ask</span>
+        </div>
+        <div class="deck-line"></div>
+        <div class="deck-row">
+          <span class="deck-rail">out</span>
+          <span>Using existing Pane, Dialog, StatusIcon, ProgressBar.</span>
+          <span></span>
+        </div>
+        <div class="prompt-box">
+          <div class="prompt-input"><span class="deck-blue">assistant</span> <span class="deck-dim">· generating response</span></div>
+        </div>
+        <div class="statusline">
+          <span>job 02/03</span><span>elapsed 00:18</span><span>context 11%</span><span>cache 64% 42:11</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="demo-ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>认可这个 demo 方向</h3>
+      <p>继续把它整理成正式设计：原则、组件规则、三态矩阵、落地范围和验收标准。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="demo-too-cold" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>太冷，需要更有人味</h3>
+      <p>增加欢迎页和空闲态的社区感，但仍保持工作态克制。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="demo-too-heavy" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>太重，需要更轻</h3>
+      <p>减少边框、编号和状态字段，让终端更接近当前体验。</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,86 @@
+<h2>CSC CLI/Ink brand symbol directions</h2>
+<p class="subtitle">These are not full UI themes. They compare terminal-native memory marks that can be applied to startup, waiting, permission, tool calls, plan progress, and completion states.</p>
+
+<div class="cards">
+  <div class="card" data-choice="railmark" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Railmark</div>
+        <div class="mockup-body">
+          <pre style="margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height:1.55;">
+<span style="color:#C96442;">csc</span>  restore session
+<span style="color:#C96442;">|</span>   goal      fix failing typecheck
+<span style="color:#C96442;">|</span>   action    reading provider registry
+<span style="color:#C96442;">|</span>   tool      GrepTool matched 4 files
+<span style="color:#C96442;">'</span>   next      patch narrow model guard
+          </pre>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Railmark</h3>
+      <p>A persistent left rail becomes the CSC signature. It is simple, highly usable, and cheap to implement across Ink rows.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Strong fit</h4><ul><li>Excellent scan speed</li><li>Works in ANSI terminals</li><li>Low custom component cost</li></ul></div>
+        <div class="cons"><h4>Risk</h4><ul><li>Memory mark is structural, less iconic</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="cutseal" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Cut Seal</div>
+        <div class="mockup-body">
+          <pre style="margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height:1.55;">
+ <span style="color:#C96442;">[c/sc]</span>  CSC ready
+   <span style="color:#C96442;">/</span>     plan accepted
+ <span style="color:#5E5A54;">01</span> read    src/utils/model/providers.ts
+ <span style="color:#5E5A54;">02</span> decide  OpenAI mapping boundary
+ <span style="color:#5D8A3C;">03</span> apply   type-safe provider guard
+          </pre>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Cut Seal</h3>
+      <p>A compact CSC seal with a diagonal split. It is more iconic than a rail, suitable for boot, thinking, completion, and permission prompts.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Strong fit</h4><ul><li>Most distinctive</li><li>Easy to repeat as small mark</li><li>Can use pure text fallback</li></ul></div>
+        <div class="cons"><h4>Risk</h4><ul><li>Needs restraint to avoid visual noise</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="pulsegrid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Pulse Grid</div>
+        <div class="mockup-body">
+          <pre style="margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height:1.55;">
+<span style="color:#C96442;">csc</span>  <span style="color:#C96442;">..</span><span style="color:#969088;">..</span> thinking
+
+┌ plan ─────────────────────────┐
+│ <span style="color:#C96442;">01</span> inspect      done          │
+│ <span style="color:#C96442;">02</span> patch        running       │
+│ <span style="color:#969088;">03</span> verify       queued        │
+└───────────────────────────────┘
+          </pre>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Pulse Grid</h3>
+      <p>A rhythmic dot/grid language for progress and agent activity. It gives CSC a living terminal feel without heavy animation.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Strong fit</h4><ul><li>Good for long-running work</li><li>Clear progress states</li><li>Reusable in plans and tools</li></ul></div>
+        <div class="cons"><h4>Risk</h4><ul><li>More component tuning than the others</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Initial recommendation</h3>
+  <p>Use <strong>Cut Seal</strong> as the compact identity mark, then combine it with the <strong>Railmark</strong> layout rule for actual information display. That gives CSC a memorable symbol while keeping day-to-day terminal output fast to scan and cheap to build.</p>
+</div>
