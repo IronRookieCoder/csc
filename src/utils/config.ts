@@ -643,6 +643,12 @@ function createDefaultGlobalConfig(): GlobalConfig {
   }
 }
 
+function createDefaultGlobalConfigForMigration(): GlobalConfig {
+  const config = createDefaultGlobalConfig()
+  delete config.matrixTacticalThemeMigrationVersion
+  return config
+}
+
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = createDefaultGlobalConfig()
 
 export const GLOBAL_CONFIG_KEYS = [
@@ -928,20 +934,19 @@ registerCleanup(async () => {
   reportConfigCacheStats()
 })
 
-/**
- * Migrates old autoUpdaterStatus to new installMethod and autoUpdates fields
- * @internal
- */
-function migrateMatrixTacticalThemeConfig(config: GlobalConfig): GlobalConfig {
+function migrateMatrixTacticalThemeConfig(
+  config: GlobalConfig,
+  rawConfig: Partial<GlobalConfig> = config,
+): GlobalConfig {
   if (
-    config.matrixTacticalThemeMigrationVersion ===
+    rawConfig.matrixTacticalThemeMigrationVersion ===
     MATRIX_TACTICAL_MIGRATION_VERSION
   ) {
     return config
   }
 
-  const themeWasMissing = !('theme' in config) || config.theme === undefined
-  const themeWasOldDefault = config.theme === 'dark'
+  const themeWasMissing = !('theme' in rawConfig) || rawConfig.theme === undefined
+  const themeWasOldDefault = rawConfig.theme === 'dark'
   if (!themeWasMissing && !themeWasOldDefault) {
     return {
       ...config,
@@ -956,8 +961,28 @@ function migrateMatrixTacticalThemeConfig(config: GlobalConfig): GlobalConfig {
   }
 }
 
-function migrateConfigFields(config: GlobalConfig): GlobalConfig {
-  config = migrateMatrixTacticalThemeConfig(config)
+function mergeGlobalConfigForMigration(
+  parsed: Partial<GlobalConfig>,
+): GlobalConfig {
+  return migrateConfigFields(
+    {
+      ...createDefaultGlobalConfig(),
+      ...parsed,
+    },
+    parsed,
+  )
+}
+
+/**
+ * Applies global config migrations that preserve existing user preferences
+ * while backfilling fields introduced by newer versions.
+ * @internal
+ */
+function migrateConfigFields(
+  config: GlobalConfig,
+  rawConfig: Partial<GlobalConfig> = config,
+): GlobalConfig {
+  config = migrateMatrixTacticalThemeConfig(config, rawConfig)
 
   // Already migrated
   if (config.installMethod !== undefined) {
@@ -1065,10 +1090,9 @@ function startGlobalConfigFreshnessWatcher(): void {
           const parsed = safeParseJSON(stripBOM(content))
           if (parsed === null || typeof parsed !== 'object') return
           globalConfigCache = {
-            config: migrateConfigFields({
-              ...createDefaultGlobalConfig(),
-              ...(parsed as Partial<GlobalConfig>),
-            }),
+            config: mergeGlobalConfigForMigration(
+              parsed as Partial<GlobalConfig>,
+            ),
             mtime: curr.mtimeMs,
           }
           lastReadFileStats = { mtime: curr.mtimeMs, size: curr.size }
@@ -1115,7 +1139,7 @@ export function getGlobalConfig(): GlobalConfig {
       // File doesn't exist
     }
     const config = migrateConfigFields(
-      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig),
+      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfigForMigration),
     )
     globalConfigCache = {
       config,
@@ -1129,7 +1153,7 @@ export function getGlobalConfig(): GlobalConfig {
   } catch {
     // If anything goes wrong, fall back to uncached behavior
     return migrateConfigFields(
-      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig),
+      getConfig(getGlobalClaudeFile(), createDefaultGlobalConfigForMigration),
     )
   }
 }
@@ -1862,6 +1886,8 @@ export function getUserClaudeRulesDir(): string {
 // Exported for testing only
 export const _getConfigForTesting = getConfig
 export const _wouldLoseAuthStateForTesting = wouldLoseAuthState
+export const mergeGlobalConfigForMigrationForTesting =
+  mergeGlobalConfigForMigration
 export const migrateMatrixTacticalThemeConfigForTesting =
   migrateMatrixTacticalThemeConfig
 export { MATRIX_TACTICAL_MIGRATION_VERSION }

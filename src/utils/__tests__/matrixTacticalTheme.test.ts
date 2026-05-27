@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   MATRIX_TACTICAL_MIGRATION_VERSION,
+  mergeGlobalConfigForMigrationForTesting,
   migrateMatrixTacticalThemeConfigForTesting,
 } from '../config.js';
 import { getTheme, THEME_NAMES, THEME_SETTINGS } from '../theme.js';
@@ -73,5 +74,32 @@ describe('matrix tactical config migration', () => {
     } as any);
 
     expect(migrated.theme).toBe('dark');
+  });
+
+  test('migrates raw old default dark after default config merge', () => {
+    const migrated = mergeGlobalConfigForMigrationForTesting({
+      theme: 'dark',
+    } as any);
+
+    expect(migrated.theme).toBe('matrix-tactical');
+    expect(migrated.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
+  });
+
+  test('preserves raw dark when migration guard exists', () => {
+    const migrated = mergeGlobalConfigForMigrationForTesting({
+      theme: 'dark',
+      matrixTacticalThemeMigrationVersion: MATRIX_TACTICAL_MIGRATION_VERSION,
+    } as any);
+
+    expect(migrated.theme).toBe('dark');
+  });
+
+  test('preserves raw non-default theme after default config merge', () => {
+    const migrated = mergeGlobalConfigForMigrationForTesting({
+      theme: 'light',
+    } as any);
+
+    expect(migrated.theme).toBe('light');
+    expect(migrated.matrixTacticalThemeMigrationVersion).toBe(MATRIX_TACTICAL_MIGRATION_VERSION);
   });
 });
