@@ -164,4 +164,24 @@ describe('MatrixStatusLine', () => {
     expect(text).toContain('$0.02');
     expect(text).toContain('Cache 82% 42:10');
   });
+
+  test('omits optional rate limit, cost, and cache fields when unavailable', () => {
+    const text = collectText(
+      <MatrixStatusLine
+        modelName="Sonnet"
+        contextUsedPct={0}
+        usedTokens={0}
+        contextWindowSize={200000}
+        totalCostUsd={0}
+        rateLimits={{}}
+      />,
+    );
+    expect(text).toContain('[STAT]');
+    expect(text).toContain('Sonnet');
+    expect(text).toContain('Context 0%');
+    expect(text).not.toContain('Session');
+    expect(text).not.toContain('Weekly');
+    expect(text).not.toContain('$');
+    expect(text).not.toContain('Cache');
+  });
 });
