@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text } from '@anthropic/ink';
+import { Box, Byline, Text } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
@@ -105,6 +105,18 @@ describe('MatrixPrompt', () => {
     const text = collectText(<MatrixFooterHint>shift+tab cycle mode</MatrixFooterHint>);
     expect(text).toContain('[CUE ]');
     expect(text).toContain('shift+tab cycle mode');
+  });
+
+  test('keeps footer hint inline when wrapped by footer text', () => {
+    const footer = (
+      <Text>
+        <Byline>
+          <MatrixFooterHint>shift+tab cycle mode</MatrixFooterHint>
+        </Byline>
+      </Text>
+    );
+
+    expect(hasTextWrappedBox(footer)).toBe(false);
   });
 });
 

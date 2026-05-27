@@ -1,6 +1,9 @@
 import React from 'react';
 import { Box, Text } from '@anthropic/ink';
-import { MatrixMessageLine } from './MatrixMessageLine.js';
+import {
+  formatMatrixPrefix,
+  MATRIX_TACTICAL_TONE_TO_THEME_KEY,
+} from '../../utils/matrixTacticalPresentation.js';
 
 export function MatrixPromptCursor(): React.ReactNode {
   return (
@@ -11,13 +14,14 @@ export function MatrixPromptCursor(): React.ReactNode {
 }
 
 type HintProps = {
-  children: React.ReactNode;
+  children: string | number;
 };
 
 export function MatrixFooterHint({ children }: HintProps): React.ReactNode {
   return (
-    <MatrixMessageLine label="CUE" tone="meta">
-      {children}
-    </MatrixMessageLine>
+    // Footer hints are embedded inside Text/Byline, so this is intentionally inline.
+    <Text color={MATRIX_TACTICAL_TONE_TO_THEME_KEY.meta}>
+      {formatMatrixPrefix('CUE')} {children}
+    </Text>
   );
 }
