@@ -42,11 +42,13 @@ function toneForState(state: MatrixToolState): 'meta' | 'warning' | 'success' | 
 export function MatrixToolUseLine({ name, detail, tag, state, progressPercent }: Props): React.ReactNode {
   return (
     <Box flexDirection="column">
-      <MatrixMessageLine label={labelForState(state)} tone={toneForState(state)}>
-        {name}
-        {detail ? <Text color="text"> ({detail})</Text> : null}
+      <Box flexDirection="row" flexWrap="wrap">
+        <MatrixMessageLine label={labelForState(state)} tone={toneForState(state)}>
+          {name}
+          {detail ? <Text color="text"> ({detail})</Text> : null}
+        </MatrixMessageLine>
         {tag}
-      </MatrixMessageLine>
+      </Box>
       {progressPercent !== undefined && (
         <Box paddingLeft={3}>
           <Text color="success">[PROGRESS] {formatMatrixProgress(progressPercent)}</Text>

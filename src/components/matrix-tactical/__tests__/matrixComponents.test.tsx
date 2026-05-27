@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from '@anthropic/ink';
+import { Box, Text } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
@@ -25,6 +25,30 @@ function collectText(node: unknown): string {
     return collectText((node.props as { children?: React.ReactNode }).children);
   }
   return '';
+}
+
+function hasTextWrappedBox(node: unknown, insideText = false): boolean {
+  if (node == null || typeof node === 'boolean') return false;
+  if (typeof node === 'string' || typeof node === 'number') return false;
+  if (Array.isArray(node)) return node.some((child) => hasTextWrappedBox(child, insideText));
+  if (React.isValidElement(node)) {
+    if (
+      node.type === MatrixWelcome ||
+      node.type === MatrixMessageLine ||
+      node.type === MatrixPermissionFrame ||
+      node.type === MatrixToolUseLine ||
+      node.type === PermissionRequestTitle
+    ) {
+      const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
+      return hasTextWrappedBox(Component(node.props as { children?: React.ReactNode }), insideText);
+    }
+    if (node.type === Box && insideText) return true;
+    return hasTextWrappedBox(
+      (node.props as { children?: React.ReactNode }).children,
+      insideText || node.type === Text,
+    );
+  }
+  return false;
 }
 
 describe('MatrixWelcome', () => {
@@ -93,16 +117,22 @@ describe('MatrixToolUseLine', () => {
   });
 
   test('preserves tool use tag after detail', () => {
-    const text = collectText(
+    const line = (
       <MatrixToolUseLine
         name="Task"
         detail="analyze"
         state="working"
-        tag={<Text color="warning"> timeout: 30s</Text>}
-      />,
+        tag={
+          <Box>
+            <Text color="warning"> timeout: 30s</Text>
+          </Box>
+        }
+      />
     );
+    const text = collectText(line);
     expect(text).toContain('Task');
     expect(text).toContain('analyze');
     expect(text).toContain('timeout: 30s');
+    expect(hasTextWrappedBox(line)).toBe(false);
   });
 });
