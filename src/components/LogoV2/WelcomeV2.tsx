@@ -1,6 +1,8 @@
 import React from 'react';
 import { Box, Text, useTheme } from '@anthropic/ink';
 import { env } from '../../utils/env.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
+import { MatrixWelcome } from '../matrix-tactical/MatrixWelcome.js';
 
 const WELCOME_V2_WIDTH = 58;
 
@@ -11,6 +13,10 @@ const DIVIDER_PREFIX = '…………'; // 4个…，每个占2列，共8列
 export function WelcomeV2(): React.ReactNode {
   const [theme] = useTheme();
   const welcomeMessage = 'Welcome to CoStrict';
+
+  if (isMatrixTacticalTheme(theme)) {
+    return <MatrixWelcome />;
+  }
 
   if (env.terminal === 'Apple_Terminal') {
     return <AppleTerminalWelcomeV2 theme={theme} welcomeMessage={welcomeMessage} />;
