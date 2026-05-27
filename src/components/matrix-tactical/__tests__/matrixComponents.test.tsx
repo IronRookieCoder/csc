@@ -5,7 +5,7 @@ import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
 import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
 import { MatrixPromptCursor, MatrixFooterHint } from '../MatrixPrompt.js';
-import { MatrixStatusLine } from '../MatrixStatusLine.js';
+import { MatrixStatusLineContent } from '../MatrixStatusLine.js';
 import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 import { formatCountdown } from '../../BuiltinStatusLine.js';
@@ -21,7 +21,7 @@ function collectText(node: unknown): string {
       node.type === MatrixPermissionFrame ||
       node.type === MatrixPromptCursor ||
       node.type === MatrixFooterHint ||
-      node.type === MatrixStatusLine ||
+      node.type === MatrixStatusLineContent ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
     ) {
@@ -44,7 +44,7 @@ function hasTextWrappedBox(node: unknown, insideText = false): boolean {
       node.type === MatrixPermissionFrame ||
       node.type === MatrixPromptCursor ||
       node.type === MatrixFooterHint ||
-      node.type === MatrixStatusLine ||
+      node.type === MatrixStatusLineContent ||
       node.type === MatrixToolUseLine ||
       node.type === PermissionRequestTitle
     ) {
@@ -208,7 +208,7 @@ describe('MatrixStatusLine', () => {
     const sessionReset = Math.floor(Date.now() / 1000) + 3600;
     const weeklyReset = Math.floor(Date.now() / 1000) + 7 * 3600;
     const text = collectText(
-      <MatrixStatusLine
+      <MatrixStatusLineContent
         modelName="Sonnet 4.6"
         contextUsedPct={18}
         usedTokens={36000}
@@ -234,7 +234,7 @@ describe('MatrixStatusLine', () => {
 
   test('omits optional rate limit, cost, and cache fields when unavailable', () => {
     const text = collectText(
-      <MatrixStatusLine
+      <MatrixStatusLineContent
         modelName="Sonnet"
         contextUsedPct={0}
         usedTokens={0}

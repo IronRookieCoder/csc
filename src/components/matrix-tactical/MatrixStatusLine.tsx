@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text } from '@anthropic/ink';
 import { formatCost } from '../../cost-tracker.js';
 import { formatTokens } from '../../utils/format.js';
@@ -23,6 +23,22 @@ type Props = {
 };
 
 export function MatrixStatusLine({
+  rateLimits,
+  ...props
+}: Props): React.ReactNode {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const hasResetTime = (rateLimits.five_hour?.resets_at ?? 0) || (rateLimits.seven_day?.resets_at ?? 0);
+    if (!hasResetTime) return;
+    const id = setInterval(() => setTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [rateLimits.five_hour?.resets_at, rateLimits.seven_day?.resets_at]);
+  void tick;
+
+  return <MatrixStatusLineContent {...props} rateLimits={rateLimits} />;
+}
+
+export function MatrixStatusLineContent({
   modelName,
   contextUsedPct,
   usedTokens,
