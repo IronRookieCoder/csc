@@ -1,13 +1,29 @@
 import React from 'react';
 import { Box, Text } from '@anthropic/ink';
+import { basename } from 'path';
 import { formatMatrixDivider, MATRIX_TACTICAL_BANNER_LINES } from '../../utils/matrixTacticalPresentation.js';
 import { MatrixMessageLine } from './MatrixMessageLine.js';
 
 type Props = {
   version?: string;
+  projectName?: string;
+  cwd?: string;
+  modelDisplayName?: string;
+  billingType?: string;
 };
 
-export function MatrixWelcome({ version = MACRO.VERSION }: Props): React.ReactNode {
+export function MatrixWelcome({
+  version = MACRO.VERSION,
+  projectName,
+  cwd,
+  modelDisplayName,
+  billingType,
+}: Props): React.ReactNode {
+  const project = projectName || (cwd ? basename(cwd) : '');
+  const providerInfo = billingType && billingType !== 'Not logged in' ? billingType : '';
+  const modelLine = [modelDisplayName, providerInfo].filter(Boolean).join(' · ');
+  const showModel = !!modelLine;
+
   return (
     <Box flexDirection="column">
       <Box flexDirection="column">
@@ -19,17 +35,21 @@ export function MatrixWelcome({ version = MACRO.VERSION }: Props): React.ReactNo
       </Box>
       <Text> </Text>
       <MatrixMessageLine label="SYS" tone="meta">
-        costrict cli version {version}
+        costrict-cli v{version}
       </MatrixMessageLine>
-      <MatrixMessageLine label="SYS" tone="meta">
-        Matrix Tactical terminal theme active
-      </MatrixMessageLine>
-      <MatrixMessageLine label="OK" tone="success">
-        Local context and configuration ready
-      </MatrixMessageLine>
+      {project && (
+        <MatrixMessageLine label="SYS" tone="meta">
+          project: {project}{cwd ? ` · ${cwd}` : ''}
+        </MatrixMessageLine>
+      )}
+      {showModel && (
+        <MatrixMessageLine label="INFO" tone="meta">
+          model: {modelLine}
+        </MatrixMessageLine>
+      )}
       <Text color="inactive">{formatMatrixDivider(60)}</Text>
       <MatrixMessageLine label="LOG" tone="meta">
-        Type "help" or "?" to view available tactical options.
+        Type /help for commands · ? for shortcuts
       </MatrixMessageLine>
     </Box>
   );

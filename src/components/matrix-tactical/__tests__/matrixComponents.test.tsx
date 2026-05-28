@@ -136,9 +136,36 @@ describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
     expect(text).toContain('██████╗ ██████╗');
-    expect(text).toContain('costrict cli version 2.1.888');
-    expect(text).toContain('Local context and configuration ready');
+    expect(text).toContain('costrict-cli v2.1.888');
     expect(text).toContain('2.1.888');
+  });
+
+  test('renders project and model context when provided', () => {
+    const text = collectText(
+      <MatrixWelcome
+        version="2.1.888"
+        cwd="/home/user/my-project"
+        modelDisplayName="claude-sonnet-4-6"
+        billingType="Anthropic API"
+      />,
+    );
+    expect(text).toContain('project: my-project');
+    expect(text).toContain('/home/user/my-project');
+    expect(text).toContain('model: claude-sonnet-4-6 · Anthropic API');
+    expect(text).toContain('[INFO]');
+  });
+
+  test('hides billing when not logged in', () => {
+    const text = collectText(
+      <MatrixWelcome
+        version="2.1.888"
+        cwd="/tmp/test"
+        modelDisplayName="claude-sonnet-4-6"
+        billingType="Not logged in"
+      />,
+    );
+    expect(text).toContain('model: claude-sonnet-4-6');
+    expect(text).not.toContain('Not logged in');
   });
 });
 

@@ -53,7 +53,12 @@ export function CondensedLogo(): ReactNode {
   if (isMatrixTacticalTheme(theme)) {
     return (
       <OffscreenFreeze>
-        <MatrixWelcome version={version} />
+        <MatrixWelcome
+          version={version}
+          cwd={cwd}
+          modelDisplayName={modelDisplayName}
+          billingType={billingType}
+        />
       </OffscreenFreeze>
     );
   }
