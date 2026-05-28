@@ -81,18 +81,50 @@ export function matrixToolPrefixForName(name: string, state: 'queued' | 'working
   const normalized = name.trim().toLowerCase();
   if (state === 'error') return matrixActionPrefix('err');
   if (state === 'success') return matrixActionPrefix('ok');
-  if (
-    normalized.includes('write') ||
-    normalized.includes('edit') ||
-    normalized.includes('patch') ||
-    normalized.includes('replace')
-  ) {
-    return matrixActionPrefix('write');
-  }
-  if (normalized.includes('think') || normalized.includes('search') || normalized.includes('read')) {
-    return matrixActionPrefix('think');
-  }
+  if (normalized.includes('write') || normalized.includes('edit') || normalized.includes('patch') || normalized.includes('replace')) return matrixActionPrefix('write');
+  if (normalized.includes('think')) return matrixActionPrefix('think');
+  if (normalized.includes('read') || normalized.includes('glob')) return 'READ';
+  if (normalized.includes('grep')) return 'GREP';
+  if (normalized.includes('agent') || normalized.includes('task')) return 'AGENT';
+  if (normalized.includes('web') || normalized.includes('fetch')) return 'WEB';
+  if (normalized.includes('compile')) return 'COMPILE';
+  if (normalized.includes('analyze')) return 'ANALYZE';
   return matrixActionPrefix('run');
+}
+
+export type MatrixToolCategory = 'bash' | 'read' | 'write' | 'grep' | 'agent' | 'web' | 'think' | 'compile' | 'analyze' | 'error' | 'default';
+
+const TOOL_CATEGORY_COLOR = {
+  bash: 'cyan',
+  read: 'teal',
+  write: 'success',
+  grep: 'purple',
+  agent: 'purple',
+  web: 'blue',
+  think: 'warning',
+  compile: 'warning',
+  analyze: 'blue',
+  error: 'error',
+  default: 'success',
+} as const satisfies Record<MatrixToolCategory, string>;
+
+export function matrixToolCategoryForName(name: string): MatrixToolCategory {
+  const n = name.trim().toLowerCase();
+  if (n.includes('bash') || n.includes('shell') || n.includes('powershell')) return 'bash';
+  if (n.includes('read') || n.includes('glob') || n.includes('list')) return 'read';
+  if (n.includes('write') || n.includes('edit') || n.includes('patch') || n.includes('replace')) return 'write';
+  if (n.includes('grep') || n.includes('search')) return 'grep';
+  if (n.includes('agent') || n.includes('task')) return 'agent';
+  if (n.includes('webfetch') || n.includes('websearch') || n.includes('fetch')) return 'web';
+  if (n.includes('think')) return 'think';
+  if (n.includes('compile')) return 'compile';
+  if (n.includes('analyze')) return 'analyze';
+  if (n.includes('error') || n.includes('err')) return 'error';
+  return 'default';
+}
+
+export function matrixToolColorForName(name: string): string {
+  return TOOL_CATEGORY_COLOR[matrixToolCategoryForName(name)];
 }
 
 export function formatMatrixDivider(width = 58): string {

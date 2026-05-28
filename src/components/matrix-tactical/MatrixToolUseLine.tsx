@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from '@anthropic/ink';
-import { formatMatrixProgress, matrixToolPrefixForName } from '../../utils/matrixTacticalPresentation.js';
+import type { Theme } from '../../utils/theme.js';
+import { formatMatrixProgress, matrixToolPrefixForName, matrixToolColorForName } from '../../utils/matrixTacticalPresentation.js';
 import { MatrixMessageLine } from './MatrixMessageLine.js';
 
 type MatrixToolState = 'queued' | 'working' | 'success' | 'error';
@@ -27,13 +28,26 @@ function toneForState(state: MatrixToolState): 'meta' | 'warning' | 'success' | 
 }
 
 export function MatrixToolUseLine({ name, detail, tag, state, progressPercent }: Props): React.ReactNode {
+  const toolColor = matrixToolColorForName(name);
+
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" flexWrap="wrap">
-        <MatrixMessageLine label={matrixToolPrefixForName(name, state)} tone={toneForState(state)}>
-          {name}
-          {detail ? <Text color="text"> ({detail})</Text> : null}
-        </MatrixMessageLine>
+      <Box
+        flexDirection="row"
+        flexWrap="wrap"
+        borderStyle="single"
+        borderLeft
+        borderTop={false}
+        borderBottom={false}
+        borderRight={false}
+        borderColor={toolColor as keyof Theme}
+      >
+        <Box paddingLeft={1}>
+          <MatrixMessageLine label={matrixToolPrefixForName(name, state)} tone={toneForState(state)}>
+            {name}
+            {detail ? <Text color="text"> ({detail})</Text> : null}
+          </MatrixMessageLine>
+        </Box>
         {tag}
       </Box>
       {progressPercent !== undefined && (
