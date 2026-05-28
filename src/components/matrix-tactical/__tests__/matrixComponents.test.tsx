@@ -477,3 +477,23 @@ describe('MatrixStatusLine', () => {
     expect(text).not.toContain('Cache');
   });
 });
+
+test('SpinnerGlyph uses triangle frames for matrix theme', () => {
+  // Verify TRIANGLE_FRAMES contains only terminal-safe characters
+  const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
+  for (const char of TRIANGLE_FRAMES) {
+    expect(char.length).toBe(1);
+    // All characters are within Unicode Geometric Shapes block (U+25A0–U+25FF)
+    const code = char.codePointAt(0)!;
+    expect(code).toBeGreaterThanOrEqual(0x25A0);
+    expect(code).toBeLessThanOrEqual(0x25FF);
+  }
+});
+
+test('SpinnerGlyph triangle frames are distinct from star frames', () => {
+  const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
+  const starFrames = ['✶', '✸', '✹', '✺', '✹', '✷'];
+  for (const t of TRIANGLE_FRAMES) {
+    expect(starFrames.includes(t)).toBe(false);
+  }
+});

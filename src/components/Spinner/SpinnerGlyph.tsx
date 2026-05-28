@@ -1,10 +1,13 @@
 import * as React from 'react';
 import { Box, Text, useTheme } from '@anthropic/ink';
 import { getTheme, type Theme } from '../../utils/theme.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 import { getDefaultCharacters } from './utils.js';
 import { getStalledSpinnerColor } from './stalledColor.js';
 
 const DEFAULT_CHARACTERS = getDefaultCharacters();
+
+const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
 
 const SPINNER_FRAMES = [...DEFAULT_CHARACTERS, ...[...DEFAULT_CHARACTERS].reverse()];
 
@@ -41,7 +44,9 @@ export function SpinnerGlyph({
     );
   }
 
-  const spinnerChar = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
+  const isMatrix = isMatrixTacticalTheme(themeName);
+  const frames = isMatrix ? TRIANGLE_FRAMES : SPINNER_FRAMES;
+  const spinnerChar = frames[frame % frames.length];
 
   // Resolve the theme-specific stalled color.
   if (stalledIntensity > 0) {
