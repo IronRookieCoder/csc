@@ -500,16 +500,19 @@ test('SpinnerGlyph triangle frames are distinct from star frames', () => {
 
 describe('SpinnerGlyph behavioral', () => {
   test('renders triangle glyphs with matrix-tactical theme', async () => {
-    // Default ThemeContext uses 'matrix-tactical', so isMatrixTacticalTheme → true
     for (let f = 0; f < TRIANGLE_FRAMES.length; f++) {
       const out = await renderToString(
-        <SpinnerGlyph frame={f} messageColor="claude" />,
+        <ThemeProvider initialState="matrix-tactical">
+          <SpinnerGlyph frame={f} messageColor="claude" />
+        </ThemeProvider>,
       );
       expect(out).toContain(TRIANGLE_FRAMES[f]);
     }
     // Verify cycling works: frame=N wraps to frame % N
     const cycled = await renderToString(
-      <SpinnerGlyph frame={TRIANGLE_FRAMES.length} messageColor="claude" />,
+      <ThemeProvider initialState="matrix-tactical">
+        <SpinnerGlyph frame={TRIANGLE_FRAMES.length} messageColor="claude" />
+      </ThemeProvider>,
     );
     expect(cycled).toContain(TRIANGLE_FRAMES[0]);
   });
