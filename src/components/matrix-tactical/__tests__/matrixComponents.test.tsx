@@ -136,7 +136,7 @@ describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
     expect(text).toContain('██████╗ ██████╗');
-    expect(text).toContain('costrict Console CLI version 2.1.888');
+    expect(text).toContain('costrict cli version 2.1.888');
     expect(text).toContain('Local context and configuration ready');
     expect(text).toContain('2.1.888');
   });

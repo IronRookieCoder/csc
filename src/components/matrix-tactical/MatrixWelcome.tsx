@@ -19,7 +19,7 @@ export function MatrixWelcome({ version = MACRO.VERSION }: Props): React.ReactNo
       </Box>
       <Text> </Text>
       <MatrixMessageLine label="SYS" tone="meta">
-        costrict Console CLI version {version}
+        costrict cli version {version}
       </MatrixMessageLine>
       <MatrixMessageLine label="SYS" tone="meta">
         Matrix Tactical terminal theme active
