@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from '@anthropic/ink';
 import { formatCost } from '../../cost-tracker.js';
 import { formatTokens } from '../../utils/format.js';
+import type { EffortLevel } from '../../utils/effort.js';
+import { getModeColor, permissionModeTitle, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { formatCountdown } from '../BuiltinStatusLine.js';
 
 type RateLimitBucket = {
@@ -15,17 +17,20 @@ type Props = {
   usedTokens: number;
   contextWindowSize: number;
   totalCostUsd: number;
-  cacheText?: string;
+  cacheText?: React.ReactNode;
+  permissionMode?: PermissionMode;
+  effortLevel?: EffortLevel;
+  memoryText?: string;
+  runText?: string;
+  cueText?: string;
+  extraItems?: React.ReactNode[];
   rateLimits: {
     five_hour?: RateLimitBucket;
     seven_day?: RateLimitBucket;
   };
 };
 
-export function MatrixStatusLine({
-  rateLimits,
-  ...props
-}: Props): React.ReactNode {
+export function MatrixStatusLine({ rateLimits, ...props }: Props): React.ReactNode {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const hasResetTime = (rateLimits.five_hour?.resets_at ?? 0) || (rateLimits.seven_day?.resets_at ?? 0);
@@ -45,6 +50,12 @@ export function MatrixStatusLineContent({
   contextWindowSize,
   totalCostUsd,
   cacheText,
+  permissionMode,
+  effortLevel,
+  memoryText,
+  runText,
+  cueText,
+  extraItems = [],
   rateLimits,
 }: Props): React.ReactNode {
   const sessionPct = rateLimits.five_hour ? Math.round(rateLimits.five_hour.utilization * 100) : null;
@@ -56,7 +67,7 @@ export function MatrixStatusLineContent({
   const tokenDisplay = `${formatTokens(usedTokens)}/${formatTokens(contextWindowSize)}`;
 
   return (
-    <Box gap={1}>
+    <Box gap={1} flexWrap="wrap">
       <Text color="success">[STAT]</Text>
       <Text>{modelName}</Text>
       <Text color="inactive">| Context </Text>
@@ -82,12 +93,50 @@ export function MatrixStatusLineContent({
           <Text>{formatCost(totalCostUsd)}</Text>
         </>
       )}
-      {cacheText && (
+      {cacheText ? (
         <>
           <Text color="inactive">| </Text>
-          <Text>{cacheText}</Text>
+          {typeof cacheText === 'string' ? <Text>{cacheText}</Text> : cacheText}
         </>
-      )}
+      ) : null}
+      {permissionMode ? (
+        <>
+          <Text color="inactive">| </Text>
+          <Text color={getModeColor(permissionMode)}>{permissionModeTitle(permissionMode).toLowerCase()} on</Text>
+        </>
+      ) : null}
+      {effortLevel ? (
+        <>
+          <Text color="inactive">| Effort </Text>
+          <Text>{effortLevel}</Text>
+        </>
+      ) : null}
+      {memoryText ? (
+        <>
+          <Text color="inactive">| </Text>
+          <Text dimColor>{memoryText}</Text>
+        </>
+      ) : null}
+      {runText ? (
+        <>
+          <Text color="inactive">| </Text>
+          <Text color="warning">[RUN]</Text>
+          <Text>{runText}</Text>
+        </>
+      ) : null}
+      {cueText ? (
+        <>
+          <Text color="inactive">| </Text>
+          <Text color="inactive">[CUE]</Text>
+          <Text dimColor>{cueText}</Text>
+        </>
+      ) : null}
+      {extraItems.map((item, index) => (
+        <React.Fragment key={index}>
+          <Text color="inactive">| </Text>
+          {typeof item === 'string' ? <Text>{item}</Text> : item}
+        </React.Fragment>
+      ))}
     </Box>
   );
 }

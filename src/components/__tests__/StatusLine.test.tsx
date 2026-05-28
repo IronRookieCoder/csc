@@ -9,6 +9,7 @@
 
 import { describe, test, expect } from 'bun:test';
 import { computeHitRate } from '../../utils/cacheStats.js';
+import { statusLineShouldDisplayForTheme } from '../StatusLine.js';
 
 // ---------------------------------------------------------------------------
 // Re-export helpers that mirror CachePill internal logic for unit testing
@@ -186,5 +187,16 @@ describe('expired display', () => {
 
   test('timerColor is inactive when isExpired=true', () => {
     expect(timerColor(61, true)).toBe('inactive');
+  });
+});
+
+describe('Matrix Tactical status line display', () => {
+  test('renders built-in Matrix status line even when user did not enable statusLine', () => {
+    expect(statusLineShouldDisplayForTheme({}, 'matrix-tactical')).toBe(true);
+  });
+
+  test('keeps non-Matrix themes governed by existing statusLine settings', () => {
+    expect(statusLineShouldDisplayForTheme({}, 'dark')).toBe(false);
+    expect(statusLineShouldDisplayForTheme({ statusLineEnabled: true } as any, 'dark')).toBe(true);
   });
 });

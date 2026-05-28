@@ -8,7 +8,7 @@ import type { VerificationStatus } from '../../hooks/useApiKeyVerification.js';
 import type { IDESelection } from '../../hooks/useIdeSelection.js';
 import { useSettings } from '../../hooks/useSettings.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
-import { Box, Text, useInput } from '@anthropic/ink';
+import { Box, Text, useInput, useTheme } from '@anthropic/ink';
 import type { MCPServerConnection } from '../../services/mcp/types.js';
 import { useRegisterOverlay } from '../../context/overlayContext.js';
 import { useAppState, useSetAppState } from '../../state/AppState.js';
@@ -20,7 +20,8 @@ import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { getPipeDisplayRole, isPipeControlled } from '../../utils/pipeTransport.js';
 import { isUndercover } from '../../utils/undercover.js';
 import { CoordinatorTaskPanel, useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
-import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
+import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplayForTheme } from '../StatusLine.js';
+import type { Notification } from '../../context/notifications.js';
 import { Notifications } from './Notifications.js';
 import { PromptInputFooterLeftSide } from './PromptInputFooterLeftSide.js';
 
@@ -66,6 +67,20 @@ type Props = {
   onOpenTasksDialog?: (taskId?: string) => void;
 };
 
+export function shouldSuppressPromptFooterHint({
+  suppressHintFromProps,
+  showStatusLine,
+  isMatrixStatusLine: _isMatrixStatusLine,
+  isSearching,
+}: {
+  suppressHintFromProps: boolean;
+  showStatusLine: boolean;
+  isMatrixStatusLine: boolean;
+  isSearching: boolean;
+}): boolean {
+  return suppressHintFromProps || showStatusLine || isSearching;
+}
+
 function PromptInputFooter({
   apiKeyStatus,
   debug,
@@ -101,6 +116,7 @@ function PromptInputFooter({
   onOpenTasksDialog,
 }: Props): ReactNode {
   const settings = useSettings();
+  const [theme] = useTheme();
   const { columns, rows } = useTerminalSize();
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -122,7 +138,15 @@ function PromptInputFooter({
   const pillSelected = tasksSelected && (coordinatorTaskCount === 0 || coordinatorTaskIndex < 0);
 
   // Hide `? for shortcuts` if the user has a custom status line, or during ctrl-r
-  const suppressHint = suppressHintFromProps || statusLineShouldDisplay(settings) || isSearching;
+  const showStatusLine = statusLineShouldDisplayForTheme(settings, theme);
+  const isMatrixStatusLine = theme === 'matrix-tactical' && showStatusLine;
+  const currentNotification = useAppState(s => s.notifications.current);
+  const suppressHint = shouldSuppressPromptFooterHint({
+    suppressHintFromProps,
+    showStatusLine,
+    isMatrixStatusLine,
+    isSearching,
+  });
   // Fullscreen: portal data to FullscreenLayout — see promptOverlayContext.tsx
   const overlayData = useMemo(
     () => (isFullscreen && suggestions.length ? { suggestions, selectedSuggestion, maxColumnWidth } : null),
@@ -155,8 +179,29 @@ function PromptInputFooter({
         gap={isNarrow ? 0 : 1}
       >
         <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
-          {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && statusLineShouldDisplay(settings) && (
-            <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} />
+          {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && showStatusLine && (
+            <StatusLine
+              messagesRef={messagesRef}
+              lastAssistantMessageId={lastAssistantMessageId}
+              vimMode={vimMode}
+              matrixStatus={
+                isMatrixStatusLine
+                  ? {
+                      runText: isLoading ? 'esc to interrupt' : undefined,
+                      cueText: !isLoading && !suppressHintFromProps && !isSearching ? '? for shortcuts' : undefined,
+                      extraItems: buildMatrixStatusExtraItems({
+                        notification: currentNotification,
+                        apiKeyStatus,
+                        autoUpdaterResult,
+                        isAutoUpdating,
+                        bridgeSelected,
+                        debug,
+                        verbose,
+                      }),
+                    }
+                  : undefined
+              }
+            />
           )}
           <PipeStatusInline />
           <PromptInputFooterLeftSide
@@ -179,7 +224,7 @@ function PromptInputFooter({
           />
         </Box>
         <Box flexShrink={1} gap={1}>
-          {isFullscreen ? null : (
+          {isFullscreen || isMatrixStatusLine ? null : (
             <Notifications
               apiKeyStatus={apiKeyStatus}
               autoUpdaterResult={autoUpdaterResult}
@@ -205,6 +250,45 @@ function PromptInputFooter({
 }
 
 export default memo(PromptInputFooter);
+
+function buildMatrixStatusExtraItems({
+  notification,
+  apiKeyStatus,
+  autoUpdaterResult,
+  isAutoUpdating,
+  bridgeSelected,
+  debug,
+  verbose,
+}: {
+  notification: Notification | null;
+  apiKeyStatus: VerificationStatus;
+  autoUpdaterResult: AutoUpdaterResult | null;
+  isAutoUpdating: boolean;
+  bridgeSelected: boolean;
+  debug: boolean;
+  verbose: boolean;
+}): React.ReactNode[] {
+  const items: React.ReactNode[] = [];
+
+  if (notification) {
+    items.push('jsx' in notification ? notification.jsx : <Text color={notification.color}>{notification.text}</Text>);
+  }
+  if (apiKeyStatus === 'invalid' || apiKeyStatus === 'missing') {
+    items.push(<Text color="error">Not logged in · Run /login</Text>);
+  }
+  if (isAutoUpdating) {
+    items.push(<Text dimColor>Checking for updates</Text>);
+  } else if (autoUpdaterResult?.status === 'success') {
+    items.push(<Text color="success">Update installed · Restart to update</Text>);
+  } else if (autoUpdaterResult?.status === 'install_failed') {
+    items.push(<Text color="error">Auto-update failed · Try /status</Text>);
+  }
+  if (debug) items.push(<Text color="warning">Debug mode</Text>);
+  if (verbose) items.push(<Text dimColor>verbose</Text>);
+  items.push(<BridgeStatusIndicator bridgeSelected={bridgeSelected} />);
+
+  return items;
+}
 
 type BridgeStatusProps = {
   bridgeSelected: boolean;

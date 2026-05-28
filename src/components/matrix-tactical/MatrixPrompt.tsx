@@ -1,20 +1,16 @@
 import React from 'react';
-import { Box, Text } from '@anthropic/ink';
+import { Text } from '@anthropic/ink';
 import {
   formatMatrixPrefix,
   MATRIX_TACTICAL_TONE_TO_THEME_KEY,
 } from '../../utils/matrixTacticalPresentation.js';
 
 export function MatrixPromptCursor(): React.ReactNode {
-  return (
-    <Box>
-      <Text color="success">[costrict] &gt;&gt;</Text>
-    </Box>
-  );
+  return <Text color="success">[costrict] &gt;&gt; </Text>;
 }
 
 type HintProps = {
-  children: string | number;
+  children: React.ReactNode;
 };
 
 export function MatrixFooterHint({ children }: HintProps): React.ReactNode {

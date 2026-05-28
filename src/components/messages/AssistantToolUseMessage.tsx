@@ -35,6 +35,12 @@ type Props = {
   defaultCollapsed?: boolean;
 };
 
+type MatrixToolUseState = 'queued' | 'working' | 'success' | 'error';
+
+export function getMatrixToolUseProgressPercent(_state: MatrixToolUseState): number | undefined {
+  return undefined;
+}
+
 export function AssistantToolUseMessage({
   param,
   addMargin,
@@ -127,7 +133,7 @@ export function AssistantToolUseMessage({
   }
 
   if (isMatrixTacticalTheme(theme)) {
-    const state = lookups.erroredToolUseIDs.has(param.id)
+    const state: MatrixToolUseState = lookups.erroredToolUseIDs.has(param.id)
       ? 'error'
       : isResolved
         ? 'success'
@@ -141,8 +147,7 @@ export function AssistantToolUseMessage({
           detail={renderedToolUseMessage}
           tag={input.success ? tool.renderToolUseTag?.(input.data) : undefined}
           state={state}
-          // Indeterminate visual placeholder, not real business progress.
-          progressPercent={!isResolved && !isQueued ? 70 : undefined}
+          progressPercent={getMatrixToolUseProgressPercent(state)}
         />
         {!isResolved &&
           !isQueued &&

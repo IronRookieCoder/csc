@@ -9,6 +9,7 @@ import { MatrixStatusLineContent } from '../MatrixStatusLine.js';
 import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 import { formatCountdown } from '../../BuiltinStatusLine.js';
+import * as assistantToolUseMessageModule from '../../messages/AssistantToolUseMessage.js';
 
 function collectText(node: unknown): string {
   if (node == null || typeof node === 'boolean') return '';
@@ -36,7 +37,7 @@ function collectText(node: unknown): string {
 function hasTextWrappedBox(node: unknown, insideText = false): boolean {
   if (node == null || typeof node === 'boolean') return false;
   if (typeof node === 'string' || typeof node === 'number') return false;
-  if (Array.isArray(node)) return node.some((child) => hasTextWrappedBox(child, insideText));
+  if (Array.isArray(node)) return node.some(child => hasTextWrappedBox(child, insideText));
   if (React.isValidElement(node)) {
     if (
       node.type === MatrixWelcome ||
@@ -52,16 +53,14 @@ function hasTextWrappedBox(node: unknown, insideText = false): boolean {
       return hasTextWrappedBox(Component(node.props as { children?: React.ReactNode }), insideText);
     }
     if (node.type === Box && insideText) return true;
-    return hasTextWrappedBox(
-      (node.props as { children?: React.ReactNode }).children,
-      insideText || node.type === Text,
-    );
+    return hasTextWrappedBox((node.props as { children?: React.ReactNode }).children, insideText || node.type === Text);
   }
   return false;
 }
 
 function findPermissionTitleColor(node: unknown): unknown {
-  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return undefined;
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number')
+    return undefined;
   if (Array.isArray(node)) {
     for (const child of node) {
       const color = findPermissionTitleColor(child);
@@ -86,8 +85,8 @@ describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
     expect(text).toContain('██████╗ ██████╗');
-    expect(text).toContain('[SYS ]');
-    expect(text).toContain('[OK  ]');
+    expect(text).toContain('[SYS]');
+    expect(text).toContain('[OK]');
     expect(text).toContain('2.1.888');
   });
 });
@@ -99,7 +98,7 @@ describe('MatrixMessageLine', () => {
         分析指令意图
       </MatrixMessageLine>,
     );
-    expect(text).toContain('[RUN ]');
+    expect(text).toContain('[RUN]');
     expect(text).toContain('分析指令意图');
   });
 });
@@ -111,9 +110,9 @@ describe('MatrixPermissionFrame', () => {
         <span>npm install -D vitest</span>
       </MatrixPermissionFrame>,
     );
-    expect(text).toContain('[REQ ]');
+    expect(text).toContain('[REQ]');
     expect(text).toContain('Bash permission');
-    expect(text).toContain('[CUE ]');
+    expect(text).toContain('[CUE]');
     expect(text).toContain('npm install -D vitest');
   });
 
@@ -134,9 +133,16 @@ describe('MatrixPrompt', () => {
     expect(text).toContain('[costrict] >>');
   });
 
+  test('renders prompt cursor as a flat inline input prefix', () => {
+    const prompt = <MatrixPromptCursor />;
+    const text = collectText(prompt);
+    expect(text).toBe('[costrict] >> ');
+    expect(hasTextWrappedBox(prompt)).toBe(false);
+  });
+
   test('renders footer hint with CUE prefix', () => {
     const text = collectText(<MatrixFooterHint>shift+tab cycle mode</MatrixFooterHint>);
-    expect(text).toContain('[CUE ]');
+    expect(text).toContain('[CUE]');
     expect(text).toContain('shift+tab cycle mode');
   });
 
@@ -153,17 +159,23 @@ describe('MatrixPrompt', () => {
   });
 });
 
+describe('Matrix spinner colors', () => {
+  test('uses Matrix green for active spinner text instead of warning or error colors', () => {
+    const theme = require('../../../utils/theme.js').getTheme('matrix-tactical') as Record<string, string>;
+
+    expect(theme.claude).toBe('rgb(52,211,153)');
+    expect(theme.claudeShimmer).toBe('rgb(110,231,183)');
+    expect(theme.claude).not.toBe(theme.warning);
+    expect(theme.claude).not.toBe(theme.error);
+  });
+});
+
 describe('MatrixToolUseLine', () => {
   test('renders working tool line with ASCII progress', () => {
     const text = collectText(
-      <MatrixToolUseLine
-        name="Bash"
-        detail="bunx tsc --noEmit"
-        state="working"
-        progressPercent={70}
-      />,
+      <MatrixToolUseLine name="Bash" detail="bunx tsc --noEmit" state="working" progressPercent={70} />,
     );
-    expect(text).toContain('[RUN ]');
+    expect(text).toContain('[RUN]');
     expect(text).toContain('Bash');
     expect(text).toContain('bunx tsc --noEmit');
     expect(text).toContain('[====================>.........] 70%');
@@ -171,13 +183,13 @@ describe('MatrixToolUseLine', () => {
 
   test('renders errored tool line', () => {
     const text = collectText(<MatrixToolUseLine name="Bash" detail="exit 1" state="error" />);
-    expect(text).toContain('[ERR ]');
+    expect(text).toContain('[ERR]');
     expect(text).toContain('exit 1');
   });
 
   test('renders queued tool line with queued tone', () => {
     const text = collectText(<MatrixToolUseLine name="Bash" detail="waiting" state="queued" />);
-    expect(text).toContain('[RUN ]');
+    expect(text).toContain('[RUN]');
     expect(text).toContain('Bash');
     expect(text).toContain('waiting');
   });
@@ -203,6 +215,16 @@ describe('MatrixToolUseLine', () => {
   });
 });
 
+describe('Matrix tool progress source', () => {
+  test('does not invent a numeric progress percentage for active tools', () => {
+    const getMatrixToolUseProgressPercent = (assistantToolUseMessageModule as Record<string, unknown>)
+      .getMatrixToolUseProgressPercent;
+
+    expect(typeof getMatrixToolUseProgressPercent).toBe('function');
+    expect((getMatrixToolUseProgressPercent as (state: 'working') => number | undefined)('working')).toBeUndefined();
+  });
+});
+
 describe('MatrixStatusLine', () => {
   test('renders CSC status fields with Matrix prefix', () => {
     const sessionReset = Math.floor(Date.now() / 1000) + 3600;
@@ -215,6 +237,10 @@ describe('MatrixStatusLine', () => {
         contextWindowSize={200000}
         totalCostUsd={0.02}
         cacheText="Cache 82% 42:10"
+        permissionMode="bypassPermissions"
+        effortLevel="high"
+        memoryText="271MB · pid:32784"
+        cueText="? for shortcuts"
         rateLimits={{
           five_hour: { utilization: 0.03, resets_at: sessionReset },
           seven_day: { utilization: 0.07, resets_at: weeklyReset },
@@ -230,6 +256,28 @@ describe('MatrixStatusLine', () => {
     expect(text).toContain(formatCountdown(weeklyReset));
     expect(text).toContain('$0.02');
     expect(text).toContain('Cache 82% 42:10');
+    expect(text).toContain('bypass on');
+    expect(text).toContain('Effort high');
+    expect(text).toContain('271MB · pid:32784');
+    expect(text).toContain('[CUE]');
+    expect(text).toContain('? for shortcuts');
+  });
+
+  test('renders working hint inside the status line', () => {
+    const text = collectText(
+      <MatrixStatusLineContent
+        modelName="Sonnet"
+        contextUsedPct={0}
+        usedTokens={0}
+        contextWindowSize={200000}
+        totalCostUsd={0}
+        runText="esc to interrupt"
+        rateLimits={{}}
+      />,
+    );
+
+    expect(text).toContain('[RUN]');
+    expect(text).toContain('esc to interrupt');
   });
 
   test('omits optional rate limit, cost, and cache fields when unavailable', () => {

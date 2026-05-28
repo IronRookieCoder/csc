@@ -47,6 +47,11 @@ import { computeHitRate, tokenSignature } from '../utils/cacheStats.js';
 import { onResponse as cacheOnResponse, getCacheStatsState, initCacheStatsState } from '../utils/cacheStatsState.js';
 import { BuiltinStatusLine } from './BuiltinStatusLine.js';
 import { MatrixStatusLine } from './matrix-tactical/MatrixStatusLine.js';
+import { getDisplayedEffortLevel } from '../utils/effort.js';
+import { formatFileSize } from '../utils/format.js';
+import { getGlobalConfig } from '../utils/config.js';
+import { isDefaultMode } from '../utils/permissions/PermissionMode.js';
+import { useTerminalSize } from '../hooks/useTerminalSize.js';
 
 // ---------------------------------------------------------------------------
 // CachePill — cache hit-rate + 1-hour TTL countdown pill
@@ -169,6 +174,10 @@ export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   return settings?.statusLineEnabled === true || !!settings?.statusLine?.command;
 }
 
+export function statusLineShouldDisplayForTheme(settings: ReadonlySettings, theme: string): boolean {
+  return isMatrixTacticalTheme(theme) || statusLineShouldDisplay(settings);
+}
+
 function buildStatusLineCommandInput(
   permissionMode: PermissionMode,
   exceeds200kTokens: boolean,
@@ -276,21 +285,28 @@ type Props = {
   messagesRef: React.RefObject<Message[]>;
   lastAssistantMessageId: string | null;
   vimMode?: VimMode;
+  matrixStatus?: {
+    runText?: string;
+    cueText?: string;
+    extraItems?: React.ReactNode[];
+  };
 };
 
 export function getLastAssistantMessageId(messages: Message[]): string | null {
   return getLastAssistantMessage(messages)?.uuid ?? null;
 }
 
-function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props): React.ReactNode {
+function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode, matrixStatus }: Props): React.ReactNode {
   const abortControllerRef = useRef<AbortController | undefined>(undefined);
   const permissionMode = useAppState(s => s.toolPermissionContext.mode);
+  const effortValue = useAppState(s => s.effortValue);
   const additionalWorkingDirectories = useAppState(s => s.toolPermissionContext.additionalWorkingDirectories);
   const statusLineText = useAppState(s => s.statusLineText);
   const setAppState = useSetAppState();
   const settings = useSettings();
   const { addNotification } = useNotifications();
   const [theme] = useTheme();
+  const { columns } = useTerminalSize();
   // AppState-sourced model — same source as API requests. getMainLoopModel()
   // re-reads settings.json on every call, so another session's /model write
   // would leak into this session's statusline (anthropics/claude-code#37596).
@@ -503,18 +519,28 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
     }),
   };
 
+  const isMatrix = isMatrixTacticalTheme(theme);
+  const cacheText = <CachePill messages={messagesRef.current} />;
+  const matrixPermissionMode = !isDefaultMode(permissionMode) && !getIsRemoteMode() ? permissionMode : undefined;
+  const matrixMemoryText =
+    (getGlobalConfig().showMemoryPid ?? true)
+      ? `${formatFileSize(process.memoryUsage().rss)} · pid:${process.pid}`
+      : undefined;
+  const matrixSeparatorWidth = Math.max(0, columns - 4);
+
   // BuiltinStatusLine + CachePill: only when statusLineEnabled is explicitly true.
   // Shell command output: only when a statusLine.command is configured.
   // These are independent — a user can have one, both, or neither.
-  const showBuiltin = settings?.statusLineEnabled === true;
+  const showBuiltin = settings?.statusLineEnabled === true || isMatrix;
   const hasShellCommand = !!settings?.statusLine?.command;
 
   return (
     <Box flexDirection="column" paddingX={paddingX}>
       {/* Top: built-in fork status (model | ctx | 5h | 7d | cost) + Cache pill */}
       {showBuiltin && (
-        <Box gap={2}>
-          {isMatrixTacticalTheme(theme) ? (
+        <Box flexDirection={isMatrix ? 'column' : 'row'} gap={isMatrix ? 0 : 2} width={isMatrix ? '100%' : undefined}>
+          {isMatrix ? <Text color="promptBorder">{'─'.repeat(matrixSeparatorWidth)}</Text> : null}
+          {isMatrix ? (
             <MatrixStatusLine
               modelName={renderModelName(builtinRuntimeModel)}
               contextUsedPct={builtinContextPct}
@@ -522,19 +548,27 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
               contextWindowSize={builtinContextWindowSize}
               totalCostUsd={getTotalCost()}
               rateLimits={builtinRateLimits}
-              cacheText={undefined}
+              cacheText={cacheText}
+              permissionMode={matrixPermissionMode}
+              effortLevel={getDisplayedEffortLevel(builtinRuntimeModel, effortValue)}
+              memoryText={matrixMemoryText}
+              runText={matrixStatus?.runText}
+              cueText={matrixStatus?.cueText}
+              extraItems={matrixStatus?.extraItems}
             />
           ) : (
-            <BuiltinStatusLine
-              modelName={renderModelName(builtinRuntimeModel)}
-              contextUsedPct={builtinContextPct}
-              usedTokens={builtinUsedTokens}
-              contextWindowSize={builtinContextWindowSize}
-              totalCostUsd={getTotalCost()}
-              rateLimits={builtinRateLimits}
-            />
+            <>
+              <BuiltinStatusLine
+                modelName={renderModelName(builtinRuntimeModel)}
+                contextUsedPct={builtinContextPct}
+                usedTokens={builtinUsedTokens}
+                contextWindowSize={builtinContextWindowSize}
+                totalCostUsd={getTotalCost()}
+                rateLimits={builtinRateLimits}
+              />
+              {cacheText}
+            </>
           )}
-          <CachePill messages={messagesRef.current} />
         </Box>
       )}
       {/* Bottom: user-configured /statusline shell stdout (reserves row in fullscreen) */}

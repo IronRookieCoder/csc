@@ -9,9 +9,9 @@ import {
 } from '../matrixTacticalPresentation.js';
 
 describe('matrixTacticalPresentation', () => {
-  test('formatMatrixPrefix pads short labels inside brackets', () => {
-    expect(formatMatrixPrefix('OK')).toBe('[OK  ]');
-    expect(formatMatrixPrefix('SYS')).toBe('[SYS ]');
+  test('formatMatrixPrefix keeps labels source-aligned without padding spaces', () => {
+    expect(formatMatrixPrefix('OK')).toBe('[OK]');
+    expect(formatMatrixPrefix('SYS')).toBe('[SYS]');
     expect(formatMatrixPrefix('ABORT')).toBe('[ABORT]');
   });
 
@@ -20,11 +20,11 @@ describe('matrixTacticalPresentation', () => {
   });
 
   test('matrixScenarioPrefix returns canonical labels', () => {
-    expect(matrixScenarioPrefix('startup')).toBe('[SYS ]');
-    expect(matrixScenarioPrefix('working')).toBe('[RUN ]');
-    expect(matrixScenarioPrefix('waiting_permission')).toBe('[REQ ]');
-    expect(matrixScenarioPrefix('completed')).toBe('[OK  ]');
-    expect(matrixScenarioPrefix('blocked')).toBe('[ERR ]');
+    expect(matrixScenarioPrefix('startup')).toBe('[SYS]');
+    expect(matrixScenarioPrefix('working')).toBe('[RUN]');
+    expect(matrixScenarioPrefix('waiting_permission')).toBe('[REQ]');
+    expect(matrixScenarioPrefix('completed')).toBe('[OK]');
+    expect(matrixScenarioPrefix('blocked')).toBe('[ERR]');
   });
 
   test('formatMatrixProgress renders ASCII only', () => {

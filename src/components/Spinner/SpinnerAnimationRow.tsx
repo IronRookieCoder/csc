@@ -1,10 +1,11 @@
 import figures from 'figures';
 import * as React from 'react';
 import { useMemo, useRef } from 'react';
-import { Box, Text, useAnimationFrame, stringWidth, Byline } from '@anthropic/ink';
+import { Box, Text, useAnimationFrame, stringWidth, Byline, useTheme } from '@anthropic/ink';
 import { toInkColor } from '../../utils/ink.js';
 import type { InProcessTeammateTaskState } from '../../tasks/InProcessTeammateTask/types.js';
 import { formatDuration, formatNumber } from '../../utils/format.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 
 import type { Theme } from '../../utils/theme.js';
 
@@ -93,6 +94,8 @@ export function SpinnerAnimationRow({
   thinkingStatus,
   effortSuffix,
 }: SpinnerAnimationRowProps): React.ReactNode {
+  const [theme] = useTheme();
+  const isMatrix = isMatrixTacticalTheme(theme);
   const [viewportRef, time] = useAnimationFrame(reducedMotion ? null : 50);
 
   // === Elapsed time (wall-clock, derived from refs each frame) ===
@@ -252,7 +255,7 @@ export function SpinnerAnimationRow({
     ...(showThinking && thinkingText
       ? [
           thinkingStatus === 'thinking' && !reducedMotion ? (
-            <Text key="thinking" color={thinkingShimmerColor}>
+            <Text key="thinking" color={isMatrix ? 'success' : thinkingShimmerColor}>
               {thinkingOnly ? `(${thinkingText})` : thinkingText}
             </Text>
           ) : (

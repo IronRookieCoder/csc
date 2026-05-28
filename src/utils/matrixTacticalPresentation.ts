@@ -49,7 +49,7 @@ export function isMatrixTacticalTheme(theme: string): boolean {
 
 export function formatMatrixPrefix(label: string): string {
   const normalized = label.trim().toUpperCase();
-  return `[${normalized.padEnd(4).slice(0, 5)}]`;
+  return `[${normalized.slice(0, 5)}]`;
 }
 
 export function matrixScenarioPrefix(scenario: MatrixScenario): string {

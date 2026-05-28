@@ -46,7 +46,6 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { getPlatform } from '../../utils/platform.js';
 import { PrBadge } from '../PrBadge.js';
 import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
-import { MatrixFooterHint } from '../matrix-tactical/MatrixPrompt.js';
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -148,6 +147,9 @@ export function PromptInputFooterLeftSide({
   historyFailedMatch,
   onOpenTasksDialog,
 }: Props): React.ReactNode {
+  const [theme] = useTheme();
+  const isMatrix = isMatrixTacticalTheme(theme);
+
   if (exitMessage.show) {
     return (
       <Text dimColor key="exit-message">
@@ -161,6 +163,15 @@ export function PromptInputFooterLeftSide({
         Pasting text…
       </Text>
     );
+  }
+
+  if (isMatrix) {
+    if (isSearching) {
+      return (
+        <HistorySearchInput value={historyQuery} onChange={setHistoryQuery} historyFailedMatch={historyFailedMatch} />
+      );
+    }
+    return isFullscreenEnvEnabled() ? <Text> </Text> : null;
   }
 
   const showVim = isVimModeEnabled() && vimMode === 'INSERT' && !isSearching;
@@ -214,8 +225,6 @@ function ModeIndicator({
   onOpenTasksDialog,
 }: ModeIndicatorProps): React.ReactNode {
   const { columns } = useTerminalSize();
-  const [theme] = useTheme();
-  const isMatrix = isMatrixTacticalTheme(theme);
   const modeCycleShortcut = useShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab');
   const tasks = useAppState(s => s.tasks);
   const teamContext = useAppState(s => s.teamContext);
@@ -461,13 +470,9 @@ function ModeIndicator({
 
   if (parts.length === 0 && !tasksPart && !modePart && showHint) {
     parts.push(
-      isMatrix ? (
-        <MatrixFooterHint key="shortcuts-hint">? for shortcuts</MatrixFooterHint>
-      ) : (
-        <Text dimColor key="shortcuts-hint">
-          ? for shortcuts
-        </Text>
-      ),
+      <Text dimColor key="shortcuts-hint">
+        ? for shortcuts
+      </Text>,
     );
   }
 

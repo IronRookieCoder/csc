@@ -1,6 +1,6 @@
 import figures from 'figures';
 import * as React from 'react';
-import { Box, Text } from '@anthropic/ink';
+import { Box, Text, useTheme } from '@anthropic/ink';
 import {
   AGENT_COLOR_TO_THEME_COLOR,
   AGENT_COLORS,
@@ -10,6 +10,8 @@ import type { PromptInputMode } from 'src/types/textInputTypes.js';
 import { getTeammateColor } from 'src/utils/teammate.js';
 import type { Theme } from 'src/utils/theme.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
+import { MatrixPromptCursor } from '../matrix-tactical/MatrixPrompt.js';
 
 type Props = {
   mode: PromptInputMode;
@@ -65,6 +67,15 @@ export function PromptInputModeIndicator({
   viewingAgentName,
   viewingAgentColor,
 }: Props): React.ReactNode {
+  const [theme] = useTheme();
+  if (isMatrixTacticalTheme(theme) && mode !== 'bash' && !viewingAgentName) {
+    return (
+      <Box alignItems="flex-start" alignSelf="flex-start" flexWrap="nowrap" justifyContent="flex-start">
+        <MatrixPromptCursor />
+      </Box>
+    );
+  }
+
   const teammateColor = getTeammateThemeColor();
 
   // Convert viewed teammate's color to theme color

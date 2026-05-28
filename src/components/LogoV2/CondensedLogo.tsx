@@ -2,14 +2,16 @@ import * as React from 'react';
 import { type ReactNode, useEffect } from 'react';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
-import { Box, Text, stringWidth } from '@anthropic/ink';
+import { Box, Text, stringWidth, useTheme } from '@anthropic/ink';
 import { useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
 import { truncate } from '../../utils/format.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { formatModelAndBilling, getLogoDisplayData, isNotLoggedIn, truncatePath } from '../../utils/logoV2Utils.js';
 import { renderModelSetting } from '../../utils/model/model.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 import { OffscreenFreeze } from '../OffscreenFreeze.js';
+import { MatrixWelcome } from '../matrix-tactical/MatrixWelcome.js';
 import { AnimatedClawd } from './AnimatedClawd.js';
 import { Clawd } from './Clawd.js';
 import { GuestPassesUpsell, incrementGuestPassesSeenCount, useShowGuestPassesUpsell } from './GuestPassesUpsell.js';
@@ -21,6 +23,7 @@ import {
 
 export function CondensedLogo(): ReactNode {
   const { columns } = useTerminalSize();
+  const [theme] = useTheme();
   const agent = useAppState(s => s.agent);
   const effortValue = useAppState(s => s.effortValue);
   // Subscribe to authVersion to re-render after login/logout
@@ -46,6 +49,14 @@ export function CondensedLogo(): ReactNode {
       incrementOverageCreditUpsellSeenCount();
     }
   }, [showOverageCreditUpsell, showGuestPassesUpsell]);
+
+  if (isMatrixTacticalTheme(theme)) {
+    return (
+      <OffscreenFreeze>
+        <MatrixWelcome version={version} />
+      </OffscreenFreeze>
+    );
+  }
 
   // Calculate available width for text content
   // Account for: condensed clawd width (11 chars) + gap (2) + padding (2) = 15 chars
