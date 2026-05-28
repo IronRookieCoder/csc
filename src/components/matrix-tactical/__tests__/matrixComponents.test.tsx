@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Byline, Text } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
+import { formatFallbackToolUseError } from '../../FallbackToolUseErrorMessage.js';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
 import { MatrixPermissionFrame } from '../MatrixPermissionFrame.js';
@@ -10,6 +11,11 @@ import { MatrixToolUseLine } from '../MatrixToolUseLine.js';
 import { PermissionRequestTitle } from '../../permissions/PermissionRequestTitle.js';
 import { formatCountdown } from '../../BuiltinStatusLine.js';
 import * as assistantToolUseMessageModule from '../../messages/AssistantToolUseMessage.js';
+import {
+  formatMatrixDivider,
+  matrixActionPrefix,
+  matrixToolPrefixForName,
+} from '../../../utils/matrixTacticalPresentation.js';
 
 function collectText(node: unknown): string {
   if (node == null || typeof node === 'boolean') return '';
@@ -81,12 +87,12 @@ function findPermissionTitleColor(node: unknown): unknown {
   return undefined;
 }
 
-function findFirstBoxProps(node: unknown): Record<string, unknown> | undefined {
+function findBoxPropsWithKey(node: unknown, key: string): Record<string, unknown> | undefined {
   if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number')
     return undefined;
   if (Array.isArray(node)) {
     for (const child of node) {
-      const props = findFirstBoxProps(child);
+      const props = findBoxPropsWithKey(child, key);
       if (props !== undefined) return props;
     }
     return undefined;
@@ -94,10 +100,12 @@ function findFirstBoxProps(node: unknown): Record<string, unknown> | undefined {
   if (React.isValidElement(node)) {
     if (node.type === MatrixStatusLineContent) {
       const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
-      return findFirstBoxProps(Component(node.props as { children?: React.ReactNode }));
+      return findBoxPropsWithKey(Component(node.props as { children?: React.ReactNode }), key);
     }
-    if (node.type === Box) return node.props as Record<string, unknown>;
-    return findFirstBoxProps((node.props as { children?: React.ReactNode }).children);
+    if (node.type === Box && Object.hasOwn(node.props as Record<string, unknown>, key)) {
+      return node.props as Record<string, unknown>;
+    }
+    return findBoxPropsWithKey((node.props as { children?: React.ReactNode }).children, key);
   }
   return undefined;
 }
@@ -128,8 +136,8 @@ describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
     expect(text).toContain('██████╗ ██████╗');
-    expect(text).toContain('[SYS]');
-    expect(text).toContain('[OK]');
+    expect(text).toContain('costrict Console CLI version 2.1.888');
+    expect(text).toContain('Local context and configuration ready');
     expect(text).toContain('2.1.888');
   });
 });
@@ -143,6 +151,37 @@ describe('MatrixMessageLine', () => {
     );
     expect(text).toContain('[RUN]');
     expect(text).toContain('分析指令意图');
+  });
+
+  test('does not double-wrap preformatted labels', () => {
+    const text = collectText(
+      <MatrixMessageLine label="[OK]" tone="success">
+        Bash
+      </MatrixMessageLine>,
+    );
+
+    expect(text).toBe('[OK] Bash');
+  });
+});
+
+describe('Matrix presentation helpers', () => {
+  test('formats action prefixes without padding noise', () => {
+    expect(matrixActionPrefix('think')).toBe('[THINK]');
+    expect(matrixActionPrefix('run')).toBe('[RUN]');
+    expect(matrixActionPrefix('write')).toBe('[WRITE]');
+    expect(matrixActionPrefix('abort')).toBe('[ABORT]');
+  });
+
+  test('maps tool names to demo-like action prefixes', () => {
+    expect(matrixToolPrefixForName('Bash', 'working')).toBe('[RUN]');
+    expect(matrixToolPrefixForName('PowerShell', 'working')).toBe('[RUN]');
+    expect(matrixToolPrefixForName('FileWrite', 'working')).toBe('[WRITE]');
+    expect(matrixToolPrefixForName('FileEdit', 'working')).toBe('[WRITE]');
+    expect(matrixToolPrefixForName('Search', 'working')).toBe('[THINK]');
+  });
+
+  test('renders divider with stable width', () => {
+    expect(formatMatrixDivider(12)).toBe('────────────');
   });
 });
 
@@ -199,6 +238,28 @@ describe('MatrixPrompt', () => {
     );
 
     expect(hasTextWrappedBox(footer)).toBe(false);
+  });
+});
+
+describe('Matrix action wrappers', () => {
+  test('formats thinking rows with Matrix prefix', () => {
+    const text = `${matrixActionPrefix('think')} Thinking`;
+
+    expect(text).toBe('[THINK] Thinking');
+  });
+
+  test('formats fallback tool errors for Matrix error rows', () => {
+    const text = `${matrixActionPrefix('err')} ${formatFallbackToolUseError('Error: boom', false)}`;
+
+    expect(text).toContain('[ERR]');
+    expect(text).toContain('boom');
+  });
+
+  test('formats interrupted state with Matrix abort prefix', () => {
+    const text = `${matrixActionPrefix('abort')} Interrupted`;
+
+    expect(text).toContain('[ABORT]');
+    expect(text).toContain('Interrupted');
   });
 });
 
@@ -280,7 +341,7 @@ describe('MatrixStatusLine', () => {
         rateLimits={{}}
       />
     );
-    const props = findFirstBoxProps(line);
+    const props = findBoxPropsWithKey(line, 'borderColor');
     const contentProps = findBoxPropsAtDepth(line, 2);
 
     expect(props?.width).toBe('100%');
@@ -288,7 +349,7 @@ describe('MatrixStatusLine', () => {
     expect(props?.borderColor).toBe('rate_limit_empty');
     expect(props?.borderTop).toBe(true);
     expect(props?.borderBottom).toBe(false);
-    expect(props?.marginTop).toBe(6);
+    expect(props?.marginTop).toBe(3);
     expect(props?.paddingX).toBeUndefined();
     expect(contentProps?.paddingX).toBeUndefined();
     expect(collectText(line)).not.toContain('────');

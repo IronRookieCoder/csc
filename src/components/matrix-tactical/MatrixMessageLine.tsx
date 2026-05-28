@@ -13,10 +13,11 @@ type Props = {
 };
 
 export function MatrixMessageLine({ label, tone = 'meta', children }: Props): React.ReactNode {
+  const color = MATRIX_TACTICAL_TONE_TO_THEME_KEY[tone];
   return (
     <Box>
-      <Text color={MATRIX_TACTICAL_TONE_TO_THEME_KEY[tone]}>{formatMatrixPrefix(label)} </Text>
-      <Text color={tone === 'input' ? 'text' : MATRIX_TACTICAL_TONE_TO_THEME_KEY[tone]}>{children}</Text>
+      <Text color={color}>{formatMatrixPrefix(label)} </Text>
+      <Text color={tone === 'input' ? 'text' : color}>{children}</Text>
     </Box>
   );
 }

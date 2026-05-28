@@ -3,6 +3,7 @@ import { Box, Text } from '@anthropic/ink';
 import { formatCost } from '../../cost-tracker.js';
 import { formatTokens } from '../../utils/format.js';
 import type { EffortLevel } from '../../utils/effort.js';
+import { matrixActionPrefix } from '../../utils/matrixTacticalPresentation.js';
 import { getModeColor, permissionModeTitle, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { formatCountdown } from '../BuiltinStatusLine.js';
 
@@ -78,7 +79,7 @@ export function MatrixStatusLineContent({
       borderLeft={false}
       borderRight={false}
       borderColor="rate_limit_empty"
-      marginTop={6}
+      marginTop={3}
     >
       <Box gap={1} flexWrap="wrap" width="100%">
         <Text color="success">[STAT]</Text>
@@ -133,14 +134,14 @@ export function MatrixStatusLineContent({
         {runText ? (
           <>
             <Text color="inactive">| </Text>
-            <Text color="warning">[RUN]</Text>
+            <Text color="warning">{matrixActionPrefix('run')}</Text>
             <Text>{runText}</Text>
           </>
         ) : null}
         {cueText ? (
           <>
             <Text color="inactive">| </Text>
-            <Text color="inactive">[CUE]</Text>
+            <Text color="inactive">{matrixActionPrefix('cue')}</Text>
             <Text dimColor>{cueText}</Text>
           </>
         ) : null}

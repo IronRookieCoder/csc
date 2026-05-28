@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from '@anthropic/ink';
-import { formatMatrixProgress } from '../../utils/matrixTacticalPresentation.js';
+import { formatMatrixProgress, matrixToolPrefixForName } from '../../utils/matrixTacticalPresentation.js';
 import { MatrixMessageLine } from './MatrixMessageLine.js';
 
 type MatrixToolState = 'queued' | 'working' | 'success' | 'error';
@@ -12,19 +12,6 @@ type Props = {
   state: MatrixToolState;
   progressPercent?: number;
 };
-
-function labelForState(state: MatrixToolState): string {
-  switch (state) {
-    case 'queued':
-      return 'RUN';
-    case 'working':
-      return 'RUN';
-    case 'success':
-      return 'OK';
-    case 'error':
-      return 'ERR';
-  }
-}
 
 function toneForState(state: MatrixToolState): 'meta' | 'warning' | 'success' | 'error' {
   switch (state) {
@@ -43,7 +30,7 @@ export function MatrixToolUseLine({ name, detail, tag, state, progressPercent }:
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" flexWrap="wrap">
-        <MatrixMessageLine label={labelForState(state)} tone={toneForState(state)}>
+        <MatrixMessageLine label={matrixToolPrefixForName(name, state)} tone={toneForState(state)}>
           {name}
           {detail ? <Text color="text"> ({detail})</Text> : null}
         </MatrixMessageLine>

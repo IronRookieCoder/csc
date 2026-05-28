@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from '@anthropic/ink';
-import { MATRIX_TACTICAL_BANNER_LINES } from '../../utils/matrixTacticalPresentation.js';
+import { formatMatrixDivider, MATRIX_TACTICAL_BANNER_LINES } from '../../utils/matrixTacticalPresentation.js';
 import { MatrixMessageLine } from './MatrixMessageLine.js';
 
 type Props = {
@@ -19,7 +19,7 @@ export function MatrixWelcome({ version = MACRO.VERSION }: Props): React.ReactNo
       </Box>
       <Text> </Text>
       <MatrixMessageLine label="SYS" tone="meta">
-        costrict cli version {version}
+        costrict Console CLI version {version}
       </MatrixMessageLine>
       <MatrixMessageLine label="SYS" tone="meta">
         Matrix Tactical terminal theme active
@@ -27,7 +27,7 @@ export function MatrixWelcome({ version = MACRO.VERSION }: Props): React.ReactNo
       <MatrixMessageLine label="OK" tone="success">
         Local context and configuration ready
       </MatrixMessageLine>
-      <Text color="inactive">────────────────────────────────────────────────────────────</Text>
+      <Text color="inactive">{formatMatrixDivider(60)}</Text>
       <MatrixMessageLine label="LOG" tone="meta">
         Type "help" or "?" to view available tactical options.
       </MatrixMessageLine>

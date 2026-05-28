@@ -1,6 +1,7 @@
 import type { ThinkingBlock, ThinkingBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import React from 'react';
-import { Box, Text } from '@anthropic/ink';
+import { Box, Text, useTheme } from '@anthropic/ink';
+import { isMatrixTacticalTheme, matrixActionPrefix } from '../../utils/matrixTacticalPresentation.js';
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
 import { Markdown } from '../Markdown.js';
 
@@ -21,6 +22,7 @@ export function AssistantThinkingMessage({
   verbose,
   hideInTranscript = false,
 }: Props): React.ReactNode {
+  const [theme] = useTheme();
   if (!thinking) {
     return null;
   }
@@ -30,12 +32,12 @@ export function AssistantThinkingMessage({
   }
 
   const shouldShowFullThinking = isTranscriptMode || verbose;
-  const label = '∴ Thinking';
+  const label = isMatrixTacticalTheme(theme) ? `${matrixActionPrefix('think')} Thinking` : '∴ Thinking';
 
   if (!shouldShowFullThinking) {
     return (
       <Box marginTop={addMargin ? 1 : 0}>
-        <Text dimColor italic>
+        <Text dimColor>
           {label} <CtrlOToExpand />
         </Text>
       </Box>

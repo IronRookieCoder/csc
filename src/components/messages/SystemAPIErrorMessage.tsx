@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { Box, Text } from '@anthropic/ink';
+import { Box, Text, useTheme } from '@anthropic/ink';
 import { formatAPIError } from '@ant/model-provider';
 import type { SystemAPIErrorMessage } from 'src/types/message.js';
 import { useInterval } from 'usehooks-ts';
+import { isMatrixTacticalTheme, matrixActionPrefix } from '../../utils/matrixTacticalPresentation.js';
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
 import { MessageResponse } from '../MessageResponse.js';
 
@@ -18,6 +19,7 @@ export function SystemAPIErrorMessage({
   message: { retryAttempt, error, retryInMs, maxRetries },
   verbose,
 }: Props): React.ReactNode {
+  const [theme] = useTheme();
   const _retryAttempt = retryAttempt as number;
   const _retryInMs = retryInMs as number;
   const _maxRetries = maxRetries as number;
@@ -38,11 +40,14 @@ export function SystemAPIErrorMessage({
 
   const formatted = formatAPIError(_error);
   const truncated = !verbose && formatted.length > MAX_API_ERROR_CHARS;
+  const errorPrefix = isMatrixTacticalTheme(theme) ? `${matrixActionPrefix('err')} ` : '';
 
   return (
     <MessageResponse>
       <Box flexDirection="column">
-        <Text color="error">{truncated ? formatted.slice(0, MAX_API_ERROR_CHARS) + '…' : formatted}</Text>
+        <Text color="error">
+          {errorPrefix}{truncated ? formatted.slice(0, MAX_API_ERROR_CHARS) + '…' : formatted}
+        </Text>
         {truncated && <CtrlOToExpand />}
         <Text dimColor>
           Retrying in {retryInSecondsLive} {retryInSecondsLive === 1 ? 'second' : 'seconds'}… (attempt {_retryAttempt}/

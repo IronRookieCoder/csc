@@ -11,6 +11,7 @@ export type MatrixScenario =
   | 'blocked';
 
 export type MatrixTone = 'primary' | 'success' | 'warning' | 'permission' | 'error' | 'meta' | 'input';
+export type MatrixAction = 'think' | 'run' | 'write' | 'req' | 'ok' | 'err' | 'abort' | 'cue';
 
 export const MATRIX_TACTICAL_THEME_NAME = 'matrix-tactical' as const;
 export const MATRIX_TACTICAL_MIGRATION_VERSION = 1;
@@ -49,7 +50,54 @@ export function isMatrixTacticalTheme(theme: string): boolean {
 
 export function formatMatrixPrefix(label: string): string {
   const normalized = label.trim().toUpperCase();
+  if (/^\[[^\[\]]+\]$/.test(normalized)) {
+    return normalized;
+  }
   return `[${normalized.slice(0, 5)}]`;
+}
+
+export function matrixActionPrefix(action: MatrixAction): string {
+  switch (action) {
+    case 'think':
+      return '[THINK]';
+    case 'run':
+      return '[RUN]';
+    case 'write':
+      return '[WRITE]';
+    case 'req':
+      return '[REQ]';
+    case 'ok':
+      return '[OK]';
+    case 'err':
+      return '[ERR]';
+    case 'abort':
+      return '[ABORT]';
+    case 'cue':
+      return '[CUE]';
+  }
+}
+
+export function matrixToolPrefixForName(name: string, state: 'queued' | 'working' | 'success' | 'error'): string {
+  const normalized = name.trim().toLowerCase();
+  if (state === 'error') return matrixActionPrefix('err');
+  if (state === 'success') return matrixActionPrefix('ok');
+  if (
+    normalized.includes('write') ||
+    normalized.includes('edit') ||
+    normalized.includes('patch') ||
+    normalized.includes('replace')
+  ) {
+    return matrixActionPrefix('write');
+  }
+  if (normalized.includes('think') || normalized.includes('search') || normalized.includes('read')) {
+    return matrixActionPrefix('think');
+  }
+  return matrixActionPrefix('run');
+}
+
+export function formatMatrixDivider(width = 58): string {
+  const safeWidth = Number.isFinite(width) ? Math.max(1, Math.round(width)) : 58;
+  return '─'.repeat(safeWidth);
 }
 
 export function matrixScenarioPrefix(scenario: MatrixScenario): string {
