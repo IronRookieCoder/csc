@@ -82,35 +82,38 @@ export function MatrixStatusLineContent({
       marginTop={3}
     >
       <Box gap={1} flexWrap="wrap" width="100%">
-        <Text color="success">[STAT]</Text>
-        <Text>{modelName}</Text>
-        <Text color="inactive">| Context </Text>
-        <Text>{contextUsedPct}%</Text>
+        <Text color="ansi:cyan">[STAT]</Text>
+        <Text color="text">{modelName}</Text>
+        <Text color="inactive">| </Text>
+        <Text color="ansi:cyan">Context </Text>
+        <Text color="text">{contextUsedPct}%</Text>
         <Text color="inactive"> ({tokenDisplay})</Text>
         {sessionPct !== null && (
           <>
-            <Text color="inactive">| Session </Text>
-            <Text>{sessionPct}%</Text>
+            <Text color="inactive">| </Text>
+            <Text color="warning">Session </Text>
+            <Text color="text">{sessionPct}%</Text>
             {sessionReset && <Text color="inactive"> {sessionReset}</Text>}
           </>
         )}
         {weeklyPct !== null && (
           <>
-            <Text color="inactive">| Weekly </Text>
-            <Text>{weeklyPct}%</Text>
+            <Text color="inactive">| </Text>
+            <Text color="ansi:magenta">Weekly </Text>
+            <Text color="text">{weeklyPct}%</Text>
             {weeklyReset && <Text color="inactive"> {weeklyReset}</Text>}
           </>
         )}
         {totalCostUsd > 0 && (
           <>
             <Text color="inactive">| </Text>
-            <Text>{formatCost(totalCostUsd)}</Text>
+            <Text color="success">{formatCost(totalCostUsd)}</Text>
           </>
         )}
         {cacheText ? (
           <>
             <Text color="inactive">| </Text>
-            {typeof cacheText === 'string' ? <Text>{cacheText}</Text> : cacheText}
+            {typeof cacheText === 'string' ? <Text color="ansi:magenta">{cacheText}</Text> : cacheText}
           </>
         ) : null}
         {permissionMode ? (
