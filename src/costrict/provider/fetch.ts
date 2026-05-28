@@ -3,7 +3,6 @@
  * 动态注入 Authorization header 并处理 token 刷新
  */
 
-import { randomUUID } from 'node:crypto'
 import {
   loadCoStrictCredentials,
   saveCoStrictCredentials,
@@ -13,6 +12,7 @@ import {
   refreshCoStrictToken,
   extractExpiryFromJWT,
 } from './token.js'
+import { createUuidV7 } from '../../utils/uuid.js'
 
 import { createRequire } from 'module'
 
@@ -105,7 +105,7 @@ export function createCoStrictFetch(options?: {
     headers.set('HTTP-Referer', 'https://github.com/zgsm-ai/costrict-cli')
     headers.set('X-Title', 'CoStrict-CLI')
     headers.set('X-Costrict-Version', `costrict-cli-${VERSION}`)
-    headers.set('X-Request-ID', randomUUID())
+    headers.set('X-Request-ID', createUuidV7())
     headers.set('agent-type', agentType)
     headers.set('zgsm-client-id', creds.machine_id)
     headers.set('zgsm-client-ide', 'cli')
@@ -133,7 +133,7 @@ export function createCoStrictFetch(options?: {
         }
         await saveCoStrictCredentials(updatedCreds)
         headers.set('Authorization', `Bearer ${refreshed.access_token}`)
-        headers.set('X-Request-ID', randomUUID())
+        headers.set('X-Request-ID', createUuidV7())
         return fetch(input, { ...init, headers })
       } catch {
         // 重试失败，返回原始 401 响应

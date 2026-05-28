@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { validateUuid, createAgentId } from '../uuid'
+import { validateUuid, createAgentId, createUuidV7 } from '../uuid'
 
 describe('validateUuid', () => {
   test('validates correct UUID', () => {
@@ -47,5 +47,26 @@ describe('createAgentId', () => {
   test('generates id with label in correct format', () => {
     const id = createAgentId('compact')
     expect(id).toMatch(/^acompact-[0-9a-f]{16}$/)
+  })
+})
+
+describe('createUuidV7', () => {
+  test('generates an RFC-compatible UUID v7', () => {
+    const id = createUuidV7()
+
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(validateUuid(id)).toBe(id)
+  })
+
+  test('encodes the current unix millisecond timestamp', () => {
+    const before = Date.now()
+    const id = createUuidV7()
+    const after = Date.now()
+    const timestamp = Number.parseInt(id.replace(/-/g, '').slice(0, 12), 16)
+
+    expect(timestamp).toBeGreaterThanOrEqual(before)
+    expect(timestamp).toBeLessThanOrEqual(after)
   })
 })
