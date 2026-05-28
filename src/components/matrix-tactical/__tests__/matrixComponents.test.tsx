@@ -206,7 +206,7 @@ describe('Matrix presentation helpers', () => {
     expect(matrixToolPrefixForName('PowerShell', 'working')).toBe('[RUN]');
     expect(matrixToolPrefixForName('FileWrite', 'working')).toBe('[WRITE]');
     expect(matrixToolPrefixForName('FileEdit', 'working')).toBe('[WRITE]');
-    expect(matrixToolPrefixForName('Search', 'working')).toBe('[THINK]');
+    expect(matrixToolPrefixForName('Think', 'working')).toBe('[THINK]');
   });
 
   test('renders divider with stable width', () => {
