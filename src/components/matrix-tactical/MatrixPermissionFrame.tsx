@@ -3,7 +3,6 @@ import { Box, Text } from '@anthropic/ink';
 import type { Theme } from '../../utils/theme.js';
 import type { WorkerBadgeProps } from '../permissions/WorkerBadge.js';
 import { PermissionRequestTitle } from '../permissions/PermissionRequestTitle.js';
-import { formatMatrixDivider, matrixActionPrefix } from '../../utils/matrixTacticalPresentation.js';
 import { MatrixMessageLine } from './MatrixMessageLine.js';
 
 type Props = {
@@ -27,11 +26,13 @@ export function MatrixPermissionFrame({
   titleRight,
   children,
 }: Props): React.ReactNode {
+  const boxWidth = 59;
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="warning">
-        ==================== {matrixActionPrefix('req')} 权 限 提 审 {matrixActionPrefix('req')} {formatMatrixDivider(18)}
+      <Text color="ansi:yellow">
+        +{'='.repeat(23)}[ <Text color="warning">!!! 权 限 提 审 !!!</Text> ]{'='.repeat(23)}+
       </Text>
+      <Text color="ansi:yellow">|</Text>
       <Box paddingX={1} flexDirection="column">
         <Box justifyContent="space-between">
           <PermissionRequestTitle title={title} subtitle={subtitle} color={titleColor ?? color ?? 'warning'} workerBadge={workerBadge} />
@@ -47,7 +48,8 @@ export function MatrixPermissionFrame({
           Choose an approval option to continue.
         </MatrixMessageLine>
       </Box>
-      <Text color="inactive">{formatMatrixDivider(64)}</Text>
+      <Text color="ansi:yellow">|</Text>
+      <Text color="ansi:yellow">+{'='.repeat(boxWidth)}+</Text>
     </Box>
   );
 }
