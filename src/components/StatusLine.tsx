@@ -51,7 +51,6 @@ import { getDisplayedEffortLevel } from '../utils/effort.js';
 import { formatFileSize } from '../utils/format.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { isDefaultMode } from '../utils/permissions/PermissionMode.js';
-import { useTerminalSize } from '../hooks/useTerminalSize.js';
 
 // ---------------------------------------------------------------------------
 // CachePill — cache hit-rate + 1-hour TTL countdown pill
@@ -306,7 +305,6 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode, matrixS
   const settings = useSettings();
   const { addNotification } = useNotifications();
   const [theme] = useTheme();
-  const { columns } = useTerminalSize();
   // AppState-sourced model — same source as API requests. getMainLoopModel()
   // re-reads settings.json on every call, so another session's /model write
   // would leak into this session's statusline (anthropics/claude-code#37596).
@@ -526,8 +524,6 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode, matrixS
     (getGlobalConfig().showMemoryPid ?? true)
       ? `${formatFileSize(process.memoryUsage().rss)} · pid:${process.pid}`
       : undefined;
-  const matrixSeparatorWidth = Math.max(0, columns - 4);
-
   // BuiltinStatusLine + CachePill: only when statusLineEnabled is explicitly true.
   // Shell command output: only when a statusLine.command is configured.
   // These are independent — a user can have one, both, or neither.
@@ -539,7 +535,6 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode, matrixS
       {/* Top: built-in fork status (model | ctx | 5h | 7d | cost) + Cache pill */}
       {showBuiltin && (
         <Box flexDirection={isMatrix ? 'column' : 'row'} gap={isMatrix ? 0 : 2} width={isMatrix ? '100%' : undefined}>
-          {isMatrix ? <Text color="promptBorder">{'─'.repeat(matrixSeparatorWidth)}</Text> : null}
           {isMatrix ? (
             <MatrixStatusLine
               modelName={renderModelName(builtinRuntimeModel)}

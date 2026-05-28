@@ -81,6 +81,10 @@ export function shouldSuppressPromptFooterHint({
   return suppressHintFromProps || showStatusLine || isSearching;
 }
 
+export function getPromptFooterPaddingX({ isMatrixStatusLine }: { isMatrixStatusLine: boolean }): number {
+  return isMatrixStatusLine ? 0 : 2;
+}
+
 function PromptInputFooter({
   apiKeyStatus,
   debug,
@@ -141,6 +145,7 @@ function PromptInputFooter({
   const showStatusLine = statusLineShouldDisplayForTheme(settings, theme);
   const isMatrixStatusLine = theme === 'matrix-tactical' && showStatusLine;
   const currentNotification = useAppState(s => s.notifications.current);
+  const footerPaddingX = getPromptFooterPaddingX({ isMatrixStatusLine });
   const suppressHint = shouldSuppressPromptFooterHint({
     suppressHintFromProps,
     showStatusLine,
@@ -175,10 +180,11 @@ function PromptInputFooter({
       <Box
         flexDirection={isNarrow ? 'column' : 'row'}
         justifyContent={isNarrow ? 'flex-start' : 'space-between'}
-        paddingX={2}
+        paddingX={footerPaddingX}
         gap={isNarrow ? 0 : 1}
+        width={isMatrixStatusLine ? '100%' : undefined}
       >
-        <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
+        <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1} width={isMatrixStatusLine ? '100%' : undefined}>
           {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && showStatusLine && (
             <StatusLine
               messagesRef={messagesRef}

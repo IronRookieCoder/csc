@@ -67,76 +67,89 @@ export function MatrixStatusLineContent({
   const tokenDisplay = `${formatTokens(usedTokens)}/${formatTokens(contextWindowSize)}`;
 
   return (
-    <Box gap={1} flexWrap="wrap">
-      <Text color="success">[STAT]</Text>
-      <Text>{modelName}</Text>
-      <Text color="inactive">| Context </Text>
-      <Text>{contextUsedPct}%</Text>
-      <Text color="inactive"> ({tokenDisplay})</Text>
-      {sessionPct !== null && (
-        <>
-          <Text color="inactive">| Session </Text>
-          <Text>{sessionPct}%</Text>
-          {sessionReset && <Text color="inactive"> {sessionReset}</Text>}
-        </>
-      )}
-      {weeklyPct !== null && (
-        <>
-          <Text color="inactive">| Weekly </Text>
-          <Text>{weeklyPct}%</Text>
-          {weeklyReset && <Text color="inactive"> {weeklyReset}</Text>}
-        </>
-      )}
-      {totalCostUsd > 0 && (
-        <>
-          <Text color="inactive">| </Text>
-          <Text>{formatCost(totalCostUsd)}</Text>
-        </>
-      )}
-      {cacheText ? (
-        <>
-          <Text color="inactive">| </Text>
-          {typeof cacheText === 'string' ? <Text>{cacheText}</Text> : cacheText}
-        </>
-      ) : null}
-      {permissionMode ? (
-        <>
-          <Text color="inactive">| </Text>
-          <Text color={getModeColor(permissionMode)}>{permissionModeTitle(permissionMode).toLowerCase()} on</Text>
-        </>
-      ) : null}
-      {effortLevel ? (
-        <>
-          <Text color="inactive">| Effort </Text>
-          <Text>{effortLevel}</Text>
-        </>
-      ) : null}
-      {memoryText ? (
-        <>
-          <Text color="inactive">| </Text>
-          <Text dimColor>{memoryText}</Text>
-        </>
-      ) : null}
-      {runText ? (
-        <>
-          <Text color="inactive">| </Text>
-          <Text color="warning">[RUN]</Text>
-          <Text>{runText}</Text>
-        </>
-      ) : null}
-      {cueText ? (
-        <>
-          <Text color="inactive">| </Text>
-          <Text color="inactive">[CUE]</Text>
-          <Text dimColor>{cueText}</Text>
-        </>
-      ) : null}
-      {extraItems.map((item, index) => (
-        <React.Fragment key={index}>
-          <Text color="inactive">| </Text>
-          {typeof item === 'string' ? <Text>{item}</Text> : item}
-        </React.Fragment>
-      ))}
+    <Box
+      width="100%"
+      gap={1}
+      flexWrap="wrap"
+      borderStyle="single"
+      borderTop
+      borderBottom={false}
+      borderLeft={false}
+      borderRight={false}
+      borderColor="rate_limit_empty"
+      marginTop={6}
+    >
+      <Box gap={1} flexWrap="wrap" width="100%">
+        <Text color="success">[STAT]</Text>
+        <Text>{modelName}</Text>
+        <Text color="inactive">| Context </Text>
+        <Text>{contextUsedPct}%</Text>
+        <Text color="inactive"> ({tokenDisplay})</Text>
+        {sessionPct !== null && (
+          <>
+            <Text color="inactive">| Session </Text>
+            <Text>{sessionPct}%</Text>
+            {sessionReset && <Text color="inactive"> {sessionReset}</Text>}
+          </>
+        )}
+        {weeklyPct !== null && (
+          <>
+            <Text color="inactive">| Weekly </Text>
+            <Text>{weeklyPct}%</Text>
+            {weeklyReset && <Text color="inactive"> {weeklyReset}</Text>}
+          </>
+        )}
+        {totalCostUsd > 0 && (
+          <>
+            <Text color="inactive">| </Text>
+            <Text>{formatCost(totalCostUsd)}</Text>
+          </>
+        )}
+        {cacheText ? (
+          <>
+            <Text color="inactive">| </Text>
+            {typeof cacheText === 'string' ? <Text>{cacheText}</Text> : cacheText}
+          </>
+        ) : null}
+        {permissionMode ? (
+          <>
+            <Text color="inactive">| </Text>
+            <Text color={getModeColor(permissionMode)}>{permissionModeTitle(permissionMode).toLowerCase()} on</Text>
+          </>
+        ) : null}
+        {effortLevel ? (
+          <>
+            <Text color="inactive">| Effort </Text>
+            <Text>{effortLevel}</Text>
+          </>
+        ) : null}
+        {memoryText ? (
+          <>
+            <Text color="inactive">| </Text>
+            <Text dimColor>{memoryText}</Text>
+          </>
+        ) : null}
+        {runText ? (
+          <>
+            <Text color="inactive">| </Text>
+            <Text color="warning">[RUN]</Text>
+            <Text>{runText}</Text>
+          </>
+        ) : null}
+        {cueText ? (
+          <>
+            <Text color="inactive">| </Text>
+            <Text color="inactive">[CUE]</Text>
+            <Text dimColor>{cueText}</Text>
+          </>
+        ) : null}
+        {extraItems.map((item, index) => (
+          <React.Fragment key={index}>
+            <Text color="inactive">| </Text>
+            {typeof item === 'string' ? <Text>{item}</Text> : item}
+          </React.Fragment>
+        ))}
+      </Box>
     </Box>
   );
 }

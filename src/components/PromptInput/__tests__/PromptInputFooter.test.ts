@@ -25,3 +25,20 @@ describe('PromptInputFooter Matrix Tactical hint suppression', () => {
     ).toBe(true)
   })
 })
+
+describe('PromptInputFooter Matrix Tactical layout', () => {
+  test('uses full-width footer padding so status line aligns with input border', () => {
+    const getPromptFooterPaddingX = (
+      promptInputFooterModule as Record<string, unknown>
+    ).getPromptFooterPaddingX
+
+    expect(typeof getPromptFooterPaddingX).toBe('function')
+    expect(
+      (
+        getPromptFooterPaddingX as (options: {
+          isMatrixStatusLine: boolean
+        }) => number
+      )({ isMatrixStatusLine: true }),
+    ).toBe(0)
+  })
+})

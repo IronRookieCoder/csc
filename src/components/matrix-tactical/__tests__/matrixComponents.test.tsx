@@ -81,6 +81,49 @@ function findPermissionTitleColor(node: unknown): unknown {
   return undefined;
 }
 
+function findFirstBoxProps(node: unknown): Record<string, unknown> | undefined {
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number')
+    return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const props = findFirstBoxProps(child);
+      if (props !== undefined) return props;
+    }
+    return undefined;
+  }
+  if (React.isValidElement(node)) {
+    if (node.type === MatrixStatusLineContent) {
+      const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
+      return findFirstBoxProps(Component(node.props as { children?: React.ReactNode }));
+    }
+    if (node.type === Box) return node.props as Record<string, unknown>;
+    return findFirstBoxProps((node.props as { children?: React.ReactNode }).children);
+  }
+  return undefined;
+}
+
+function findBoxPropsAtDepth(node: unknown, targetDepth: number, depth = 0): Record<string, unknown> | undefined {
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number')
+    return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const props = findBoxPropsAtDepth(child, targetDepth, depth);
+      if (props !== undefined) return props;
+    }
+    return undefined;
+  }
+  if (React.isValidElement(node)) {
+    if (node.type === MatrixStatusLineContent) {
+      const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
+      return findBoxPropsAtDepth(Component(node.props as { children?: React.ReactNode }), targetDepth, depth);
+    }
+    const nextDepth = node.type === Box ? depth + 1 : depth;
+    if (node.type === Box && nextDepth === targetDepth) return node.props as Record<string, unknown>;
+    return findBoxPropsAtDepth((node.props as { children?: React.ReactNode }).children, targetDepth, nextDepth);
+  }
+  return undefined;
+}
+
 describe('MatrixWelcome', () => {
   test('renders COSTRICT banner and startup lines', () => {
     const text = collectText(<MatrixWelcome version="2.1.888" />);
@@ -226,6 +269,31 @@ describe('Matrix tool progress source', () => {
 });
 
 describe('MatrixStatusLine', () => {
+  test('aligns status content with the Matrix prompt left edge', () => {
+    const line = (
+      <MatrixStatusLineContent
+        modelName="Sonnet"
+        contextUsedPct={0}
+        usedTokens={0}
+        contextWindowSize={200000}
+        totalCostUsd={0}
+        rateLimits={{}}
+      />
+    );
+    const props = findFirstBoxProps(line);
+    const contentProps = findBoxPropsAtDepth(line, 2);
+
+    expect(props?.width).toBe('100%');
+    expect(props?.backgroundColor).toBeUndefined();
+    expect(props?.borderColor).toBe('rate_limit_empty');
+    expect(props?.borderTop).toBe(true);
+    expect(props?.borderBottom).toBe(false);
+    expect(props?.marginTop).toBe(6);
+    expect(props?.paddingX).toBeUndefined();
+    expect(contentProps?.paddingX).toBeUndefined();
+    expect(collectText(line)).not.toContain('────');
+  });
+
   test('renders CSC status fields with Matrix prefix', () => {
     const sessionReset = Math.floor(Date.now() / 1000) + 3600;
     const weeklyReset = Math.floor(Date.now() / 1000) + 7 * 3600;
