@@ -34,7 +34,7 @@ import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { usePromptSuggestion } from '../../hooks/usePromptSuggestion.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { useTypeahead } from '../../hooks/useTypeahead.js';
-import { Box, type ClickEvent, type Key, stringWidth, Text, useInput } from '@anthropic/ink';
+import { Box, type ClickEvent, type Key, stringWidth, Text, useInput, useTheme } from '@anthropic/ink';
 import { useOptionalKeybindingContext } from '../../keybindings/KeybindingContext.js';
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
@@ -105,6 +105,7 @@ import type { Theme } from '../../utils/theme.js';
 import { findThinkingTriggerPositions, getRainbowColor, isUltrathinkEnabled } from '../../utils/thinking.js';
 import { findTokenBudgetPositions } from '../../utils/tokenBudget.js';
 import { findUltraplanTriggerPositions, findUltrareviewTriggerPositions } from '../../utils/ultraplan/keyword.js';
+import { isMatrixTacticalTheme } from '../../utils/matrixTacticalPresentation.js';
 // AutoModeOptInDialog removed — auto mode is available to all users
 import { BridgeDialog } from '../BridgeDialog.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
@@ -2291,6 +2292,9 @@ function PromptInput({
   // Must be called before early returns below to satisfy rules-of-hooks.
   useSetPromptOverlayDialog(null);
 
+  const [theme] = useTheme();
+  const isMatrix = isMatrixTacticalTheme(theme);
+
   if (showBashesDialog) {
     return (
       <BackgroundTasksDialog
@@ -2441,11 +2445,11 @@ function PromptInput({
         flexDirection="row"
         alignItems="center"
         justifyContent="center"
-        borderColor={getBorderColor()}
-        borderStyle="round"
+        borderColor={isMatrix ? undefined : getBorderColor()}
+        borderStyle={isMatrix ? undefined : 'round'}
         borderLeft={false}
         borderRight={false}
-        borderBottom
+        borderBottom={!isMatrix}
         width="100%"
       >
         <Text dimColor italic>
@@ -2504,7 +2508,11 @@ function PromptInput({
           flexDirection="row"
           alignItems="flex-start"
           justifyContent="flex-start"
-          borderStyle={getPromptInputContainerBorderStyle()}
+          borderColor={isMatrix ? undefined : getBorderColor()}
+          borderStyle={isMatrix ? undefined : 'round'}
+          borderLeft={false}
+          borderRight={false}
+          borderBottom={!isMatrix}
           width="100%"
         >
           <PromptInputModeIndicator
@@ -2629,8 +2637,8 @@ function getInitialPasteId(messages: Message[]): number {
   return maxId + 1;
 }
 
-export function getPromptInputContainerBorderStyle(): 'round' | undefined {
-  return undefined;
+export function getPromptInputContainerBorderStyle(theme: string): 'round' | undefined {
+  return isMatrixTacticalTheme(theme) ? undefined : 'round';
 }
 
 export default React.memo(PromptInput);

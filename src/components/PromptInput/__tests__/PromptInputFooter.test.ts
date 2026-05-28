@@ -45,7 +45,12 @@ describe('PromptInputFooter Matrix Tactical layout', () => {
 })
 
 describe('PromptInput container chrome', () => {
-  test('does not draw a border around the input box', () => {
-    expect(getPromptInputContainerBorderStyle()).toBeUndefined()
+  test('does not draw a border for matrix-tactical theme', () => {
+    expect(getPromptInputContainerBorderStyle('matrix-tactical')).toBeUndefined()
+  })
+
+  test('draws a round border for non-matrix themes', () => {
+    expect(getPromptInputContainerBorderStyle('dark')).toBe('round')
+    expect(getPromptInputContainerBorderStyle('light')).toBe('round')
   })
 })
