@@ -96,9 +96,9 @@ export function SpinnerAnimationRow({
 }: SpinnerAnimationRowProps): React.ReactNode {
   const [theme] = useTheme();
   const isMatrix = isMatrixTacticalTheme(theme);
-  const displayMessage = isMatrix
-    ? message.replace('…', '')
-    : message;
+  const displayMessage = useMemo(() => {
+    return isMatrix ? message.replaceAll('…', '').toUpperCase() : message;
+  }, [message, isMatrix]);
   const [cursorVisible, setCursorVisible] = React.useState(true);
   React.useEffect(() => {
     if (!isMatrix) return;
@@ -144,7 +144,7 @@ export function SpinnerAnimationRow({
   const glimmerSpeed = mode === 'requesting' ? 50 : 200;
   // message is stable within a turn; stringWidth is expensive enough (Bun native
   // call per code point) to memoize explicitly across the 50ms loop.
-  const glimmerMessageWidth = useMemo(() => stringWidth(message), [message]);
+  const glimmerMessageWidth = useMemo(() => stringWidth(displayMessage), [displayMessage]);
   const cycleLength = glimmerMessageWidth + 20;
   const cyclePosition = Math.floor(time / glimmerSpeed);
   const glimmerIndex = reducedMotion
@@ -308,7 +308,7 @@ export function SpinnerAnimationRow({
         <Box flexDirection="row">
           <Text color="ansi:cyan">[</Text>
           <GlimmerMessage
-            message={displayMessage.toUpperCase()}
+            message={displayMessage}
             mode={mode}
             messageColor={'text' as keyof Theme}
             glimmerIndex={glimmerIndex}
