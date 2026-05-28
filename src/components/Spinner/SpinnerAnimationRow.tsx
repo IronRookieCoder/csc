@@ -96,6 +96,15 @@ export function SpinnerAnimationRow({
 }: SpinnerAnimationRowProps): React.ReactNode {
   const [theme] = useTheme();
   const isMatrix = isMatrixTacticalTheme(theme);
+  const displayMessage = isMatrix
+    ? message.replace('…', '')
+    : message;
+  const [cursorVisible, setCursorVisible] = React.useState(true);
+  React.useEffect(() => {
+    if (!isMatrix) return;
+    const id = setInterval(() => setCursorVisible(v => !v), 700);
+    return () => clearInterval(id);
+  }, [isMatrix]);
   const [viewportRef, time] = useAnimationFrame(reducedMotion ? null : 50);
 
   // === Elapsed time (wall-clock, derived from refs each frame) ===
@@ -295,15 +304,33 @@ export function SpinnerAnimationRow({
         reducedMotion={reducedMotion}
         time={time}
       />
-      <GlimmerMessage
-        message={message}
-        mode={mode}
-        messageColor={messageColor}
-        glimmerIndex={glimmerIndex}
-        flashOpacity={flashOpacity}
-        shimmerColor={shimmerColor}
-        stalledIntensity={overrideColor ? 0 : stalledIntensity}
-      />
+      {isMatrix ? (
+        <Box flexDirection="row">
+          <Text color="ansi:cyan">[</Text>
+          <GlimmerMessage
+            message={displayMessage.toUpperCase()}
+            mode={mode}
+            messageColor={'text' as keyof Theme}
+            glimmerIndex={glimmerIndex}
+            flashOpacity={flashOpacity}
+            shimmerColor={shimmerColor}
+            stalledIntensity={overrideColor ? 0 : stalledIntensity}
+          />
+          <Text color="ansi:cyan">]</Text>
+          <Text> </Text>
+          <Text color={cursorVisible ? 'ansi:cyan' : undefined} dimColor={!cursorVisible}>▌</Text>
+        </Box>
+      ) : (
+        <GlimmerMessage
+          message={message}
+          mode={mode}
+          messageColor={messageColor}
+          glimmerIndex={glimmerIndex}
+          flashOpacity={flashOpacity}
+          shimmerColor={shimmerColor}
+          stalledIntensity={overrideColor ? 0 : stalledIntensity}
+        />
+      )}
       {status}
     </Box>
   );
