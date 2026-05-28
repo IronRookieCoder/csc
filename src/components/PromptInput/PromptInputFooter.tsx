@@ -145,6 +145,17 @@ function PromptInputFooter({
   const showStatusLine = statusLineShouldDisplayForTheme(settings, theme);
   const isMatrixStatusLine = theme === 'matrix-tactical' && showStatusLine;
   const currentNotification = useAppState(s => s.notifications.current);
+  const replBridgeEnabled = useAppState(s => s.replBridgeEnabled);
+  const replBridgeConnected = useAppState(s => s.replBridgeConnected);
+  const replBridgeSessionActive = useAppState(s => s.replBridgeSessionActive);
+  const replBridgeReconnecting = useAppState(s => s.replBridgeReconnecting);
+  const replBridgeExplicit = useAppState(s => s.replBridgeExplicit);
+  const matrixBridgeStatusVisible =
+    isMatrixStatusLine &&
+    isBridgeEnabled() &&
+    replBridgeEnabled &&
+    (replBridgeExplicit || replBridgeReconnecting) &&
+    (replBridgeConnected || replBridgeSessionActive || replBridgeReconnecting || replBridgeExplicit);
   const footerPaddingX = getPromptFooterPaddingX({ isMatrixStatusLine });
   const suppressHint = shouldSuppressPromptFooterHint({
     suppressHintFromProps,
@@ -201,6 +212,7 @@ function PromptInputFooter({
                         autoUpdaterResult,
                         isAutoUpdating,
                         bridgeSelected,
+                        bridgeVisible: matrixBridgeStatusVisible,
                         debug,
                         verbose,
                       }),
@@ -263,6 +275,7 @@ function buildMatrixStatusExtraItems({
   autoUpdaterResult,
   isAutoUpdating,
   bridgeSelected,
+  bridgeVisible,
   debug,
   verbose,
 }: {
@@ -271,6 +284,7 @@ function buildMatrixStatusExtraItems({
   autoUpdaterResult: AutoUpdaterResult | null;
   isAutoUpdating: boolean;
   bridgeSelected: boolean;
+  bridgeVisible: boolean;
   debug: boolean;
   verbose: boolean;
 }): React.ReactNode[] {
@@ -291,7 +305,9 @@ function buildMatrixStatusExtraItems({
   }
   if (debug) items.push(<Text color="warning">Debug mode</Text>);
   if (verbose) items.push(<Text dimColor>verbose</Text>);
-  items.push(<BridgeStatusIndicator bridgeSelected={bridgeSelected} />);
+  if (bridgeVisible) {
+    items.push(<BridgeStatusIndicator bridgeSelected={bridgeSelected} />);
+  }
 
   return items;
 }

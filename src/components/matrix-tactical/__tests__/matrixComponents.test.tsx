@@ -331,6 +331,27 @@ describe('MatrixStatusLine', () => {
     expect(text).toContain('? for shortcuts');
   });
 
+  test('does not render a trailing separator for empty extra status items', () => {
+    const text = collectText(
+      <MatrixStatusLineContent
+        modelName="Sonnet 4.6"
+        contextUsedPct={37}
+        usedTokens={73800}
+        contextWindowSize={200000}
+        totalCostUsd={2.93}
+        cacheText="Cache 50% 56:55"
+        permissionMode="bypassPermissions"
+        effortLevel="high"
+        memoryText="373.4MB · pid:33964"
+        cueText="? for shortcuts"
+        extraItems={[null]}
+        rateLimits={{}}
+      />,
+    );
+
+    expect(text.trim().endsWith('|')).toBe(false);
+  });
+
   test('renders working hint inside the status line', () => {
     const text = collectText(
       <MatrixStatusLineContent

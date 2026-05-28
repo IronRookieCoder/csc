@@ -1,5 +1,4 @@
 import { feature } from 'bun:bundle';
-import chalk from 'chalk';
 import * as path from 'path';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -35,7 +34,7 @@ import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { usePromptSuggestion } from '../../hooks/usePromptSuggestion.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { useTypeahead } from '../../hooks/useTypeahead.js';
-import { Box, type BorderTextOptions, type ClickEvent, type Key, stringWidth, Text, useInput } from '@anthropic/ink';
+import { Box, type ClickEvent, type Key, stringWidth, Text, useInput } from '@anthropic/ink';
 import { useOptionalKeybindingContext } from '../../keybindings/KeybindingContext.js';
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
@@ -71,7 +70,6 @@ import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import {
   getFastModeUnavailableReason,
   isFastModeAvailable,
-  isFastModeCooldown,
   isFastModeEnabled,
   isFastModeSupportedByModel,
 } from '../../utils/fastMode.js';
@@ -112,7 +110,6 @@ import { BridgeDialog } from '../BridgeDialog.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { getVisibleAgentTasks, useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
 import { getEffortNotificationText } from '../EffortIndicator.js';
-import { getFastIconString } from '../FastIcon.js';
 import { GlobalSearchDialog } from '../GlobalSearchDialog.js';
 import { HistorySearchDialog } from '../HistorySearchDialog.js';
 import { ModelPicker } from '../ModelPicker.js';
@@ -132,7 +129,6 @@ import { PromptInputQueuedCommands } from './PromptInputQueuedCommands.js';
 import { PromptInputStashNotice } from './PromptInputStashNotice.js';
 import { useMaybeTruncateInput } from './useMaybeTruncateInput.js';
 import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
-import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
 import { isNonSpacePrintable, isVimModeEnabled } from './utils.js';
 
@@ -2100,11 +2096,6 @@ function PromptInput({
 
   const swarmBanner = useSwarmBanner();
 
-  const fastModeCooldown = isFastModeEnabled() ? isFastModeCooldown() : false;
-  const showFastIcon = isFastModeEnabled() ? isFastMode && (isFastModeAvailable() || fastModeCooldown) : false;
-
-  const showFastIconHint = useShowFastIconHint(showFastIcon ?? false);
-
   // Show effort notification on startup and when effort changes.
   // Suppressed in brief/assistant mode — the value reflects the local
   // client's effort, not the connected agent's.
@@ -2513,13 +2504,8 @@ function PromptInput({
           flexDirection="row"
           alignItems="flex-start"
           justifyContent="flex-start"
-          borderColor={getBorderColor()}
-          borderStyle="round"
-          borderLeft={false}
-          borderRight={false}
-          borderBottom
+          borderStyle={getPromptInputContainerBorderStyle()}
           width="100%"
-          borderText={buildBorderText(showFastIcon ?? false, showFastIconHint, fastModeCooldown)}
         >
           <PromptInputModeIndicator
             mode={mode}
@@ -2643,21 +2629,8 @@ function getInitialPasteId(messages: Message[]): number {
   return maxId + 1;
 }
 
-function buildBorderText(
-  showFastIcon: boolean,
-  showFastIconHint: boolean,
-  fastModeCooldown: boolean,
-): BorderTextOptions | undefined {
-  if (!showFastIcon) return undefined;
-  const fastSeg = showFastIconHint
-    ? `${getFastIconString(true, fastModeCooldown)} ${chalk.dim('/fast')}`
-    : getFastIconString(true, fastModeCooldown);
-  return {
-    content: ` ${fastSeg} `,
-    position: 'top',
-    align: 'end',
-    offset: 0,
-  };
+export function getPromptInputContainerBorderStyle(): 'round' | undefined {
+  return undefined;
 }
 
 export default React.memo(PromptInput);

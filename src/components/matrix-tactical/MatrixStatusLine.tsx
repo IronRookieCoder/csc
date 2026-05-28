@@ -58,6 +58,7 @@ export function MatrixStatusLineContent({
   extraItems = [],
   rateLimits,
 }: Props): React.ReactNode {
+  const visibleExtraItems = extraItems.filter(item => item !== null && item !== undefined && item !== false);
   const sessionPct = rateLimits.five_hour ? Math.round(rateLimits.five_hour.utilization * 100) : null;
   const weeklyPct = rateLimits.seven_day ? Math.round(rateLimits.seven_day.utilization * 100) : null;
   const sessionReset =
@@ -143,7 +144,7 @@ export function MatrixStatusLineContent({
             <Text dimColor>{cueText}</Text>
           </>
         ) : null}
-        {extraItems.map((item, index) => (
+        {visibleExtraItems.map((item, index) => (
           <React.Fragment key={index}>
             <Text color="inactive">| </Text>
             {typeof item === 'string' ? <Text>{item}</Text> : item}
