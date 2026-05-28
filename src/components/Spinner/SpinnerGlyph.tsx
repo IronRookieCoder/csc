@@ -7,7 +7,7 @@ import { getStalledSpinnerColor } from './stalledColor.js';
 
 const DEFAULT_CHARACTERS = getDefaultCharacters();
 
-const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
+export const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
 
 const SPINNER_FRAMES = [...DEFAULT_CHARACTERS, ...[...DEFAULT_CHARACTERS].reverse()];
 

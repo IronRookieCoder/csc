@@ -1,6 +1,7 @@
 import React from 'react';
-import { Box, Byline, Text } from '@anthropic/ink';
+import { Box, Byline, Text, ThemeProvider } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
+import { renderToString } from '../../../utils/staticRender.js';
 import { formatFallbackToolUseError } from '../../FallbackToolUseErrorMessage.js';
 import { MatrixWelcome } from '../MatrixWelcome.js';
 import { MatrixMessageLine } from '../MatrixMessageLine.js';
@@ -16,6 +17,7 @@ import {
   matrixActionPrefix,
   matrixToolPrefixForName,
 } from '../../../utils/matrixTacticalPresentation.js';
+import { SpinnerGlyph, TRIANGLE_FRAMES } from '../../Spinner/SpinnerGlyph.js';
 
 function collectText(node: unknown): string {
   if (node == null || typeof node === 'boolean') return '';
@@ -480,7 +482,6 @@ describe('MatrixStatusLine', () => {
 
 test('SpinnerGlyph uses triangle frames for matrix theme', () => {
   // Verify TRIANGLE_FRAMES contains only terminal-safe characters
-  const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
   for (const char of TRIANGLE_FRAMES) {
     expect(char.length).toBe(1);
     // All characters are within Unicode Geometric Shapes block (U+25A0–U+25FF)
@@ -491,9 +492,40 @@ test('SpinnerGlyph uses triangle frames for matrix theme', () => {
 });
 
 test('SpinnerGlyph triangle frames are distinct from star frames', () => {
-  const TRIANGLE_FRAMES = ['◢', '◣', '◤', '◥'];
   const starFrames = ['✶', '✸', '✹', '✺', '✹', '✷'];
   for (const t of TRIANGLE_FRAMES) {
     expect(starFrames.includes(t)).toBe(false);
   }
+});
+
+describe('SpinnerGlyph behavioral', () => {
+  test('renders triangle glyphs with matrix-tactical theme', async () => {
+    // Default ThemeContext uses 'matrix-tactical', so isMatrixTacticalTheme → true
+    for (let f = 0; f < TRIANGLE_FRAMES.length; f++) {
+      const out = await renderToString(
+        <SpinnerGlyph frame={f} messageColor="claude" />,
+      );
+      expect(out).toContain(TRIANGLE_FRAMES[f]);
+    }
+    // Verify cycling works: frame=N wraps to frame % N
+    const cycled = await renderToString(
+      <SpinnerGlyph frame={TRIANGLE_FRAMES.length} messageColor="claude" />,
+    );
+    expect(cycled).toContain(TRIANGLE_FRAMES[0]);
+  });
+
+  test('renders star/dot frames with non-matrix theme', async () => {
+    // Wrap in ThemeProvider with a non-matrix theme name
+    const out = await renderToString(
+      <ThemeProvider initialState="dark">
+        <SpinnerGlyph frame={1} messageColor="claude" />
+      </ThemeProvider>,
+    );
+    // DEFAULT_CHARACTERS[1] is '✢' on all platforms — a star-like spinner glyph
+    expect(out).toContain('✢');
+    // Should NOT contain triangle glyphs
+    for (const t of TRIANGLE_FRAMES) {
+      expect(out).not.toContain(t);
+    }
+  });
 });
