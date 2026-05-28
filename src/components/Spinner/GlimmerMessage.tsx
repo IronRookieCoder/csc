@@ -4,6 +4,7 @@ import { getGraphemeSegmenter } from '../../utils/intl.js';
 import { getTheme, type Theme } from '../../utils/theme.js';
 import type { SpinnerMode } from './types.js';
 import { interpolateColor, parseRGB, toRGBColor } from './utils.js';
+import { getStalledSpinnerColor } from './stalledColor.js';
 
 type Props = {
   message: string;
@@ -14,8 +15,6 @@ type Props = {
   shimmerColor: keyof Theme;
   stalledIntensity?: number;
 };
-
-const ERROR_RED = { r: 171, g: 43, b: 63 };
 
 export function GlimmerMessage({
   message,
@@ -42,24 +41,14 @@ export function GlimmerMessage({
 
   if (!message) return null;
 
-  // When stalled, show text that smoothly transitions to red
+  // When stalled, show text in the theme-specific stalled color.
   if (stalledIntensity > 0) {
-    const baseColorStr = theme[messageColor];
-    const baseRGB = baseColorStr ? parseRGB(baseColorStr) : null;
-
-    if (baseRGB) {
-      const interpolated = interpolateColor(baseRGB, ERROR_RED, stalledIntensity);
-      const color = toRGBColor(interpolated);
-      return (
-        <>
-          <Text color={color}>{message}</Text>
-          <Text color={color}> </Text>
-        </>
-      );
-    }
-
-    // Fallback for ANSI themes: use messageColor until fully stalled, then error
-    const color = stalledIntensity > 0.5 ? 'error' : messageColor;
+    const color = getStalledSpinnerColor({
+      themeName,
+      theme,
+      messageColor,
+      stalledIntensity,
+    });
     return (
       <>
         <Text color={color}>{message}</Text>
