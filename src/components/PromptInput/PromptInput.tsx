@@ -121,6 +121,7 @@ import { BackgroundTasksDialog } from '../tasks/BackgroundTasksDialog.js';
 import { shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { TeamsDialog } from '../teams/TeamsDialog.js';
 import VimTextInput from '../VimTextInput.js';
+import { MATRIX_PROMPT_CURSOR_TEXT } from '../matrix-tactical/MatrixPrompt.js';
 import { getModeFromInput, getValueFromInput } from './inputModes.js';
 import { FOOTER_TEMPORARY_STATUS_TIMEOUT, Notifications } from './Notifications.js';
 import PromptInputFooter from './PromptInputFooter.js';
@@ -2116,10 +2117,16 @@ function PromptInput({
 
   useBuddyNotification();
 
+  const [theme] = useTheme();
+  const isMatrix = isMatrixTacticalTheme(theme);
   const companionReactionState = useAppState(s => s.companionReaction);
   const companionSpeaking = feature('BUDDY') ? companionReactionState !== undefined : false;
   const { columns, rows } = useTerminalSize();
-  const textInputColumns = columns - 3 - companionReservedColumns(columns, companionSpeaking);
+  const textInputColumns = getPromptTextInputColumns({
+    terminalColumns: columns,
+    companionColumns: companionReservedColumns(columns, companionSpeaking),
+    theme,
+  });
 
   // POC: click-to-position-cursor. Mouse tracking is only enabled inside
   // <AlternateScreen>, so this is dormant in the normal main-screen REPL.
@@ -2291,9 +2298,6 @@ function PromptInput({
   // slot's overflowY:hidden clip (same pattern as SuggestionsOverlay).
   // Must be called before early returns below to satisfy rules-of-hooks.
   useSetPromptOverlayDialog(null);
-
-  const [theme] = useTheme();
-  const isMatrix = isMatrixTacticalTheme(theme);
 
   if (showBashesDialog) {
     return (
@@ -2639,6 +2643,19 @@ function getInitialPasteId(messages: Message[]): number {
 
 export function getPromptInputContainerBorderStyle(theme: string): 'round' | undefined {
   return isMatrixTacticalTheme(theme) ? undefined : 'round';
+}
+
+export function getPromptTextInputColumns({
+  terminalColumns,
+  companionColumns,
+  theme,
+}: {
+  terminalColumns: number;
+  companionColumns: number;
+  theme: string;
+}): number {
+  const promptColumns = isMatrixTacticalTheme(theme) ? stringWidth(MATRIX_PROMPT_CURSOR_TEXT) : 2;
+  return Math.max(1, terminalColumns - promptColumns - 1 - companionColumns);
 }
 
 export default React.memo(PromptInput);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import * as promptInputFooterModule from '../PromptInputFooter.js'
-import { getPromptInputContainerBorderStyle } from '../PromptInput.js'
+import * as promptInputModule from '../PromptInput.js'
 
 describe('PromptInputFooter Matrix Tactical hint suppression', () => {
   test('suppresses standalone footer hints when Matrix status line is visible', () => {
@@ -46,11 +46,34 @@ describe('PromptInputFooter Matrix Tactical layout', () => {
 
 describe('PromptInput container chrome', () => {
   test('does not draw a border for matrix-tactical theme', () => {
-    expect(getPromptInputContainerBorderStyle('matrix-tactical')).toBeUndefined()
+    expect(promptInputModule.getPromptInputContainerBorderStyle('matrix-tactical')).toBeUndefined()
   })
 
   test('draws a round border for non-matrix themes', () => {
-    expect(getPromptInputContainerBorderStyle('dark')).toBe('round')
-    expect(getPromptInputContainerBorderStyle('light')).toBe('round')
+    expect(promptInputModule.getPromptInputContainerBorderStyle('dark')).toBe('round')
+    expect(promptInputModule.getPromptInputContainerBorderStyle('light')).toBe('round')
+  })
+})
+
+describe('PromptInput text input width', () => {
+  test('subtracts the full Matrix Tactical prompt cursor width', () => {
+    const getPromptTextInputColumns = (
+      promptInputModule as Record<string, unknown>
+    ).getPromptTextInputColumns
+
+    expect(typeof getPromptTextInputColumns).toBe('function')
+    expect(
+      (
+        getPromptTextInputColumns as (options: {
+          terminalColumns: number
+          companionColumns: number
+          theme: string
+        }) => number
+      )({
+        terminalColumns: 80,
+        companionColumns: 0,
+        theme: 'matrix-tactical',
+      }),
+    ).toBe(65)
   })
 })

@@ -31,6 +31,11 @@ type Props = {
   };
 };
 
+function colorForExtraItem(item: React.ReactNode): string | undefined {
+  if (typeof item !== 'string') return undefined;
+  return /\blast\s+exit\s+[1-9]\d*\b/i.test(item) ? 'error' : undefined;
+}
+
 export function MatrixStatusLine({ rateLimits, ...props }: Props): React.ReactNode {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -85,22 +90,19 @@ export function MatrixStatusLineContent({
         <Text color="ansi:cyan">[STAT]</Text>
         <Text color="text">{modelName}</Text>
         <Text color="inactive">| </Text>
-        <Text color="ansi:cyan">Context </Text>
-        <Text color="text">{contextUsedPct}%</Text>
+        <Text color="remember">Context {contextUsedPct}%</Text>
         <Text color="inactive"> ({tokenDisplay})</Text>
         {sessionPct !== null && (
           <>
             <Text color="inactive">| </Text>
-            <Text color="warning">Session </Text>
-            <Text color="text">{sessionPct}%</Text>
+            <Text color="warning">Session {sessionPct}%</Text>
             {sessionReset && <Text color="inactive"> {sessionReset}</Text>}
           </>
         )}
         {weeklyPct !== null && (
           <>
             <Text color="inactive">| </Text>
-            <Text color="ansi:magenta">Weekly </Text>
-            <Text color="text">{weeklyPct}%</Text>
+            <Text color="ansi:magenta">Weekly {weeklyPct}%</Text>
             {weeklyReset && <Text color="inactive"> {weeklyReset}</Text>}
           </>
         )}
@@ -151,7 +153,7 @@ export function MatrixStatusLineContent({
         {visibleExtraItems.map((item, index) => (
           <React.Fragment key={index}>
             <Text color="inactive">| </Text>
-            {typeof item === 'string' ? <Text>{item}</Text> : item}
+            {typeof item === 'string' ? <Text color={colorForExtraItem(item)}>{item}</Text> : item}
           </React.Fragment>
         ))}
       </Box>

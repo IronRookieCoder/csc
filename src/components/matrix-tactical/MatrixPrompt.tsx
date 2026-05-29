@@ -5,8 +5,10 @@ import {
   MATRIX_TACTICAL_TONE_TO_THEME_KEY,
 } from '../../utils/matrixTacticalPresentation.js';
 
+export const MATRIX_PROMPT_CURSOR_TEXT = '[costrict] >> ';
+
 export function MatrixPromptCursor(): React.ReactNode {
-  return <Text color="success">[costrict] &gt;&gt; </Text>;
+  return <Text color="success">{MATRIX_PROMPT_CURSOR_TEXT}</Text>;
 }
 
 type HintProps = {

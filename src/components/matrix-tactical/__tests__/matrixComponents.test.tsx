@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Byline, Text, ThemeProvider } from '@anthropic/ink';
 import { describe, expect, test } from 'bun:test';
+import { formatCost } from '../../../cost-tracker.js';
 import { renderToString } from '../../../utils/staticRender.js';
 import { formatFallbackToolUseError } from '../../FallbackToolUseErrorMessage.js';
 import { MatrixWelcome } from '../MatrixWelcome.js';
@@ -132,6 +133,34 @@ function findBoxPropsAtDepth(node: unknown, targetDepth: number, depth = 0): Rec
     return findBoxPropsAtDepth((node.props as { children?: React.ReactNode }).children, targetDepth, nextDepth);
   }
   return undefined;
+}
+
+function collectTextRuns(node: unknown): Array<{ text: string; color?: unknown; dimColor?: unknown }> {
+  if (node == null || typeof node === 'boolean') return [];
+  if (typeof node === 'string' || typeof node === 'number') return [];
+  if (Array.isArray(node)) return node.flatMap(child => collectTextRuns(child));
+  if (React.isValidElement(node)) {
+    if (node.type === MatrixStatusLineContent) {
+      const Component = node.type as (props: { children?: React.ReactNode }) => React.ReactNode;
+      return collectTextRuns(Component(node.props as { children?: React.ReactNode }));
+    }
+    const props = node.props as { children?: React.ReactNode; color?: unknown; dimColor?: unknown };
+    if (node.type === Text) {
+      return [
+        {
+          text: collectText(props.children),
+          color: props.color,
+          dimColor: props.dimColor,
+        },
+      ];
+    }
+    return collectTextRuns(props.children);
+  }
+  return [];
+}
+
+function colorForText(node: unknown, text: string): unknown {
+  return collectTextRuns(node).find(run => run.text === text)?.color;
 }
 
 describe('MatrixWelcome', () => {
@@ -419,6 +448,36 @@ describe('MatrixStatusLine', () => {
     expect(text).toContain('271MB · pid:32784');
     expect(text).toContain('[CUE]');
     expect(text).toContain('? for shortcuts');
+  });
+
+  test('colors status segments independently by field role', () => {
+    const line = (
+      <MatrixStatusLineContent
+        modelName="Sonnet 4.6"
+        contextUsedPct={18}
+        usedTokens={36000}
+        contextWindowSize={200000}
+        totalCostUsd={0.02}
+        cacheText="Cache 82% 42:10"
+        permissionMode="bypassPermissions"
+        effortLevel="high"
+        memoryText="271MB · pid:32784"
+        extraItems={['last exit 1']}
+        rateLimits={{
+          five_hour: { utilization: 0.03, resets_at: 0 },
+          seven_day: { utilization: 0.07, resets_at: 0 },
+        }}
+      />
+    );
+
+    expect(colorForText(line, '[STAT]')).toBe('ansi:cyan');
+    expect(colorForText(line, 'Sonnet 4.6')).toBe('text');
+    expect(colorForText(line, 'Context 18%')).toBe('remember');
+    expect(colorForText(line, 'Session 3%')).toBe('warning');
+    expect(colorForText(line, 'Weekly 7%')).toBe('ansi:magenta');
+    expect(colorForText(line, formatCost(0.02))).toBe('success');
+    expect(colorForText(line, 'Cache 82% 42:10')).toBe('ansi:magenta');
+    expect(colorForText(line, 'last exit 1')).toBe('error');
   });
 
   test('does not render a trailing separator for empty extra status items', () => {
